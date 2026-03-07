@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MultiLLM Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242836;
+    --border: #2e3348;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa3;
+    --accent: #6c5ce7;
+    --accent2: #00b894;
+    --accent3: #fdcb6e;
+    --accent4: #e17055;
+    --accent5: #74b9ff;
+  }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .limit-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .limit-label { min-width: 120px; font-size: 12px; font-weight: 600; }
+  .limit-bar-bg { flex: 1; height: 20px; background: var(--surface2); border-radius: 4px; overflow: hidden; position: relative; }
+  .limit-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+  .limit-bar-text { position: absolute; right: 8px; top: 2px; font-size: 10px; color: var(--text); z-index: 1; }
+  .limit-info { min-width: 160px; text-align: right; font-size: 11px; color: var(--text-dim); }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+  }
+
+  .header h1 span { color: var(--accent); }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .controls select, .controls button {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .controls button:hover { border-color: var(--accent); }
+
+  .container { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+
+  .stat-card .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+
+  .stat-card .value {
+    font-size: 24px;
+    font-weight: 700;
+  }
+
+  .stat-card .sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  @media (max-width: 900px) {
+    .panels { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .panel-body { padding: 12px 16px; }
+
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 12px;
+  }
+
+  .bar-label {
+    min-width: 140px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .bar-track {
+    flex: 1;
+    height: 8px;
+    background: var(--surface2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+  }
+
+  .bar-value {
+    min-width: 60px;
+    text-align: right;
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+
+  /* Sessions table */
+  .sessions-section { margin-top: 0; }
+
+  .sessions-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .sessions-table th {
+    text-align: left;
+    padding: 8px 12px;
+    color: var(--text-dim);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sessions-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  .sessions-table tr:hover { background: var(--surface2); }
+  .sessions-table tr { cursor: pointer; }
+
+  .model-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    margin: 1px 2px;
+    font-weight: 500;
+  }
+
+  .backend-ollama { background: #00b89433; color: #00b894; }
+  .backend-anthropic { background: #6c5ce733; color: #a29bfe; }
+  .backend-openai { background: #74b9ff33; color: #74b9ff; }
+  .backend-gemini { background: #fdcb6e33; color: #fdcb6e; }
+  .backend-oca { background: #e1705533; color: #e17055; }
+  .backend-openrouter { background: #fd79a833; color: #fd79a8; }
+  .backend-codex_cli { background: #55efc433; color: #55efc4; }
+  .backend-claude_code { background: #d4a0ff33; color: #d4a0ff; }
+  .backend-lmstudio { background: #81ecec33; color: #81ecec; }
+  .backend-groq { background: #f9722033; color: #f97220; }
+  .backend-deepseek { background: #536dfe33; color: #536dfe; }
+  .backend-mistral { background: #ff6f0033; color: #ff6f00; }
+  .backend-together { background: #7c4dff33; color: #7c4dff; }
+  .backend-xai { background: #e0e0e033; color: #e0e0e0; }
+  .backend-fireworks { background: #ff525233; color: #ff5252; }
+  .backend-azure_openai { background: #0078d433; color: #0078d4; }
+  .backend-bedrock { background: #ff990033; color: #ff9900; }
+
+  /* Provider status strip */
+  .provider-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+  .provider-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    transition: border-color 0.3s;
+  }
+  .provider-chip.active { border-color: var(--accent2); }
+  .provider-chip.inactive { opacity: 0.4; }
+  .provider-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+  .provider-dot.online { background: #00b894; }
+  .provider-dot.offline { background: #636e72; }
+  .provider-dot.unconfigured { background: #2d3436; border: 1px dashed #636e72; }
+  .provider-meta {
+    font-size: 9px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+
+  .token-num { font-variant-numeric: tabular-nums; }
+
+  /* Session detail modal */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 20px;
+    overflow-y: auto;
+  }
+
+  .modal-overlay.active { display: flex; }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 900px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+
+  .modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .modal-header h2 { font-size: 15px; }
+
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+
+  .modal-close:hover { color: var(--text); }
+
+  .modal-body { padding: 16px 20px; }
+
+  .req-row {
+    display: grid;
+    grid-template-columns: 100px 1fr 80px 80px 80px 60px;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    align-items: center;
+  }
+
+  .req-row.header-row {
+    color: var(--text-dim);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+  }
+
+  .status-ok { color: var(--accent2); }
+  .status-error { color: var(--accent4); }
+  .status-streaming { color: var(--accent5); }
+  .status-fallback { color: var(--accent3); }
+
+  /* Chart area */
+  .chart-container {
+    width: 100%;
+    height: 180px;
+    position: relative;
+    padding: 8px 0;
+  }
+
+  .chart-canvas { width: 100%; height: 100%; }
+
+  .chart-bar-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .daily-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 140px;
+    padding: 8px 0;
+  }
+
+  .daily-bar {
+    flex: 1;
+    min-width: 8px;
+    background: var(--accent);
+    border-radius: 2px 2px 0 0;
+    position: relative;
+    transition: height 0.3s ease;
+  }
+
+  .daily-bar:hover { opacity: 0.8; }
+
+  .daily-bar .tooltip {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    white-space: nowrap;
+    z-index: 10;
+  }
+
+  .daily-bar:hover .tooltip { display: block; }
+
+  .chart-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    color: var(--text-dim);
+    padding-top: 4px;
+  }
+
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-dim);
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>Multi</span>LLM Dashboard</h1>
+  <div class="controls">
+    <select id="timeRange">
+      <option value="24">Last 24h</option>
+      <option value="168" selected>Last 7 days</option>
+      <option value="720">Last 30 days</option>
+      <option value="2160">Last 90 days</option>
+    </select>
+    <select id="projectFilter">
+      <option value="">All projects</option>
+    </select>
+    <button onclick="refresh()">Refresh</button>
+    <span id="lastUpdate" style="font-size:10px;color:var(--text-dim);margin-left:8px"></span>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Stats cards -->
+  <div class="stats-grid" id="statsGrid">
+    <div class="loading">Loading...</div>
+  </div>
+
+  <!-- Provider Status Strip -->
+  <div class="provider-strip" id="providerStrip"></div>
+
+  <!-- Usage Limits -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header" id="limitsHeader">Usage Limits</div>
+    <div class="panel-body" id="limitsPanel" style="padding:12px 16px">
+      <div class="loading">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Active Sessions -->
+  <div class="panel" id="activePanel" style="display:none;margin-bottom:24px">
+    <div class="panel-header" style="display:flex;align-items:center;gap:8px">
+      <span style="width:8px;height:8px;border-radius:50%;background:#00b894;display:inline-block;animation:pulse 2s infinite"></span>
+      <span>Active Sessions</span>
+      <span id="activeCount" style="font-size:10px;color:var(--text-dim)"></span>
+    </div>
+    <div class="panel-body" id="activeBody" style="padding:8px 12px"></div>
+  </div>
+
+  <!-- Charts + Breakdown -->
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-header">Daily Activity</div>
+      <div class="panel-body">
+        <div class="daily-chart" id="dailyChart"></div>
+        <div class="chart-labels" id="chartLabels"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <span>By Backend</span>
+        <span style="font-size:10px;color:var(--text-dim)">tokens</span>
+      </div>
+      <div class="panel-body" id="backendBars"></div>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="panel" style="grid-column: 1 / -1">
+      <div class="panel-header">
+        <span>Models Used</span>
+        <span style="font-size:10px;color:var(--text-dim)">requests / tokens / cost</span>
+      </div>
+      <div class="panel-body" id="modelBars"></div>
+    </div>
+  </div>
+
+  <!-- Backends Discovery -->
+  <div class="panels">
+    <div class="panel" style="grid-column: 1 / -1">
+      <div class="panel-header">
+        <span>Backend Discovery</span>
+        <button onclick="refreshDiscovery()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 12px;border-radius:4px;font-family:inherit;font-size:11px;cursor:pointer">Refresh Models</button>
+      </div>
+      <div class="panel-body" id="backendsPanel">
+        <div class="loading">Discovering backends...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Claude Code Stats -->
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-header">Claude Code — Model Usage</div>
+      <div class="panel-body" id="claudeModelUsage">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">Claude Code — Session History</div>
+      <div class="panel-body" id="claudeHistory" style="max-height:300px;overflow-y:auto">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sessions -->
+  <div class="panel sessions-section">
+    <div class="panel-header">
+      <span>Sessions</span>
+      <span id="sessionCount" style="font-size:10px;color:var(--text-dim)"></span>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <table class="sessions-table">
+        <thead>
+          <tr>
+            <th>Started</th>
+            <th>Duration</th>
+            <th>Project</th>
+            <th>Models</th>
+            <th>Requests</th>
+            <th>Tokens In</th>
+            <th>Tokens Out</th>
+            <th>Cost</th>
+          </tr>
+        </thead>
+        <tbody id="sessionsBody">
+          <tr><td colspan="8" class="loading">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Session detail modal -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h2 id="modalTitle">Session Detail</h2>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+const BACKEND_COLORS = {
+  ollama: '#00b894', anthropic: '#a29bfe', openai: '#74b9ff',
+  gemini: '#fdcb6e', oca: '#e17055', openrouter: '#fd79a8',
+  codex_cli: '#55efc4', lmstudio: '#81ecec',
+  groq: '#f97220', deepseek: '#536dfe', mistral: '#ff6f00',
+  together: '#7c4dff', xai: '#e0e0e0', fireworks: '#ff5252',
+  azure_openai: '#0078d4', bedrock: '#ff9900',
+  claude_code: '#d4a0ff',
+};
+
+// Provider display metadata for the status strip
+const PROVIDERS = {
+  ollama:       { label: 'Ollama',      icon: '🦙', type: 'local' },
+  lmstudio:     { label: 'LM Studio',   icon: '🔬', type: 'local' },
+  openai:       { label: 'OpenAI',      icon: '🤖', type: 'cloud' },
+  anthropic:    { label: 'Anthropic',   icon: '🧠', type: 'cloud' },
+  gemini:       { label: 'Gemini',      icon: '💎', type: 'cloud' },
+  openrouter:   { label: 'OpenRouter',  icon: '🔀', type: 'cloud' },
+  oca:          { label: 'OCA',         icon: '☁️', type: 'cloud' },
+  groq:         { label: 'Groq',        icon: '⚡', type: 'cloud' },
+  deepseek:     { label: 'DeepSeek',    icon: '🔍', type: 'cloud' },
+  mistral:      { label: 'Mistral',     icon: '🌬️', type: 'cloud' },
+  together:     { label: 'Together',    icon: '🤝', type: 'cloud' },
+  xai:          { label: 'xAI',         icon: '𝕏',  type: 'cloud' },
+  fireworks:    { label: 'Fireworks',   icon: '🎆', type: 'cloud' },
+  azure_openai: { label: 'Azure',       icon: '☁️', type: 'cloud' },
+  bedrock:      { label: 'Bedrock',     icon: '🪨', type: 'cloud' },
+  codex_cli:    { label: 'Codex CLI',   icon: '💻', type: 'local' },
+  claude_code:  { label: 'Claude Code', icon: '🟣', type: 'direct' },
+};
+
+function fmt(n) {
+  if (n == null) return '0';
+  return Number(n).toLocaleString();
+}
+
+function fmtCost(n) {
+  if (!n) return '$0.00';
+  return '$' + Number(n).toFixed(4);
+}
+
+function fmtTime(ts) {
+  if (!ts) return '-';
+  const d = new Date(ts * 1000);
+  return d.toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
+}
+
+function fmtDuration(start, end) {
+  if (!start || !end) return '-';
+  const s = Math.round(end - start);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.round(s / 60) + 'm';
+  return (s / 3600).toFixed(1) + 'h';
+}
+
+function backendClass(model) {
+  for (const b of Object.keys(BACKEND_COLORS)) {
+    if (model.includes(b) || model.startsWith(b)) return `backend-${b}`;
+  }
+  return 'backend-ollama';
+}
+
+function statusClass(status) {
+  if (!status) return '';
+  if (status.includes('error')) return 'status-error';
+  if (status.includes('fallback')) return 'status-fallback';
+  if (status.includes('streaming')) return 'status-streaming';
+  return 'status-ok';
+}
+
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  return r.json();
+}
+
+function mergeClaudeModelsIntoByModel(byModel, claudeStats) {
+  // Convert Claude Code model usage into the same format as gateway by_model entries
+  if (!claudeStats || !claudeStats.available || !claudeStats.modelUsage) return byModel;
+  const merged = [...byModel];
+  for (const [model, u] of Object.entries(claudeStats.modelUsage)) {
+    const shortName = model.replace(/-\d{8,}$/, '');
+    const inTok = (u.inputTokens || 0) + (u.cacheCreationInputTokens || 0);
+    const outTok = u.outputTokens || 0;
+    const cacheRead = u.cacheReadInputTokens || 0;
+    merged.push({
+      model_alias: shortName,
+      backend: 'claude_code',
+      requests: u.inputTokens ? Math.max(1, Math.round((inTok + outTok) / 4000)) : 0,
+      input_tokens: inTok + cacheRead,
+      output_tokens: outTok,
+      cost_usd: u.estimatedCostUSD || 0,
+      avg_latency_ms: 0,
+      _is_claude_code: true,
+    });
+  }
+  // Sort by total tokens descending
+  merged.sort((a, b) => ((b.input_tokens||0)+(b.output_tokens||0)) - ((a.input_tokens||0)+(a.output_tokens||0)));
+  return merged;
+}
+
+function mergeClaudeIntoByBackend(byBackend, claudeStats) {
+  if (!claudeStats || !claudeStats.available || !claudeStats.modelUsage) return byBackend;
+  let totalIn = 0, totalOut = 0, totalCost = 0, reqs = 0;
+  for (const u of Object.values(claudeStats.modelUsage)) {
+    totalIn += (u.inputTokens || 0) + (u.cacheReadInputTokens || 0) + (u.cacheCreationInputTokens || 0);
+    totalOut += u.outputTokens || 0;
+    totalCost += u.estimatedCostUSD || 0;
+    reqs += u.inputTokens ? Math.max(1, Math.round(((u.inputTokens||0) + (u.outputTokens||0)) / 4000)) : 0;
+  }
+  if (totalIn + totalOut === 0) return byBackend;
+  return [...byBackend, {
+    backend: 'claude_code',
+    requests: reqs,
+    input_tokens: totalIn,
+    output_tokens: totalOut,
+    cost_usd: totalCost,
+  }].sort((a, b) => ((b.input_tokens||0)+(b.output_tokens||0)) - ((a.input_tokens||0)+(a.output_tokens||0)));
+}
+
+function getHours() {
+  return parseInt(document.getElementById('timeRange').value);
+}
+
+function getProject() {
+  return document.getElementById('projectFilter').value;
+}
+
+async function loadDashboard() {
+  const hours = getHours();
+  const project = getProject();
+
+  const [stats, sessions, backends, cacheStats, claudeStats, active, otelStatus] = await Promise.all([
+    fetchJSON(`${API}/api/dashboard?hours=${hours}`),
+    fetchJSON(`${API}/api/sessions?hours=${hours}&limit=50` + (project ? `&project=${project}` : '')),
+    fetchJSON(`${API}/api/backends?refresh=false`).catch(() => ({backends: {}})),
+    fetchJSON(`${API}/api/cache`).catch(() => ({})),
+    fetchJSON(`${API}/api/claude-stats`).catch(() => ({available: false})),
+    fetchJSON(`${API}/api/active-sessions`).catch(() => []),
+    fetchJSON(`${API}/api/otel`).catch(() => ({enabled: false})),
+  ]);
+
+  renderStats(stats, cacheStats, otelStatus, claudeStats);
+  renderProviderStrip(backends.backends || {}, mergeClaudeIntoByBackend(stats.by_backend || [], claudeStats));
+  renderLimits(claudeStats, stats);
+  renderActiveSessions(active);
+  renderDailyChart(stats.daily || []);
+  renderBackendBars(mergeClaudeIntoByBackend(stats.by_backend || [], claudeStats));
+  renderModelBars(mergeClaudeModelsIntoByModel(stats.by_model || [], claudeStats));
+  renderSessions(sessions);
+  renderBackends(backends.backends || {});
+  renderClaudeModelUsage(claudeStats);
+  renderClaudeHistory(claudeStats);
+
+  document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+  // Populate project filter
+  const projects = [...new Set(sessions.map(s => s.project))];
+  const sel = document.getElementById('projectFilter');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All projects</option>';
+  projects.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p;
+    if (p === current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function renderStats(stats, cache, otel, claudeStats) {
+  const t = stats.totals || {};
+  // Include Claude Code tokens/cost in totals
+  let claudeTokens = 0, claudeCost = 0;
+  if (claudeStats && claudeStats.available && claudeStats.modelUsage) {
+    for (const u of Object.values(claudeStats.modelUsage)) {
+      claudeTokens += (u.inputTokens||0) + (u.outputTokens||0) + (u.cacheReadInputTokens||0) + (u.cacheCreationInputTokens||0);
+      claudeCost += u.estimatedCostUSD || 0;
+    }
+  }
+  const totalTokens = (t.total_input || 0) + (t.total_output || 0) + claudeTokens;
+  const cacheCard = cache && cache.enabled
+    ? `<div class="stat-card">
+        <div class="label">Cache Hit Rate</div>
+        <div class="value" style="color:var(--accent2)">${cache.hit_rate_pct || 0}%</div>
+        <div class="sub">${cache.hits || 0} hits / ${cache.misses || 0} misses</div>
+      </div>`
+    : `<div class="stat-card">
+        <div class="label">Cache</div>
+        <div class="value" style="color:var(--text-dim);font-size:14px">Disabled</div>
+        <div class="sub">Set LANGCACHE_ENABLED=true</div>
+      </div>`;
+
+  const otelCard = otel && otel.enabled
+    ? `<div class="stat-card">
+        <div class="label">Observability</div>
+        <div class="value" style="color:var(--accent2);font-size:14px">${otel.initialized ? 'Active' : 'Error'}</div>
+        <div class="sub">${otel.oci_apm && otel.oci_apm.configured ? 'OCI APM (' + otel.oci_apm.region + ')' : 'Standard OTLP'}</div>
+      </div>`
+    : `<div class="stat-card">
+        <div class="label">Observability</div>
+        <div class="value" style="color:var(--text-dim);font-size:14px">Disabled</div>
+        <div class="sub">Set OTEL_ENABLED=true</div>
+      </div>`;
+
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card">
+      <div class="label">Sessions</div>
+      <div class="value">${fmt(stats.session_count)}</div>
+      <div class="sub">Claude Code + API</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Requests</div>
+      <div class="value">${fmt(t.total_requests)}</div>
+      <div class="sub">${(stats.by_backend || []).length} backends active</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Total Tokens</div>
+      <div class="value token-num">${fmt(totalTokens)}</div>
+      <div class="sub">${fmt(t.total_input)} in / ${fmt(t.total_output)} out${claudeTokens ? ' + ' + fmt(claudeTokens) + ' Claude' : ''}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Estimated Cost</div>
+      <div class="value">${fmtCost((t.total_cost || 0) + claudeCost)}</div>
+      <div class="sub">${(stats.by_model || []).length} models + Claude Code</div>
+    </div>
+    ${cacheCard}
+    ${otelCard}
+  `;
+}
+
+function renderDailyChart(daily) {
+  const container = document.getElementById('dailyChart');
+  const labels = document.getElementById('chartLabels');
+  if (!daily.length) {
+    container.innerHTML = '<div class="empty-state">No data yet</div>';
+    labels.innerHTML = '';
+    return;
+  }
+
+  const maxReqs = Math.max(...daily.map(d => d.requests), 1);
+  container.innerHTML = daily.map(d => {
+    const h = Math.max(4, (d.requests / maxReqs) * 130);
+    const tokens = (d.input_tokens || 0) + (d.output_tokens || 0);
+    return `<div class="daily-bar" style="height:${h}px">
+      <div class="tooltip">${d.day}<br>${d.requests} reqs, ${fmt(tokens)} tokens<br>${fmtCost(d.cost_usd)}</div>
+    </div>`;
+  }).join('');
+
+  // Show first, middle, last labels
+  if (daily.length > 2) {
+    labels.innerHTML = `<span>${daily[0].day}</span><span>${daily[Math.floor(daily.length/2)].day}</span><span>${daily[daily.length-1].day}</span>`;
+  } else {
+    labels.innerHTML = daily.map(d => `<span>${d.day}</span>`).join('');
+  }
+}
+
+function renderBackendBars(backends) {
+  const container = document.getElementById('backendBars');
+  if (!backends.length) {
+    container.innerHTML = '<div class="empty-state">No data</div>';
+    return;
+  }
+  const maxTokens = Math.max(...backends.map(b => (b.input_tokens || 0) + (b.output_tokens || 0)), 1);
+  container.innerHTML = backends.map(b => {
+    const total = (b.input_tokens || 0) + (b.output_tokens || 0);
+    const pct = (total / maxTokens) * 100;
+    const color = BACKEND_COLORS[b.backend] || '#6c5ce7';
+    return `<div class="bar-row">
+      <div class="bar-label"><span class="model-tag backend-${b.backend}">${b.backend}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <div class="bar-value">${fmt(total)} tok</div>
+    </div>`;
+  }).join('');
+}
+
+function renderModelBars(models) {
+  const container = document.getElementById('modelBars');
+  if (!models.length) {
+    container.innerHTML = '<div class="empty-state">No data</div>';
+    return;
+  }
+  const maxReqs = Math.max(...models.map(m => m.requests), 1);
+  container.innerHTML = models.map(m => {
+    const pct = (m.requests / maxReqs) * 100;
+    const color = BACKEND_COLORS[m.backend] || '#6c5ce7';
+    const inTok = m.input_tokens || 0;
+    const outTok = m.output_tokens || 0;
+    const totalTok = inTok + outTok;
+    const latency = m.avg_latency_ms ? `${Math.round(m.avg_latency_ms)}ms` : '';
+    return `<div class="bar-row">
+      <div class="bar-label"><span class="model-tag backend-${m.backend}">${m.model_alias}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <div class="bar-value" style="min-width:220px">${m.requests} reqs &middot; ${fmt(inTok)} in / ${fmt(outTok)} out &middot; ${latency ? latency + ' &middot; ' : ''}${fmtCost(m.cost_usd)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderBackends(backends) {
+  const container = document.getElementById('backendsPanel');
+  const names = Object.keys(backends);
+  if (!names.length) {
+    container.innerHTML = '<div class="empty-state">No backends discovered. Click Refresh Models.</div>';
+    return;
+  }
+
+  container.innerHTML = names.map(name => {
+    const info = backends[name];
+    const color = BACKEND_COLORS[name] || '#6c5ce7';
+    const statusDot = info.available
+      ? `<span style="color:${color}">●</span>`
+      : '<span style="color:var(--text-dim)">○</span>';
+    const models = (info.models || []).map(m =>
+      `<span class="model-tag backend-${name}" title="${m.model}">${m.name || m.id}</span>`
+    ).join(' ');
+    return `<div style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        ${statusDot}
+        <span style="font-weight:600;font-size:12px;text-transform:uppercase;color:${color}">${name}</span>
+        <span style="font-size:10px;color:var(--text-dim)">${info.model_count} models</span>
+      </div>
+      <div style="padding-left:20px">${models || '<span style="color:var(--text-dim);font-size:11px">offline or not configured</span>'}</div>
+    </div>`;
+  }).join('');
+}
+
+async function refreshDiscovery() {
+  const container = document.getElementById('backendsPanel');
+  container.innerHTML = '<div class="loading">Discovering models...</div>';
+  try {
+    const data = await fetchJSON(`${API}/api/backends?refresh=true`);
+    renderBackends(data.backends || {});
+  } catch(e) {
+    container.innerHTML = `<div class="empty-state">Discovery failed: ${e.message}</div>`;
+  }
+}
+
+function renderSessions(sessions) {
+  const tbody = document.getElementById('sessionsBody');
+  const countEl = document.getElementById('sessionCount');
+  countEl.textContent = `${sessions.length} sessions`;
+
+  if (!sessions.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No sessions yet. Usage will appear here as you use Claude Code with MultiLLM.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = sessions.map(s => {
+    const models = (s.models_used || []);
+    const modelTags = models.map(m => {
+      const bc = backendClass(m);
+      return `<span class="model-tag ${bc}">${m}</span>`;
+    }).join(' ');
+
+    return `<tr onclick="showSession('${s.id}')">
+      <td>${fmtTime(s.started_at)}</td>
+      <td>${fmtDuration(s.started_at, s.last_active_at)}</td>
+      <td>${s.project || '-'}</td>
+      <td>${modelTags || '-'}</td>
+      <td class="token-num">${s.total_requests || 0}</td>
+      <td class="token-num">${fmt(s.total_input_tokens)}</td>
+      <td class="token-num">${fmt(s.total_output_tokens)}</td>
+      <td class="token-num">${fmtCost(s.total_cost_usd)}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function showSession(sessionId) {
+  const modal = document.getElementById('modalOverlay');
+  const title = document.getElementById('modalTitle');
+  const body = document.getElementById('modalBody');
+
+  title.textContent = 'Loading...';
+  body.innerHTML = '<div class="loading">Loading session data...</div>';
+  modal.classList.add('active');
+
+  try {
+    const detail = await fetchJSON(`${API}/api/sessions/${sessionId}`);
+    title.textContent = `Session ${sessionId}`;
+
+    const models = (detail.models_used || []).map(m =>
+      `<span class="model-tag ${backendClass(m)}">${m}</span>`
+    ).join(' ');
+
+    const reqs = (detail.requests || []).map(r => `
+      <div class="req-row">
+        <td>${fmtTime(r.timestamp)}</td>
+        <td>${r.model_alias}</td>
+        <td class="token-num">${fmt(r.input_tokens)}</td>
+        <td class="token-num">${fmt(r.output_tokens)}</td>
+        <td class="token-num">${Math.round(r.latency_ms || 0)}ms</td>
+        <td class="${statusClass(r.status)}">${r.status}</td>
+      </div>
+    `).join('');
+
+    body.innerHTML = `
+      <div style="margin-bottom:16px">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">
+          ${fmtTime(detail.started_at)} &mdash; ${fmtDuration(detail.started_at, detail.last_active_at)} &middot;
+          ${detail.total_requests || 0} requests &middot;
+          ${fmt(detail.total_input_tokens)} in / ${fmt(detail.total_output_tokens)} out &middot;
+          ${fmtCost(detail.total_cost_usd)}
+        </div>
+        <div>${models}</div>
+      </div>
+      <div class="req-row header-row">
+        <div>Time</div><div>Model</div><div>In</div><div>Out</div><div>Latency</div><div>Status</div>
+      </div>
+      ${reqs || '<div class="empty-state">No requests recorded</div>'}
+    `;
+  } catch (e) {
+    body.innerHTML = `<div class="empty-state">Error loading session: ${e.message}</div>`;
+  }
+}
+
+// Configurable daily limits (tokens). Adjust these to match your plan.
+const LIMITS = {
+  'Claude Opus':   { limit: 5_000_000, color: 'var(--accent)' },
+  'Claude Sonnet': { limit: 10_000_000, color: 'var(--accent5)' },
+  'Codex CLI':     { limit: 10_000_000, color: 'var(--accent2)' },
+  'OCA':           { limit: 50_000_000, color: 'var(--accent3)' },
+  'Gemini':        { limit: 2_000_000, color: '#e17055' },
+  'Groq':          { limit: 6_000, color: '#f97220' },       // Groq free tier: 6K req/day
+  'DeepSeek':      { limit: 10_000_000, color: '#536dfe' },
+  'Mistral':       { limit: 10_000_000, color: '#ff6f00' },
+  'Together':      { limit: 10_000_000, color: '#7c4dff' },
+  'xAI':           { limit: 10_000_000, color: '#e0e0e0' },
+  'Fireworks':     { limit: 10_000_000, color: '#ff5252' },
+  'Azure':         { limit: 0, color: '#0078d4' },           // pay-as-you-go
+  'Bedrock':       { limit: 0, color: '#ff9900' },           // pay-as-you-go
+};
+
+function renderProviderStrip(backends, usageByBackend) {
+  const el = document.getElementById('providerStrip');
+  // Build usage map
+  const usageMap = {};
+  usageByBackend.forEach(b => {
+    usageMap[b.backend] = {
+      requests: b.requests || 0,
+      tokens: (b.input_tokens || 0) + (b.output_tokens || 0),
+    };
+  });
+
+  // Determine status for each provider
+  const allProviders = Object.keys(PROVIDERS);
+  const chips = allProviders.map(id => {
+    const p = PROVIDERS[id];
+    const color = BACKEND_COLORS[id] || '#6c5ce7';
+    const backendInfo = backends[id];
+    const usage = usageMap[id];
+    const modelCount = backendInfo ? (backendInfo.model_count || 0) : 0;
+
+    let dotClass = 'unconfigured';
+    let statusText = 'not configured';
+    let chipClass = 'inactive';
+
+    if (backendInfo && backendInfo.available) {
+      dotClass = 'online';
+      statusText = `${modelCount} models`;
+      chipClass = usage ? 'active' : '';
+    } else if (backendInfo) {
+      dotClass = 'offline';
+      statusText = 'offline';
+    }
+
+    // Show usage stats if the provider has been used
+    let usageText = '';
+    if (usage && usage.requests > 0) {
+      usageText = `${usage.requests} reqs`;
+      if (usage.tokens > 0) usageText += ` · ${fmt(usage.tokens)} tok`;
+    }
+
+    return `<div class="provider-chip ${chipClass}" title="${p.label}: ${statusText}${usageText ? ' — ' + usageText : ''}">
+      <div class="provider-dot ${dotClass}"></div>
+      <span style="color:${color}">${p.icon} ${p.label}</span>
+      ${usageText ? `<span class="provider-meta">${usageText}</span>` : ''}
+    </div>`;
+  });
+
+  el.innerHTML = chips.join('');
+}
+
+function renderLimits(claude, gwStats) {
+  const el = document.getElementById('limitsPanel');
+  const rows = [];
+  let dateLabel = 'Today';
+
+  // Claude tokens (from stats-cache.json — latest available day)
+  if (claude && claude.available && claude.latestTokens) {
+    const tokens = claude.latestTokens;
+    if (claude.latestDate && claude.latestDate !== new Date().toISOString().slice(0,10)) {
+      dateLabel = claude.latestDate + ' (latest flush)';
+    }
+    for (const [model, count] of Object.entries(tokens)) {
+      const short = model.includes('opus') ? 'Claude Opus' :
+                    model.includes('sonnet') ? 'Claude Sonnet' : model.replace('claude-', '');
+      const cfg = LIMITS[short] || { limit: 5_000_000, color: 'var(--accent)' };
+      rows.push({ name: short, used: count, limit: cfg.limit, color: cfg.color });
+    }
+  }
+
+  // Gateway-tracked backends today (from dashboard stats)
+  const byBackend = gwStats.by_backend || [];
+  const backendMap = {};
+  byBackend.forEach(b => {
+    backendMap[b.backend] = (b.input_tokens || 0) + (b.output_tokens || 0);
+  });
+
+  // Map backend names to their display names in LIMITS
+  const backendToLimit = {
+    codex_cli: 'Codex CLI', oca: 'OCA', gemini: 'Gemini',
+    groq: 'Groq', deepseek: 'DeepSeek', mistral: 'Mistral',
+    together: 'Together', xai: 'xAI', fireworks: 'Fireworks',
+    azure_openai: 'Azure', bedrock: 'Bedrock',
+  };
+  for (const [backend, limitName] of Object.entries(backendToLimit)) {
+    if (backendMap[backend]) {
+      const cfg = LIMITS[limitName] || { limit: 0, color: BACKEND_COLORS[backend] || '#6c5ce7' };
+      rows.push({ name: limitName, used: backendMap[backend], limit: cfg.limit, color: cfg.color });
+    }
+  }
+  // Local backends (unlimited)
+  for (const local of ['ollama', 'lmstudio']) {
+    if (backendMap[local]) {
+      rows.push({ name: PROVIDERS[local]?.label || local, used: backendMap[local], limit: 0, color: BACKEND_COLORS[local] });
+    }
+  }
+
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty-state" style="font-size:11px">No usage today yet</div>';
+    return;
+  }
+
+  el.innerHTML = rows.map(r => {
+    const pct = r.limit > 0 ? Math.min(100, (r.used / r.limit) * 100) : 0;
+    const barColor = pct > 90 ? '#e17055' : pct > 70 ? '#fdcb6e' : r.color;
+    const limitStr = r.limit > 0 ? `${fmt(r.used)} / ${fmt(r.limit)}` : `${fmt(r.used)} (unlimited)`;
+    const pctStr = r.limit > 0 ? `${pct.toFixed(1)}%` : '';
+    return `<div class="limit-row">
+      <div class="limit-label" style="color:${r.color}">${r.name}</div>
+      <div class="limit-bar-bg">
+        <div class="limit-bar-fill" style="width:${r.limit > 0 ? pct : 0}%;background:${barColor}"></div>
+        <div class="limit-bar-text">${pctStr}</div>
+      </div>
+      <div class="limit-info">${limitStr}</div>
+    </div>`;
+  }).join('') + `<div style="text-align:right;font-size:9px;color:var(--text-dim);margin-top:4px">${dateLabel} &middot; Limits are configurable</div>`;
+}
+
+function renderActiveSessions(active) {
+  const panel = document.getElementById('activePanel');
+  const body = document.getElementById('activeBody');
+  const count = document.getElementById('activeCount');
+  if (!active || !active.length) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  count.textContent = `(${active.length} active)`;
+  body.innerHTML = active.map(s => {
+    const models = (s.models_used || []).join(', ');
+    const dur = s.active_seconds < 60 ? `${s.active_seconds}s` : `${Math.floor(s.active_seconds/60)}m`;
+    const tokens = fmt((s.total_input_tokens||0) + (s.total_output_tokens||0));
+    const lastAgo = Math.floor((Date.now()/1000 - s.last_active_at));
+    const agoStr = lastAgo < 10 ? 'just now' : lastAgo < 60 ? `${lastAgo}s ago` : `${Math.floor(lastAgo/60)}m ago`;
+    return `<div style="display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="width:6px;height:6px;border-radius:50%;background:#00b894;flex-shrink:0"></span>
+      <span style="font-weight:600;color:var(--accent5);min-width:80px">${s.project}</span>
+      <span style="color:var(--text-dim);font-size:11px">${dur} &middot; ${s.total_requests} reqs &middot; ${tokens} tokens</span>
+      <span style="color:var(--text-dim);font-size:10px">${models}</span>
+      <span style="margin-left:auto;color:var(--text-dim);font-size:10px">${agoStr}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderClaudeModelUsage(data) {
+  const el = document.getElementById('claudeModelUsage');
+  if (!data || !data.available) {
+    el.innerHTML = '<div class="empty-state">No Claude Code stats found<br><span style="font-size:10px;color:var(--text-dim)">Stats appear after Claude Code usage (~/.claude/stats-cache.json)</span></div>';
+    return;
+  }
+  const models = data.modelUsage || {};
+  if (!Object.keys(models).length) {
+    el.innerHTML = '<div class="empty-state">No model usage data</div>';
+    return;
+  }
+  let totalCost = 0;
+  const rows = Object.entries(models).map(([model, u]) => {
+    const cost = u.estimatedCostUSD || 0;
+    totalCost += cost;
+    const shortName = model.replace('claude-', '').replace(/-\d{8}$/, '');
+    const totalTok = (u.inputTokens||0) + (u.outputTokens||0) + (u.cacheReadInputTokens||0) + (u.cacheCreationInputTokens||0);
+    return `<tr>
+      <td style="font-weight:600;color:var(--accent5)">${shortName}</td>
+      <td class="token-num">${fmt(u.inputTokens)}</td>
+      <td class="token-num">${fmt(u.outputTokens)}</td>
+      <td class="token-num">${fmt(u.cacheReadInputTokens)}</td>
+      <td class="token-num">${fmt(u.cacheCreationInputTokens)}</td>
+      <td class="token-num" style="color:var(--accent3)">${fmtCost(cost)}</td>
+    </tr>`;
+  });
+  el.innerHTML = `
+    <div style="margin-bottom:8px;font-size:11px;color:var(--text-dim)">
+      ${fmt(data.totalSessions)} sessions &middot; ${fmt(data.totalMessages)} messages &middot;
+      Est. total: <span style="color:var(--accent3)">${fmtCost(totalCost)}</span>
+    </div>
+    <table class="sessions-table" style="font-size:11px">
+      <thead><tr>
+        <th>Model</th><th>Input</th><th>Output</th><th>Cache Read</th><th>Cache Create</th><th>Cost</th>
+      </tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>`;
+}
+
+function renderClaudeHistory(data) {
+  const el = document.getElementById('claudeHistory');
+  if (!data || !data.available || !data.sessionHistory || !data.sessionHistory.length) {
+    el.innerHTML = '<div class="empty-state">No session history available</div>';
+    return;
+  }
+  const sessions = data.sessionHistory.slice(0, 30);
+  const rows = sessions.map(s => {
+    const ts = s.timestamp ? new Date(s.timestamp).toLocaleString() : '—';
+    const proj = s.project ? s.project.split('/').pop() : '—';
+    const cmd = (s.firstCommand || '').substring(0, 60);
+    const dur = s.lastTimestamp && s.timestamp
+      ? fmtDuration(new Date(s.timestamp).getTime() / 1000, new Date(s.lastTimestamp).getTime() / 1000)
+      : '—';
+    return `<tr>
+      <td style="white-space:nowrap">${ts}</td>
+      <td>${proj}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${cmd}">${cmd || '—'}</td>
+      <td>${s.commandCount || 0}</td>
+      <td>${dur}</td>
+    </tr>`;
+  });
+  el.innerHTML = `
+    <table class="sessions-table" style="font-size:11px">
+      <thead><tr><th>Time</th><th>Project</th><th>First Command</th><th>Cmds</th><th>Duration</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>`;
+}
+
+function closeModal(event) {
+  if (event && event.target !== event.currentTarget) return;
+  document.getElementById('modalOverlay').classList.remove('active');
+}
+
+function refresh() { loadDashboard(); }
+
+document.getElementById('timeRange').addEventListener('change', loadDashboard);
+document.getElementById('projectFilter').addEventListener('change', loadDashboard);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// Auto-refresh every 5 seconds for near-realtime updates
+loadDashboard();
+setInterval(loadDashboard, 5000);
+</script>
+</body>
+</html>

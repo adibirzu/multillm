@@ -1,0 +1,4 @@
+{
+  "_comment": "MCP server kept for non-Claude LLM clients (Codex CLI, etc.). Claude Code uses direct HTTP via slash commands.",
+  "mcpServers": {}
+}
