@@ -1,0 +1,24 @@
+{
+    "name": "multillm",
+    "version": "0.5.0",
+    "description": "Multi-LLM gateway with 16+ backends, model discovery, session tracking, usage dashboard, and cross-LLM memory. Uses direct HTTP API calls — no MCP server required.",
+    "author": {
+        "name": "adibirzu"
+    },
+    "repository": "https://github.com/adibirzu/multillm",
+    "license": "MIT",
+    "keywords": [
+        "multillm",
+        "llm-gateway",
+        "multi-model",
+        "token-tracking",
+        "model-discovery",
+        "ollama",
+        "openai",
+        "gemini",
+        "oca",
+        "claude-code",
+        "opentelemetry",
+        "oci-apm"
+    ]
+}

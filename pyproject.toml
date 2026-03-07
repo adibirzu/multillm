@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multillm"
+version = "0.3.0"
+description = "Multi-LLM gateway, orchestrator, and tracker for Claude Code"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "httpx[http2]>=0.27.0",
+    "mcp>=1.0.0",
+    "fastmcp>=2.0.0",
+    "pydantic>=2.0.0",
+    "google-genai>=1.0.0",
+    "opentelemetry-api>=1.25.0",
+    "opentelemetry-sdk>=1.25.0",
+    "opentelemetry-instrumentation-fastapi>=0.46b0",
+    "opentelemetry-exporter-otlp>=1.25.0",
+]
+
+[project.optional-dependencies]
+cache = [
+    "langcache>=0.1.0",
+]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-httpx>=0.30",
+    "respx>=0.22",
+]
+
+[project.scripts]
+multillm-gateway = "multillm.gateway:main"
+multillm-mcp = "multillm.mcp_server:main"
+
+[tool.setuptools.packages.find]
+include = ["multillm*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
