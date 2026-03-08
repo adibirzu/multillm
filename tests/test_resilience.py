@@ -199,6 +199,40 @@ class TestWithRetry:
         assert breaker.state == "closed"
 
     @pytest.mark.asyncio
+    async def test_cancelled_error_does_not_penalize_breaker(self):
+        """CancelledError should not count as a backend failure (Item 3 fix)."""
+        _breakers.clear()
+        breaker = get_breaker("cancel_test")
+        assert breaker._failures == 0
+
+        async def factory():
+            raise asyncio.CancelledError()
+
+        with pytest.raises(asyncio.CancelledError):
+            await with_retry(factory, "cancel_test", max_retries=0)
+
+        assert breaker._failures == 0
+        assert breaker.state == "closed"
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_releases_half_open_slot(self):
+        """CancelledError during half-open probe must release the slot."""
+        import time
+        _breakers.clear()
+        breaker = get_breaker("cancel_ho")
+        breaker._state = "half-open"
+        breaker._half_open_count = 0
+
+        async def factory():
+            raise asyncio.CancelledError()
+
+        with pytest.raises(asyncio.CancelledError):
+            await with_retry(factory, "cancel_ho", max_retries=0)
+
+        # Slot should be released back
+        assert breaker._half_open_count == 0
+
+    @pytest.mark.asyncio
     async def test_breaker_status_registry(self):
         _breakers.clear()
         get_breaker("a")

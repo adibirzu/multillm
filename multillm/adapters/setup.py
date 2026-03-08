@@ -17,6 +17,7 @@ from .openrouter import OpenRouterAdapter
 from .oca import OCAAdapter
 from .gemini import GeminiAdapter
 from .codex_cli import CodexCLIAdapter
+from .gemini_cli import GeminiCLIAdapter
 from .cloud_openai_compat import CloudOpenAICompatAdapter
 from .azure_openai import AzureOpenAIAdapter
 from .bedrock import BedrockAdapter
@@ -28,6 +29,7 @@ def register_all_adapters():
     register_adapter(OllamaAdapter())
     register_adapter(LMStudioAdapter())
     register_adapter(CodexCLIAdapter())
+    register_adapter(GeminiCLIAdapter())
 
     # Direct cloud backends
     register_adapter(OpenAIAdapter())

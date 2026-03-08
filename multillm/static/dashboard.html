@@ -143,6 +143,12 @@
     gap: 8px;
     margin-bottom: 10px;
     font-size: 12px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    transition: background 0.15s;
+  }
+  .bar-row[style*="cursor:pointer"]:hover {
+    background: rgba(255,255,255,0.05);
   }
 
   .bar-label {
@@ -439,7 +445,7 @@
 
   <!-- Usage Limits -->
   <div class="panel" style="margin-bottom:24px">
-    <div class="panel-header" id="limitsHeader">Usage Limits</div>
+    <div class="panel-header" id="limitsHeader">Weekly Usage &amp; Cost</div>
     <div class="panel-body" id="limitsPanel" style="padding:12px 16px">
       <div class="loading">Loading...</div>
     </div>
@@ -467,9 +473,20 @@
     <div class="panel">
       <div class="panel-header">
         <span>By Backend</span>
-        <span style="font-size:10px;color:var(--text-dim)">tokens</span>
+        <span style="font-size:10px;color:var(--text-dim)">click to drill down</span>
       </div>
       <div class="panel-body" id="backendBars"></div>
+    </div>
+  </div>
+
+  <!-- Hourly Activity (per-backend stacked) -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <span>Hourly Activity by Backend</span>
+      <span style="font-size:10px;color:var(--text-dim)">last 48 hours</span>
+    </div>
+    <div class="panel-body" id="hourlyChart" style="padding:12px 16px;overflow-x:auto">
+      <div class="loading">Loading...</div>
     </div>
   </div>
 
@@ -591,7 +608,7 @@ function fmt(n) {
 
 function fmtCost(n) {
   if (!n) return '$0.00';
-  return '$' + Number(n).toFixed(4);
+  return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 
 function fmtTime(ts) {
@@ -701,6 +718,7 @@ async function loadDashboard() {
   renderLimits(claudeStats, stats);
   renderActiveSessions(active);
   renderDailyChart(stats.daily || []);
+  renderHourlyChart(stats.hourly || []);
   renderBackendBars(mergeClaudeIntoByBackend(stats.by_backend || [], claudeStats));
   renderModelBars(mergeClaudeModelsIntoByModel(stats.by_model || [], claudeStats));
   renderSessions(sessions);
@@ -726,7 +744,7 @@ async function loadDashboard() {
 
 function renderStats(stats, cache, otel, claudeStats) {
   const t = stats.totals || {};
-  // Include Claude Code tokens/cost in totals
+  // Compute Claude Code tokens/cost separately — do NOT sum into gateway totals
   let claudeTokens = 0, claudeCost = 0;
   if (claudeStats && claudeStats.available && claudeStats.modelUsage) {
     for (const u of Object.values(claudeStats.modelUsage)) {
@@ -734,7 +752,9 @@ function renderStats(stats, cache, otel, claudeStats) {
       claudeCost += u.estimatedCostUSD || 0;
     }
   }
-  const totalTokens = (t.total_input || 0) + (t.total_output || 0) + claudeTokens;
+  const gwTokens = (t.total_input || 0) + (t.total_output || 0);
+  const gwCost = t.total_cost || 0;
+
   const cacheCard = cache && cache.enabled
     ? `<div class="stat-card">
         <div class="label">Cache Hit Rate</div>
@@ -759,27 +779,37 @@ function renderStats(stats, cache, otel, claudeStats) {
         <div class="sub">Set OTEL_ENABLED=true</div>
       </div>`;
 
+  // Claude Code card — only show if stats available
+  const claudeCard = claudeTokens > 0
+    ? `<div class="stat-card">
+        <div class="label">Claude Code</div>
+        <div class="value token-num" style="color:var(--accent5)">${fmt(claudeTokens)}</div>
+        <div class="sub">${fmtCost(claudeCost)} est. &middot; ${fmt(claudeStats.totalSessions || 0)} sessions</div>
+      </div>`
+    : '';
+
   document.getElementById('statsGrid').innerHTML = `
     <div class="stat-card">
       <div class="label">Sessions</div>
       <div class="value">${fmt(stats.session_count)}</div>
-      <div class="sub">Claude Code + API</div>
+      <div class="sub">${(stats.by_backend || []).length} backends active</div>
     </div>
     <div class="stat-card">
       <div class="label">Requests</div>
       <div class="value">${fmt(t.total_requests)}</div>
-      <div class="sub">${(stats.by_backend || []).length} backends active</div>
+      <div class="sub">via gateway proxy</div>
     </div>
     <div class="stat-card">
-      <div class="label">Total Tokens</div>
-      <div class="value token-num">${fmt(totalTokens)}</div>
-      <div class="sub">${fmt(t.total_input)} in / ${fmt(t.total_output)} out${claudeTokens ? ' + ' + fmt(claudeTokens) + ' Claude' : ''}</div>
+      <div class="label">Gateway Tokens</div>
+      <div class="value token-num">${fmt(gwTokens)}</div>
+      <div class="sub">${fmt(t.total_input)} in / ${fmt(t.total_output)} out</div>
     </div>
     <div class="stat-card">
-      <div class="label">Estimated Cost</div>
-      <div class="value">${fmtCost((t.total_cost || 0) + claudeCost)}</div>
-      <div class="sub">${(stats.by_model || []).length} models + Claude Code</div>
+      <div class="label">Gateway Cost (est.)</div>
+      <div class="value">${fmtCost(gwCost)}</div>
+      <div class="sub">${(stats.by_model || []).length} models</div>
     </div>
+    ${claudeCard}
     ${cacheCard}
     ${otelCard}
   `;
@@ -822,10 +852,10 @@ function renderBackendBars(backends) {
     const total = (b.input_tokens || 0) + (b.output_tokens || 0);
     const pct = (total / maxTokens) * 100;
     const color = BACKEND_COLORS[b.backend] || '#6c5ce7';
-    return `<div class="bar-row">
+    return `<div class="bar-row" style="cursor:pointer" onclick="showBackendDrilldown('${b.backend}')">
       <div class="bar-label"><span class="model-tag backend-${b.backend}">${b.backend}</span></div>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
-      <div class="bar-value">${fmt(total)} tok</div>
+      <div class="bar-value">${fmt(total)} tok &middot; ${fmtCost(b.cost_usd)}</div>
     </div>`;
   }).join('');
 }
@@ -836,15 +866,16 @@ function renderModelBars(models) {
     container.innerHTML = '<div class="empty-state">No data</div>';
     return;
   }
+  // Store for drill-down lookups
+  window._modelData = models;
   const maxReqs = Math.max(...models.map(m => m.requests), 1);
-  container.innerHTML = models.map(m => {
+  container.innerHTML = models.map((m, idx) => {
     const pct = (m.requests / maxReqs) * 100;
     const color = BACKEND_COLORS[m.backend] || '#6c5ce7';
     const inTok = m.input_tokens || 0;
     const outTok = m.output_tokens || 0;
-    const totalTok = inTok + outTok;
     const latency = m.avg_latency_ms ? `${Math.round(m.avg_latency_ms)}ms` : '';
-    return `<div class="bar-row">
+    return `<div class="bar-row" style="cursor:pointer" onclick="showModelDrilldown(${idx})">
       <div class="bar-label"><span class="model-tag backend-${m.backend}">${m.model_alias}</span></div>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
       <div class="bar-value" style="min-width:220px">${m.requests} reqs &middot; ${fmt(inTok)} in / ${fmt(outTok)} out &middot; ${latency ? latency + ' &middot; ' : ''}${fmtCost(m.cost_usd)}</div>
@@ -969,22 +1000,25 @@ async function showSession(sessionId) {
   }
 }
 
-// Configurable daily limits (tokens). Adjust these to match your plan.
-const LIMITS = {
-  'Claude Opus':   { limit: 5_000_000, color: 'var(--accent)' },
-  'Claude Sonnet': { limit: 10_000_000, color: 'var(--accent5)' },
-  'Codex CLI':     { limit: 10_000_000, color: 'var(--accent2)' },
-  'OCA':           { limit: 50_000_000, color: 'var(--accent3)' },
-  'Gemini':        { limit: 2_000_000, color: '#e17055' },
-  'Groq':          { limit: 6_000, color: '#f97220' },       // Groq free tier: 6K req/day
-  'DeepSeek':      { limit: 10_000_000, color: '#536dfe' },
-  'Mistral':       { limit: 10_000_000, color: '#ff6f00' },
-  'Together':      { limit: 10_000_000, color: '#7c4dff' },
-  'xAI':           { limit: 10_000_000, color: '#e0e0e0' },
-  'Fireworks':     { limit: 10_000_000, color: '#ff5252' },
+// Configurable weekly limits (tokens). Adjust to match your plan.
+const WEEKLY_LIMITS = {
+  'Claude Opus':   { limit: 35_000_000, color: 'var(--accent)' },
+  'Claude Sonnet': { limit: 70_000_000, color: 'var(--accent5)' },
+  'Codex CLI':     { limit: 70_000_000, color: 'var(--accent2)' },
+  'OCA':           { limit: 350_000_000, color: 'var(--accent3)' },
+  'Gemini':        { limit: 14_000_000, color: '#e17055' },
+  'Groq':          { limit: 42_000, color: '#f97220' },       // Groq free tier
+  'DeepSeek':      { limit: 70_000_000, color: '#536dfe' },
+  'Mistral':       { limit: 70_000_000, color: '#ff6f00' },
+  'Together':      { limit: 70_000_000, color: '#7c4dff' },
+  'xAI':           { limit: 70_000_000, color: '#e0e0e0' },
+  'Fireworks':     { limit: 70_000_000, color: '#ff5252' },
   'Azure':         { limit: 0, color: '#0078d4' },           // pay-as-you-go
   'Bedrock':       { limit: 0, color: '#ff9900' },           // pay-as-you-go
 };
+// Claude Max subscription baseline
+const CLAUDE_MAX_MONTHLY_EUR = 90;
+const CLAUDE_MAX_MONTHLY_USD = 99; // ~$99 equivalent
 
 function renderProviderStrip(backends, usageByBackend) {
   const el = document.getElementById('providerStrip');
@@ -1039,30 +1073,29 @@ function renderProviderStrip(backends, usageByBackend) {
 function renderLimits(claude, gwStats) {
   const el = document.getElementById('limitsPanel');
   const rows = [];
-  let dateLabel = 'Today';
+  let dateLabel = 'This week';
 
-  // Claude tokens (from stats-cache.json — latest available day)
+  // Claude tokens (from stats-cache.json)
   if (claude && claude.available && claude.latestTokens) {
     const tokens = claude.latestTokens;
     if (claude.latestDate && claude.latestDate !== new Date().toISOString().slice(0,10)) {
-      dateLabel = claude.latestDate + ' (latest flush)';
+      dateLabel = 'Week of ' + claude.latestDate;
     }
     for (const [model, count] of Object.entries(tokens)) {
       const short = model.includes('opus') ? 'Claude Opus' :
                     model.includes('sonnet') ? 'Claude Sonnet' : model.replace('claude-', '');
-      const cfg = LIMITS[short] || { limit: 5_000_000, color: 'var(--accent)' };
+      const cfg = WEEKLY_LIMITS[short] || { limit: 35_000_000, color: 'var(--accent)' };
       rows.push({ name: short, used: count, limit: cfg.limit, color: cfg.color });
     }
   }
 
-  // Gateway-tracked backends today (from dashboard stats)
+  // Gateway-tracked backends (from dashboard stats)
   const byBackend = gwStats.by_backend || [];
   const backendMap = {};
   byBackend.forEach(b => {
     backendMap[b.backend] = (b.input_tokens || 0) + (b.output_tokens || 0);
   });
 
-  // Map backend names to their display names in LIMITS
   const backendToLimit = {
     codex_cli: 'Codex CLI', oca: 'OCA', gemini: 'Gemini',
     groq: 'Groq', deepseek: 'DeepSeek', mistral: 'Mistral',
@@ -1071,11 +1104,10 @@ function renderLimits(claude, gwStats) {
   };
   for (const [backend, limitName] of Object.entries(backendToLimit)) {
     if (backendMap[backend]) {
-      const cfg = LIMITS[limitName] || { limit: 0, color: BACKEND_COLORS[backend] || '#6c5ce7' };
+      const cfg = WEEKLY_LIMITS[limitName] || { limit: 0, color: BACKEND_COLORS[backend] || '#6c5ce7' };
       rows.push({ name: limitName, used: backendMap[backend], limit: cfg.limit, color: cfg.color });
     }
   }
-  // Local backends (unlimited)
   for (const local of ['ollama', 'lmstudio']) {
     if (backendMap[local]) {
       rows.push({ name: PROVIDERS[local]?.label || local, used: backendMap[local], limit: 0, color: BACKEND_COLORS[local] });
@@ -1083,9 +1115,34 @@ function renderLimits(claude, gwStats) {
   }
 
   if (!rows.length) {
-    el.innerHTML = '<div class="empty-state" style="font-size:11px">No usage today yet</div>';
+    el.innerHTML = '<div class="empty-state" style="font-size:11px">No usage this week yet</div>';
     return;
   }
+
+  // Compute estimated monthly cost
+  let totalEstCost = (gwStats.totals || {}).total_cost || 0;
+  let claudeEstCost = 0;
+  if (claude && claude.available && claude.modelUsage) {
+    for (const u of Object.values(claude.modelUsage)) {
+      claudeEstCost += u.estimatedCostUSD || 0;
+    }
+  }
+
+  const costNote = `<div style="margin-top:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:11px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+      <span style="color:var(--accent5)">Claude Max Subscription</span>
+      <span style="color:var(--accent3)">${CLAUDE_MAX_MONTHLY_EUR}&euro; / $${CLAUDE_MAX_MONTHLY_USD} per month</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+      <span style="color:var(--text-dim)">Gateway API cost (est.)</span>
+      <span style="color:var(--text-dim)">${fmtCost(totalEstCost)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between">
+      <span style="color:var(--text-dim)">Claude Code usage (est.)</span>
+      <span style="color:var(--text-dim)">${fmtCost(claudeEstCost)}</span>
+    </div>
+    <div style="font-size:9px;color:var(--text-dim);margin-top:6px;text-align:center">All costs are estimates based on public pricing &middot; Claude Max is flat-rate</div>
+  </div>`;
 
   el.innerHTML = rows.map(r => {
     const pct = r.limit > 0 ? Math.min(100, (r.used / r.limit) * 100) : 0;
@@ -1100,7 +1157,7 @@ function renderLimits(claude, gwStats) {
       </div>
       <div class="limit-info">${limitStr}</div>
     </div>`;
-  }).join('') + `<div style="text-align:right;font-size:9px;color:var(--text-dim);margin-top:4px">${dateLabel} &middot; Limits are configurable</div>`;
+  }).join('') + `<div style="text-align:right;font-size:9px;color:var(--text-dim);margin-top:4px">${dateLabel} &middot; Weekly limits (configurable)</div>` + costNote;
 }
 
 function renderActiveSessions(active) {
@@ -1195,6 +1252,205 @@ function renderClaudeHistory(data) {
       <thead><tr><th>Time</th><th>Project</th><th>First Command</th><th>Cmds</th><th>Duration</th></tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table>`;
+}
+
+// ── Hourly Activity Chart ───────────────────────────────────────────────
+
+function renderHourlyChart(hourly) {
+  const container = document.getElementById('hourlyChart');
+  if (!hourly || !hourly.length) {
+    container.innerHTML = '<div class="empty-state">No hourly data yet</div>';
+    return;
+  }
+
+  // Group by hour, aggregate per backend
+  const hours = {};
+  const backends = new Set();
+  hourly.forEach(h => {
+    if (!hours[h.hour]) hours[h.hour] = {};
+    hours[h.hour][h.backend] = (hours[h.hour][h.backend] || 0) + h.requests;
+    backends.add(h.backend);
+  });
+
+  const sortedHours = Object.keys(hours).sort();
+  const maxReqs = Math.max(...sortedHours.map(h => {
+    return Object.values(hours[h]).reduce((a, b) => a + b, 0);
+  }), 1);
+
+  const barWidth = Math.max(16, Math.min(40, Math.floor(800 / sortedHours.length)));
+
+  const bars = sortedHours.map(hour => {
+    const data = hours[hour];
+    const total = Object.values(data).reduce((a, b) => a + b, 0);
+    const barHeight = Math.max(4, (total / maxReqs) * 120);
+
+    // Stacked segments
+    const segments = [];
+    let offset = 0;
+    for (const backend of backends) {
+      const val = data[backend] || 0;
+      if (val > 0) {
+        const segH = (val / total) * barHeight;
+        const color = BACKEND_COLORS[backend] || '#6c5ce7';
+        segments.push(`<div style="height:${segH}px;background:${color};width:100%;opacity:0.85" title="${backend}: ${val} reqs"></div>`);
+        offset += segH;
+      }
+    }
+
+    const hLabel = hour.slice(11, 16); // "HH:MM"
+    const tooltip = Object.entries(data).map(([b, r]) => `${b}: ${r}`).join(', ');
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0">
+      <div style="display:flex;flex-direction:column-reverse;height:120px;width:${barWidth - 2}px;justify-content:flex-start;border-radius:3px;overflow:hidden" title="${hour}\n${tooltip}">
+        ${segments.join('')}
+      </div>
+      <span style="font-size:8px;color:var(--text-dim);transform:rotate(-45deg);white-space:nowrap">${hLabel}</span>
+    </div>`;
+  });
+
+  // Legend
+  const legend = [...backends].map(b => {
+    const color = BACKEND_COLORS[b] || '#6c5ce7';
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text-dim)"><span style="width:8px;height:8px;border-radius:2px;background:${color};display:inline-block"></span>${b}</span>`;
+  }).join(' &nbsp; ');
+
+  container.innerHTML = `
+    <div style="display:flex;gap:2px;align-items:flex-end;min-height:150px;padding-bottom:20px">${bars.join('')}</div>
+    <div style="margin-top:8px">${legend}</div>
+  `;
+}
+
+// ── Drill-down modals ────────────────────────────────────────────────────
+
+async function showBackendDrilldown(backend) {
+  const modal = document.getElementById('modalOverlay');
+  const title = document.getElementById('modalTitle');
+  const body = document.getElementById('modalBody');
+
+  const prov = PROVIDERS[backend] || {label: backend, icon: ''};
+  title.textContent = `${prov.icon} ${prov.label} — Backend Detail`;
+  body.innerHTML = '<div class="loading">Loading...</div>';
+  modal.classList.add('active');
+
+  try {
+    const hours = getHours();
+    const stats = await fetchJSON(`${API}/api/dashboard?hours=${hours}`);
+
+    // Find models for this backend
+    const models = (stats.by_model || []).filter(m => m.backend === backend);
+    const backendInfo = (stats.by_backend || []).find(b => b.backend === backend) || {};
+    const totalIn = backendInfo.input_tokens || 0;
+    const totalOut = backendInfo.output_tokens || 0;
+    const totalReqs = backendInfo.requests || 0;
+    const color = BACKEND_COLORS[backend] || '#6c5ce7';
+
+    // Health status
+    let healthHtml = '';
+    try {
+      const health = await fetchJSON(`${API}/api/health`);
+      const bh = (health.backends || {})[backend];
+      if (bh) {
+        const dot = bh.status === 'healthy' ? '🟢' : bh.status === 'degraded' ? '🟡' : '🔴';
+        healthHtml = `<div style="margin-bottom:12px">
+          ${dot} <strong>${bh.status}</strong>
+          ${bh.latency_ms ? ` &middot; ${Math.round(bh.latency_ms)}ms latency` : ''}
+          ${bh.circuit_breaker ? ` &middot; CB: ${bh.circuit_breaker}` : ''}
+        </div>`;
+      }
+    } catch(e) {}
+
+    const maxReqs = Math.max(...models.map(m => m.requests), 1);
+    const modelRows = models.length ? models.map(m => {
+      const pct = (m.requests / maxReqs) * 100;
+      const lat = m.avg_latency_ms ? `${Math.round(m.avg_latency_ms)}ms` : '-';
+      return `<div class="bar-row" style="margin:4px 0">
+        <div class="bar-label" style="min-width:160px"><span class="model-tag backend-${backend}">${m.model_alias}</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+        <div class="bar-value" style="min-width:200px">${m.requests} reqs &middot; ${fmt(m.input_tokens||0)} in / ${fmt(m.output_tokens||0)} out &middot; ${lat} &middot; ${fmtCost(m.cost_usd)}</div>
+      </div>`;
+    }).join('') : '<div class="empty-state">No model breakdown available</div>';
+
+    // Hourly activity for this backend
+    const hourlyData = (stats.hourly || []).filter(h => h.backend === backend);
+    let hourlyHtml = '';
+    if (hourlyData.length) {
+      const hourMap = {};
+      hourlyData.forEach(h => { hourMap[h.hour] = (hourMap[h.hour] || 0) + h.requests; });
+      const sortedH = Object.keys(hourMap).sort();
+      const maxH = Math.max(...Object.values(hourMap), 1);
+      const bw = Math.max(12, Math.min(24, Math.floor(600 / sortedH.length)));
+      const hBars = sortedH.map(h => {
+        const v = hourMap[h];
+        const ht = Math.max(3, (v / maxH) * 60);
+        return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex-shrink:0" title="${h}: ${v} reqs">
+          <div style="height:${ht}px;width:${bw - 2}px;background:${color};border-radius:2px;opacity:0.8"></div>
+          <span style="font-size:7px;color:var(--text-dim);transform:rotate(-45deg);white-space:nowrap">${h.slice(11,16)}</span>
+        </div>`;
+      });
+      hourlyHtml = `<h3 style="font-size:13px;color:var(--text-dim);margin:16px 0 8px">Hourly Requests (last 48h)</h3>
+        <div style="display:flex;gap:1px;align-items:flex-end;min-height:80px;padding-bottom:16px;overflow-x:auto">${hBars.join('')}</div>`;
+    }
+
+    body.innerHTML = `
+      ${healthHtml}
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+        <div class="stat-card" style="padding:12px"><div class="label">Requests</div><div class="value" style="font-size:20px">${fmt(totalReqs)}</div></div>
+        <div class="stat-card" style="padding:12px"><div class="label">Input Tokens</div><div class="value token-num" style="font-size:20px">${fmt(totalIn)}</div></div>
+        <div class="stat-card" style="padding:12px"><div class="label">Output Tokens</div><div class="value token-num" style="font-size:20px">${fmt(totalOut)}</div></div>
+        <div class="stat-card" style="padding:12px"><div class="label">Cost (est.)</div><div class="value" style="font-size:20px">${fmtCost(backendInfo.cost_usd)}</div></div>
+      </div>
+      ${hourlyHtml}
+      <h3 style="font-size:13px;color:var(--text-dim);margin-bottom:8px">Models (${models.length})</h3>
+      ${modelRows}
+    `;
+  } catch(e) {
+    body.innerHTML = `<div class="empty-state">Error: ${e.message}</div>`;
+  }
+}
+
+function showModelDrilldown(idx) {
+  const m = (window._modelData || [])[idx];
+  if (!m) return;
+
+  const modal = document.getElementById('modalOverlay');
+  const title = document.getElementById('modalTitle');
+  const body = document.getElementById('modalBody');
+
+  const color = BACKEND_COLORS[m.backend] || '#6c5ce7';
+  title.textContent = `${m.model_alias} — Model Detail`;
+  modal.classList.add('active');
+
+  const inTok = m.input_tokens || 0;
+  const outTok = m.output_tokens || 0;
+  const totalTok = inTok + outTok;
+  const inPct = totalTok > 0 ? ((inTok / totalTok) * 100).toFixed(1) : '0';
+  const outPct = totalTok > 0 ? ((outTok / totalTok) * 100).toFixed(1) : '0';
+  const avgTokPerReq = m.requests > 0 ? Math.round(totalTok / m.requests) : 0;
+  const isClaude = m._is_claude_code;
+
+  body.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+      <span class="model-tag backend-${m.backend}" style="font-size:13px">${m.backend}</span>
+      ${isClaude ? '<span style="color:var(--accent5);font-size:11px">via Claude Code (direct)</span>' : '<span style="color:var(--text-dim);font-size:11px">via gateway proxy</span>'}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+      <div class="stat-card" style="padding:12px"><div class="label">Requests</div><div class="value" style="font-size:20px">${fmt(m.requests)}</div></div>
+      <div class="stat-card" style="padding:12px"><div class="label">Avg Latency</div><div class="value" style="font-size:20px">${m.avg_latency_ms ? Math.round(m.avg_latency_ms) + 'ms' : '-'}</div></div>
+      <div class="stat-card" style="padding:12px"><div class="label">Total Tokens</div><div class="value token-num" style="font-size:20px">${fmt(totalTok)}</div></div>
+      <div class="stat-card" style="padding:12px"><div class="label">Cost</div><div class="value" style="font-size:20px">${fmtCost(m.cost_usd)}</div></div>
+    </div>
+    <h3 style="font-size:13px;color:var(--text-dim);margin-bottom:8px">Token Breakdown</h3>
+    <div style="display:flex;gap:4px;height:24px;border-radius:6px;overflow:hidden;margin-bottom:8px">
+      <div style="width:${inPct}%;background:${color};opacity:0.8" title="Input: ${fmt(inTok)}"></div>
+      <div style="width:${outPct}%;background:${color};opacity:0.4" title="Output: ${fmt(outTok)}"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);margin-bottom:16px">
+      <span>Input: ${fmt(inTok)} (${inPct}%)</span>
+      <span>Output: ${fmt(outTok)} (${outPct}%)</span>
+    </div>
+    <div style="font-size:11px;color:var(--text-dim)">
+      Avg tokens/request: ${fmt(avgTokPerReq)}
+    </div>
+  `;
 }
 
 function closeModal(event) {

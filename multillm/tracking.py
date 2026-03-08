@@ -30,6 +30,7 @@ COST_TABLE = {
     "ollama":       {"input": 0.0,    "output": 0.0},
     "lmstudio":     {"input": 0.0,    "output": 0.0},
     "codex_cli":    {"input": 0.0,    "output": 0.0},
+    "gemini_cli":   {"input": 0.0,    "output": 0.0},
     "openrouter":   {"input": 2.50,   "output": 10.0},
     "openai":       {"input": 2.50,   "output": 10.0},
     "anthropic":    {"input": 3.0,    "output": 15.0},
@@ -282,6 +283,37 @@ def update_streaming_usage(
     log.debug("Updated streaming usage %s: in=%d out=%d", usage_id, input_tokens, output_tokens)
 
 
+def get_recent_backend_latency(
+    backend: str,
+    minutes: int = 30,
+    limit: int = 20,
+) -> Optional[float]:
+    """Return average recent latency for a backend, or None if no samples exist.
+
+    Uses the most recent successful-ish requests so adaptive routing can favor
+    backends that are actually responding faster right now.
+    """
+    since = time.time() - (minutes * 60)
+    with _get_db() as conn:
+        rows = conn.execute(
+            """SELECT latency_ms
+               FROM usage
+               WHERE backend = ?
+                 AND timestamp > ?
+                 AND latency_ms > 0
+                 AND status NOT IN ('error', 'cache_hit')
+               ORDER BY timestamp DESC
+               LIMIT ?""",
+            (backend, since, limit),
+        ).fetchall()
+
+    if not rows:
+        return None
+
+    samples = [float(row["latency_ms"]) for row in rows]
+    return sum(samples) / len(samples)
+
+
 # ── Session Queries ──────────────────────────────────────────────────────────
 
 def get_active_sessions() -> list[dict]:
@@ -402,12 +434,27 @@ def get_dashboard_stats(hours: int = 720) -> dict:
             "SELECT COUNT(*) FROM sessions WHERE started_at > ?", (since,),
         ).fetchone()
 
+        # Hourly breakdown (last 48 hours max)
+        hourly_since = max(since, time.time() - 48 * 3600)
+        hourly = conn.execute(
+            """SELECT strftime('%Y-%m-%d %H:00', timestamp, 'unixepoch', 'localtime') as hour,
+                      backend,
+                      COUNT(*) as requests,
+                      COALESCE(SUM(input_tokens), 0) as input_tokens,
+                      COALESCE(SUM(output_tokens), 0) as output_tokens,
+                      COALESCE(SUM(cost_estimate_usd), 0) as cost_usd
+               FROM usage WHERE timestamp > ?
+               GROUP BY hour, backend ORDER BY hour ASC""",
+            (hourly_since,),
+        ).fetchall()
+
     return {
         "totals": dict(totals) if totals else {},
         "session_count": session_count[0] if session_count else 0,
         "by_backend": [dict(r) for r in by_backend],
         "by_model": [dict(r) for r in by_model],
         "daily": [dict(r) for r in daily],
+        "hourly": [dict(r) for r in hourly],
     }
 
 

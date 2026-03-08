@@ -24,13 +24,20 @@ class CodexCLIAdapter(BaseAdapter):
         else:
             profile = os.getenv("CODEX_DEFAULT_PROFILE", "gpt-5-4")
 
+        # Per-request sandbox override via metadata, else env var, else default
+        metadata = body.get("metadata", {})
+        sandbox = metadata.get("sandbox_mode") or os.getenv("CODEX_SANDBOX", "read-only")
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                "codex", "-q", "--full-auto", "-p", profile, prompt,
+                "codex", "exec", "--full-auto", "-s", sandbox, "-p", profile, "-",
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=prompt.encode("utf-8")), timeout=180
+            )
             text = stdout.decode("utf-8", errors="replace").strip()
             if proc.returncode != 0 and not text:
                 text = f"Codex CLI error (rc={proc.returncode}): {stderr.decode('utf-8', errors='replace')[:500]}"
@@ -45,6 +52,5 @@ class CodexCLIAdapter(BaseAdapter):
         )
 
     async def stream(self, body: dict, model: str, model_alias: str):
-        # Codex CLI doesn't support streaming — return non-streaming as JSON
         result = await self.send(body, model, model_alias)
         return JSONResponse(result)
