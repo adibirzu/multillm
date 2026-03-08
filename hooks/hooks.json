@@ -4,7 +4,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "$HOME/dev/multillm/hooks/start-gateway.sh",
+          "command": "./hooks/start-gateway.sh",
           "timeout": 15,
           "statusMessage": "Starting MultiLLM gateway..."
         }
