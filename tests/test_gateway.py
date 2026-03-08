@@ -25,7 +25,7 @@ class TestHealthEndpoint:
     def test_health_shows_all_backends(self):
         response = client.get("/health")
         backends = response.json()["backends"]
-        expected = {"ollama", "lmstudio", "oca", "gemini", "openai", "anthropic", "openrouter", "codex_cli"}
+        expected = {"ollama", "lmstudio", "oca", "gemini", "openai", "anthropic", "openrouter", "codex_cli", "gemini_cli"}
         assert expected == set(backends.keys())
 
 
@@ -117,6 +117,7 @@ class TestMessagesEndpoint:
         })
         assert response.status_code == 400
 
+    @patch("multillm.gateway.ANTHROPIC_KEY", "test-key")
     @patch("multillm.gateway._call_anthropic_real")
     def test_claude_model_passthrough(self, mock_anthropic):
         mock_response = make_anthropic_response("Hi from Claude", "claude-sonnet-4-6", 10, 5)

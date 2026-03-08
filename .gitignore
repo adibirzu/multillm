@@ -28,6 +28,9 @@ venv/
 .aws/
 .azure/
 
+# Claude Code (user-local)
+.claude/
+
 # IDE
 .vscode/
 .idea/
@@ -46,3 +49,4 @@ coverage.xml
 # OS
 .DS_Store
 Thumbs.db
+.orphaned_at

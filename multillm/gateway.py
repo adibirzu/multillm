@@ -15,6 +15,8 @@ import asyncio
 import json
 import logging
 import os
+import random
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -58,21 +60,21 @@ from .adapters.setup import register_all_adapters
 from .tracking import (
     record_usage, get_usage_summary, get_project_summary,
     get_sessions, get_session_detail, get_dashboard_stats, get_active_sessions,
-    init_otel, trace_llm_call, record_otel_metrics,
+    init_otel, trace_llm_call, record_otel_metrics, get_recent_backend_latency,
 )
 from .discovery import discover_all_models, discovered_to_routes
 from .caching import cache_search, cache_store, get_cache_stats, LANGCACHE_ENABLED
 from .claude_stats import get_claude_code_stats
 from .http_pool import get_client, close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
-from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker
+from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker, calculate_backend_score
 from .rate_limit import (
     check_rate_limit, acquire_concurrent, release_concurrent,
     get_client_id, is_rate_limiting_enabled, rate_limit_status,
 )
 from .health import (
     start_health_checks, stop_health_checks, check_all_backends,
-    all_health_status, is_backend_healthy,
+    all_health_status, is_backend_healthy, get_health,
 )
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -329,23 +331,43 @@ async def _call_codex_cli(body: dict, model_alias: str = "codex/cli") -> dict:
         prompt = prompt[:10000] + "\n...(truncated)"
 
     # Determine profile from route model field (e.g. "codex:gpt-5-4" → "-p gpt-5-4")
-    # Default to gpt-5-4 profile (OCA provider) if no profile specified
     route_model = body.get("_route_model", "")
     if route_model.startswith("codex:"):
         profile = route_model.split(":", 1)[1]
     else:
         profile = os.getenv("CODEX_DEFAULT_PROFILE", "gpt-5-4")
 
+    # Per-request sandbox override via metadata, else env var, else default
+    metadata = body.get("metadata", {})
+    sandbox = metadata.get("sandbox_mode") or os.getenv("CODEX_SANDBOX", "read-only")
+
     try:
+        # Pipe prompt via stdin with "-" to avoid CLI argument length limits
         proc = await asyncio.create_subprocess_exec(
-            "codex", "-q", "--full-auto", "-p", profile, prompt,
+            "codex", "exec", "--full-auto", "-s", sandbox, "-p", profile, "-",
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
-        text = stdout.decode("utf-8", errors="replace").strip()
-        if proc.returncode != 0 and not text:
-            text = f"Codex CLI error (rc={proc.returncode}): {stderr.decode('utf-8', errors='replace')[:500]}"
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=prompt.encode("utf-8")), timeout=180
+        )
+        raw_out = stdout.decode("utf-8", errors="replace").strip()
+        raw_err = stderr.decode("utf-8", errors="replace").strip()
+        # Codex CLI outputs response to stdout; stderr has session banner + logs
+        # On rc=1 with empty stdout, try to extract text from stderr after the banner
+        text = raw_out
+        if not text and raw_err:
+            # Skip the session banner (everything before "--------\nuser\n")
+            parts = raw_err.split("--------\nuser\n", 1)
+            if len(parts) > 1:
+                # After the user prompt echo, look for assistant response
+                after_prompt = parts[1]
+                lines = after_prompt.split("\n")
+                # Skip the echoed prompt lines, take the rest
+                text = "\n".join(lines).strip()
+            if not text:
+                text = f"Codex CLI error (rc={proc.returncode}): {raw_err[:500]}"
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Codex CLI timed out after 180s")
     except FileNotFoundError:
@@ -354,6 +376,69 @@ async def _call_codex_cli(body: dict, model_alias: str = "codex/cli") -> dict:
     return make_anthropic_response(
         text=text, model=model_alias,
         input_tokens=len(prompt) // 4, output_tokens=len(text) // 4,
+    )
+
+
+async def _call_gemini_cli(body: dict, model_alias: str = "gemini-cli/default") -> dict:
+    prompt = extract_text_from_anthropic(body)
+    if len(prompt) > 10000:
+        prompt = prompt[:10000] + "\n...(truncated)"
+
+    route_model = body.get("_route_model", "")
+    model_flag = []
+    if route_model.startswith("gemini-cli:"):
+        gemini_model = route_model.split(":", 1)[1]
+        if gemini_model:
+            model_flag = ["-m", gemini_model]
+
+    gemini_bin = os.getenv("GEMINI_CLI_PATH", "gemini")
+
+    # Per-request approval mode override via metadata, else env var, else yolo
+    metadata = body.get("metadata", {})
+    approval = metadata.get("sandbox_mode") or os.getenv("GEMINI_APPROVAL_MODE", "yolo")
+    approval_flag = ["--approval-mode", approval] if approval != "yolo" else ["--yolo"]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            gemini_bin, "-p", prompt, "-o", "json",
+            *approval_flag, *model_flag,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+        raw = stdout.decode("utf-8", errors="replace").strip()
+
+        json_start = raw.find("{")
+        if json_start >= 0:
+            try:
+                import json as _json
+                data = _json.loads(raw[json_start:])
+                text = data.get("response", "")
+                input_tokens = 0
+                output_tokens = 0
+                for m_stats in data.get("stats", {}).get("models", {}).values():
+                    tokens = m_stats.get("tokens", {})
+                    input_tokens += tokens.get("input", 0)
+                    output_tokens += tokens.get("candidates", 0)
+            except (ValueError, KeyError):
+                text = raw
+                input_tokens = len(prompt) // 4
+                output_tokens = len(text) // 4
+        else:
+            text = raw
+            input_tokens = len(prompt) // 4
+            output_tokens = len(text) // 4
+
+        if proc.returncode != 0 and not text:
+            text = f"Gemini CLI error (rc={proc.returncode}): {stderr.decode('utf-8', errors='replace')[:500]}"
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Gemini CLI timed out after 180s")
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Gemini CLI not found. Install: npm i -g @google/gemini-cli")
+
+    return make_anthropic_response(
+        text=text, model=model_alias,
+        input_tokens=input_tokens, output_tokens=output_tokens,
     )
 
 
@@ -449,7 +534,7 @@ CLOUD_BACKENDS = {
     "azure_openai", "bedrock",
 }
 # Backends that work offline
-LOCAL_BACKENDS = {"ollama", "lmstudio", "codex_cli"}
+LOCAL_BACKENDS = {"ollama", "lmstudio", "codex_cli", "gemini_cli"}
 
 # Errors that should trigger fallback to local
 FALLBACK_ERRORS = (
@@ -476,6 +561,129 @@ def _get_fallback_model() -> tuple[str, dict]:
         if route["backend"] == "ollama":
             return alias, route
     return "ollama/llama3", {"backend": "ollama", "model": "llama3"}
+
+
+def _normalize_family_name(value: str) -> str:
+    """Normalize model family names so cross-backend aliases can be compared."""
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def _route_family(model_alias: str, route: Optional[dict] = None) -> str:
+    """Return a backend-agnostic family key for a route alias."""
+    if route and route.get("family"):
+        return _normalize_family_name(str(route["family"]))
+
+    alias_family = model_alias.split("/", 1)[1] if "/" in model_alias else model_alias
+    return _normalize_family_name(alias_family)
+
+
+def score_backend(backend: str) -> dict:
+    """Score a backend from 0.0-1.0 using latency, breaker failures, and health.
+
+    Returns a decomposed score dict from ``calculate_backend_score`` that
+    includes the overall score *and* the per-component breakdown so callers
+    can inspect or log the decision.
+    """
+    breaker = get_breaker(backend)
+    health = get_health(backend)
+    breaker_status = breaker.status()
+
+    return calculate_backend_score(
+        health_status=health.status,
+        breaker_available=breaker.is_available,
+        breaker_state=breaker.state,
+        breaker_failures=breaker_status["failures"],
+        breaker_threshold=breaker.failure_threshold,
+        recent_latency_ms=get_recent_backend_latency(backend),
+    )
+
+
+_SCORE_MIN_VIABLE = 0.1  # backends scoring below this are excluded
+
+
+def _weighted_random_select(
+    candidates: list[tuple[str, dict, dict]],
+    original_alias: str,
+    original_route: dict,
+) -> tuple[str, dict, dict]:
+    """Power-of-two-choices weighted random selection among viable backends.
+
+    Filters out backends below ``_SCORE_MIN_VIABLE``, then picks two at random
+    (weighted by score) and returns the better one.  This prevents thundering
+    herd when multiple backends have near-identical scores.
+
+    Falls back to deterministic max when there is only one viable candidate.
+    """
+    viable = [(a, r, info) for a, r, info in candidates if info["score"] >= _SCORE_MIN_VIABLE]
+    if not viable:
+        # All scores are low — fall back to best of all candidates
+        viable = candidates
+
+    if len(viable) == 1:
+        return viable[0]
+
+    scores = [info["score"] for _, _, info in viable]
+    # Pick two candidates weighted by score, then take the better one
+    chosen_pair = random.choices(viable, weights=scores, k=min(2, len(viable)))
+    return max(chosen_pair, key=lambda item: (
+        item[2]["score"],
+        item[0] == original_alias,
+        item[1].get("backend") == original_route.get("backend"),
+    ))
+
+
+def _select_route(model_alias: str) -> tuple[str, dict]:
+    """Resolve the requested model alias to the best route.
+
+    Provider-qualified aliases such as `openai/gpt-4o` are respected as-is.
+    Unqualified family aliases such as `claude-sonnet` can adapt across all
+    matching backends using weighted random selection (power of two choices).
+    """
+    route = ROUTES.get(model_alias)
+
+    if not route:
+        if model_alias.startswith("claude-"):
+            return model_alias, {"backend": "anthropic", "model": model_alias}
+        raise HTTPException(status_code=400, detail=f"Unknown model alias: {model_alias}")
+
+    if "/" in model_alias:
+        return model_alias, route
+
+    family = _route_family(model_alias, route)
+    candidates: list[tuple[str, dict, dict]] = []
+    for alias, candidate_route in ROUTES.items():
+        if _route_family(alias, candidate_route) != family:
+            continue
+        candidates.append((alias, candidate_route, score_backend(candidate_route["backend"])))
+
+    if not candidates:
+        return model_alias, route
+
+    selected_alias, selected_route, selected_info = _weighted_random_select(
+        candidates, model_alias, route,
+    )
+
+    if len(candidates) > 1:
+        candidate_summary = ", ".join(
+            f"{alias}={info['score']:.3f}" for alias, _, info in sorted(
+                candidates, key=lambda item: item[2]["score"], reverse=True,
+            )
+        )
+        log.info(
+            "Adaptive route [%s] family=%s selected=%s backend=%s score=%.3f "
+            "decomposition=health:%.2f/latency:%.2f/error:%.2f candidates=[%s]",
+            model_alias,
+            family,
+            selected_alias,
+            selected_route["backend"],
+            selected_info["score"],
+            selected_info["health_score"],
+            selected_info["latency_score"],
+            selected_info["error_score"],
+            candidate_summary,
+        )
+
+    return selected_alias, selected_route
 
 
 async def _check_ollama_available() -> bool:
@@ -541,6 +749,12 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         result = await _call_codex_cli(body, model_alias)
         return JSONResponse(result)
 
+    elif backend == "gemini_cli":
+        # Gemini CLI doesn't support streaming — fall back to non-streaming
+        body["_route_model"] = real_model
+        result = await _call_gemini_cli(body, model_alias)
+        return JSONResponse(result)
+
     elif backend in OPENAI_COMPAT_BACKENDS:
         cfg = OPENAI_COMPAT_BACKENDS[backend]
         key = cfg["key_fn"]()
@@ -603,6 +817,9 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
     elif backend == "codex_cli":
         body["_route_model"] = real_model
         return await _call_codex_cli(body, model_alias)
+    elif backend == "gemini_cli":
+        body["_route_model"] = real_model
+        return await _call_gemini_cli(body, model_alias)
     elif backend in OPENAI_COMPAT_BACKENDS:
         return await _call_openai_compat_backend(backend, real_model, body)
     elif backend == "azure_openai":
@@ -613,25 +830,32 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
     raise HTTPException(status_code=500, detail=f"Unknown backend: {backend}")
 
 
-async def route_request(body: dict) -> dict:
-    model_alias = body.get("model", "ollama/llama3")
-    route = ROUTES.get(model_alias)
+async def route_request(body: dict, model_alias: Optional[str] = None, route: Optional[dict] = None) -> dict:
+    requested_alias = body.get("model", "ollama/llama3")
+    if route is None or model_alias is None:
+        model_alias, route = _select_route(requested_alias)
 
-    if not route:
-        if model_alias.startswith("claude-"):
+    if route is None:
+        if requested_alias.startswith("claude-"):
             return await _call_anthropic_real(body)
-        raise HTTPException(status_code=400, detail=f"Unknown model alias: {model_alias}")
+        raise HTTPException(status_code=400, detail=f"Unknown model alias: {requested_alias}")
 
     backend = route["backend"]
     real_model = route["model"]
-    log.info("Routing [%s] -> backend=%s model=%s", model_alias, backend, real_model)
+    log.info(
+        "Routing requested=%s selected=%s backend=%s model=%s",
+        requested_alias,
+        model_alias,
+        backend,
+        real_model,
+    )
 
     # Skip unhealthy backends early — raise so fallback handler catches it
     if not is_backend_healthy(backend):
         raise BackendUnavailableError(f"Backend '{backend}' is unhealthy")
 
-    # Wrap in retry + circuit breaker (skip for codex_cli — subprocess-based)
-    if backend == "codex_cli":
+    # Wrap in retry + circuit breaker (skip for CLI-based backends — subprocess-based)
+    if backend in ("codex_cli", "gemini_cli"):
         return await _route_single_request(body, backend, real_model, model_alias)
 
     return await with_retry(
@@ -664,55 +888,49 @@ async def messages(request: Request):
         client_id = None
 
     body = await request.json()
-    model_alias = body.get("model", "ollama/llama3")
+    requested_alias = body.get("model", "ollama/llama3")
     is_streaming = body.get("stream", False)
-    route = ROUTES.get(model_alias, {})
+    effective_alias, route = _select_route(requested_alias)
     backend = route.get("backend", "unknown")
     request_id = f"req_{uuid.uuid4().hex[:12]}"
 
-    # If model not in routes, check if it's a claude- model for passthrough
-    if not route and model_alias.startswith("claude-"):
-        route = {"backend": "anthropic", "model": model_alias}
-        backend = "anthropic"
-
     log.info(
-        "Request rid=%s model=%s backend=%s stream=%s project=%s",
-        request_id, model_alias, backend, is_streaming, PROJECT,
+        "Request rid=%s requested=%s selected=%s backend=%s stream=%s project=%s",
+        request_id, requested_alias, effective_alias, backend, is_streaming, PROJECT,
     )
     t0 = time.time()
     used_fallback = False
-    effective_alias = model_alias
     effective_backend = backend
     effective_route = route
 
-    with trace_llm_call(model_alias, backend, PROJECT):
+    with trace_llm_call(effective_alias, backend, PROJECT):
         try:
             # ── Cache lookup (non-streaming only) ────────────────────
             if not is_streaming and LANGCACHE_ENABLED:
-                cached = await cache_search(body, model_alias, backend, PROJECT)
+                cached = await cache_search(body, effective_alias, backend, PROJECT)
                 if cached:
                     elapsed_ms = (time.time() - t0) * 1000
-                    log.info("CACHE HIT model=%s ms=%.0f", model_alias, elapsed_ms)
+                    log.info("CACHE HIT model=%s ms=%.0f", effective_alias, elapsed_ms)
                     record_usage(
-                        project=PROJECT, model_alias=model_alias, backend=backend,
-                        real_model=route.get("model", model_alias),
+                        project=PROJECT, model_alias=effective_alias, backend=backend,
+                        real_model=route.get("model", effective_alias),
                         input_tokens=0, output_tokens=0,
                         latency_ms=elapsed_ms, status="cache_hit",
                     )
                     return JSONResponse(cached)
 
             if is_streaming:
-                response = await route_streaming(body, route, model_alias)
+                response = await route_streaming(body, route, effective_alias)
                 elapsed_ms = (time.time() - t0) * 1000
                 record_usage(
                     project=PROJECT, model_alias=effective_alias, backend=effective_backend,
-                    real_model=effective_route.get("model", model_alias),
+                    real_model=effective_route.get("model", effective_alias),
                     input_tokens=0, output_tokens=0,
                     latency_ms=elapsed_ms, status="streaming",
                 )
                 return response
 
-            result = await route_request(body)
+            result = await route_request(body, model_alias=effective_alias, route=route)
             elapsed_ms = (time.time() - t0) * 1000
             usage = result.get("usage", {})
             in_tok = usage.get("input_tokens", 0)
@@ -720,19 +938,19 @@ async def messages(request: Request):
 
             log.info(
                 "rid=%s model=%s backend=%s ms=%.0f in=%d out=%d",
-                request_id, model_alias, backend, elapsed_ms, in_tok, out_tok,
+                request_id, effective_alias, backend, elapsed_ms, in_tok, out_tok,
             )
 
             record_usage(
-                project=PROJECT, model_alias=model_alias, backend=backend,
-                real_model=route.get("model", model_alias),
+                project=PROJECT, model_alias=effective_alias, backend=backend,
+                real_model=route.get("model", effective_alias),
                 input_tokens=in_tok, output_tokens=out_tok, latency_ms=elapsed_ms,
             )
 
             # ── Cache store (async, non-blocking) ────────────────────
             if LANGCACHE_ENABLED:
-                asyncio.create_task(cache_store(body, result, model_alias, backend, PROJECT))
-            record_otel_metrics(model_alias, backend, PROJECT, in_tok, out_tok, elapsed_ms)
+                asyncio.create_task(cache_store(body, result, effective_alias, backend, PROJECT))
+            record_otel_metrics(effective_alias, backend, PROJECT, in_tok, out_tok, elapsed_ms)
 
             return JSONResponse(result)
 
@@ -780,7 +998,7 @@ async def messages(request: Request):
                     # Add fallback notice to response
                     content = result.get("content", [])
                     if content and content[0].get("type") == "text":
-                        notice = f"\n\n---\n*[Fallback: {model_alias} unavailable, used {fb_alias}]*"
+                        notice = f"\n\n---\n*[Fallback: {requested_alias} unavailable, used {fb_alias}]*"
                         content[0]["text"] += notice
 
                     log.info(
@@ -803,7 +1021,7 @@ async def messages(request: Request):
             # No fallback possible — raise the original error
             elapsed_ms = (time.time() - t0) * 1000
             record_usage(
-                project=PROJECT, model_alias=model_alias, backend=backend,
+                project=PROJECT, model_alias=effective_alias, backend=backend,
                 real_model=route.get("model", ""), input_tokens=0, output_tokens=0,
                 latency_ms=elapsed_ms, status="error",
             )
@@ -861,6 +1079,17 @@ async def health():
         backends["codex_cli"] = "available" if stdout.strip() else "not found"
     except Exception:
         backends["codex_cli"] = "not found"
+
+    # Gemini CLI
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "which", "gemini",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        backends["gemini_cli"] = "available" if stdout.strip() else "not found"
+    except Exception:
+        backends["gemini_cli"] = "not found"
 
     return {"status": "ok", "backends": backends, "routes": len(ROUTES), "project": PROJECT}
 
@@ -1093,6 +1322,102 @@ async def trigger_health_check():
     """Force an immediate health check of all backends."""
     await check_all_backends()
     return {"status": "ok", "backends": all_health_status()}
+
+
+@app.get("/api/routing/scores")
+async def routing_scores():
+    """Return current adaptive routing scores for all backends with decomposition."""
+    seen_backends: set[str] = set()
+    scores: dict[str, dict] = {}
+    for alias, route in ROUTES.items():
+        backend = route.get("backend", "unknown")
+        if backend in seen_backends:
+            continue
+        seen_backends.add(backend)
+        scores[backend] = score_backend(backend)
+    return {"backends": scores}
+
+
+@app.get("/api/auth")
+async def auth_status():
+    """Return auth status for each backend with login instructions."""
+    backends = {}
+
+    # API-key backends
+    api_key_backends = {
+        "openai": ("OPENAI_API_KEY", OPENAI_KEY),
+        "anthropic": ("ANTHROPIC_REAL_KEY", ANTHROPIC_KEY),
+        "openrouter": ("OPENROUTER_API_KEY", OPENROUTER_KEY),
+        "gemini": ("GEMINI_API_KEY or GOOGLE_API_KEY", GEMINI_KEY),
+        "groq": ("GROQ_API_KEY", GROQ_KEY),
+        "deepseek": ("DEEPSEEK_API_KEY", DEEPSEEK_KEY),
+        "mistral": ("MISTRAL_API_KEY", MISTRAL_KEY),
+        "together": ("TOGETHER_API_KEY", TOGETHER_KEY),
+        "xai": ("XAI_API_KEY", XAI_KEY),
+        "fireworks": ("FIREWORKS_API_KEY", FIREWORKS_KEY),
+    }
+    for name, (env_var, key_val) in api_key_backends.items():
+        backends[name] = {
+            "authenticated": bool(key_val),
+            "method": "api_key",
+            "env_var": env_var,
+            "action": None if key_val else f"export {env_var}=<your-key>",
+        }
+
+    # Azure OpenAI
+    backends["azure_openai"] = {
+        "authenticated": bool(AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT),
+        "method": "api_key",
+        "env_var": "AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT",
+        "action": None if (AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT) else
+            "export AZURE_OPENAI_API_KEY=<key> AZURE_OPENAI_ENDPOINT=<url>",
+    }
+
+    # AWS Bedrock
+    backends["bedrock"] = {
+        "authenticated": bool(AWS_BEDROCK_REGION),
+        "method": "aws_profile",
+        "env_var": "AWS_BEDROCK_REGION + AWS_PROFILE or AWS_BEDROCK_PROFILE",
+        "action": None if AWS_BEDROCK_REGION else
+            "export AWS_BEDROCK_REGION=us-east-1 AWS_PROFILE=<profile>",
+    }
+
+    # OCA (OAuth PKCE)
+    token = await get_oca_bearer_token()
+    backends["oca"] = {
+        "authenticated": bool(token),
+        "method": "oauth_pkce",
+        "action": None if token else "Run: oca login",
+        "token_status": "valid" if token else "expired_or_missing",
+    }
+
+    # CLI-based backends
+    for cli_name, cli_bin in [("codex_cli", "codex"), ("gemini_cli", "gemini")]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "which", cli_bin,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+            available = bool(stdout.strip())
+        except Exception:
+            available = False
+        backends[cli_name] = {
+            "authenticated": available,
+            "method": "cli_binary",
+            "action": None if available else f"Install: npm i -g @{'openai' if cli_name == 'codex_cli' else 'google'}/{cli_bin}",
+        }
+
+    # Local backends (no auth needed)
+    for local in ["ollama", "lmstudio"]:
+        backends[local] = {
+            "authenticated": True,
+            "method": "local",
+            "action": None,
+            "note": "No authentication required — connect to local service",
+        }
+
+    return {"backends": backends}
 
 
 @app.post("/api/discover")
