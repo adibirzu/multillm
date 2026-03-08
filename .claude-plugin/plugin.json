@@ -1,13 +1,40 @@
 {
     "name": "multillm",
-    "version": "0.5.0",
-    "description": "Multi-LLM gateway with 16+ backends, model discovery, session tracking, usage dashboard, and cross-LLM memory. Uses direct HTTP API calls — no MCP server required.",
+    "version": "0.6.0",
+    "description": "Route Claude Code to 16+ LLM backends through one gateway. Token tracking, cost dashboard, shared memory, model discovery, and slash commands — all local.",
     "author": {
         "name": "adibirzu"
     },
     "repository": "https://github.com/adibirzu/multillm",
     "license": "MIT",
-    "hooks": {},
+    "hooks": {
+        "SessionStart": [
+            {
+                "type": "command",
+                "command": "./hooks/start-gateway.sh",
+                "timeout": 15,
+                "statusMessage": "Starting MultiLLM gateway..."
+            }
+        ]
+    },
+    "commands": [
+        "commands/llm-ask.md",
+        "commands/llm-council.md",
+        "commands/llm-discover.md",
+        "commands/llm-memory.md",
+        "commands/llm-review.md",
+        "commands/llm-settings.md",
+        "commands/llm-usage.md"
+    ],
+    "skills": [
+        "skills/llm-dashboard"
+    ],
+    "agents": [
+        "agents/arch-council.md",
+        "agents/cross-llm.md",
+        "agents/local-summarizer.md",
+        "agents/security-reviewer.md"
+    ],
     "keywords": [
         "multillm",
         "llm-gateway",
@@ -17,9 +44,9 @@
         "ollama",
         "openai",
         "gemini",
-        "oca",
         "claude-code",
-        "opentelemetry",
-        "oci-apm"
+        "groq",
+        "deepseek",
+        "openrouter"
     ]
 }

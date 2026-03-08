@@ -1,7 +1,7 @@
 #!/bin/bash
 # MultiLLM plugin: ensure the gateway is running on SessionStart
-GATEWAY_PORT=8080
-GATEWAY_DIR="$HOME/dev/multillm"
+GATEWAY_PORT="${GATEWAY_PORT:-8080}"
+GATEWAY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PIDFILE="$HOME/.multillm/gateway.pid"
 LOGFILE="$HOME/.multillm/gateway.log"
 
