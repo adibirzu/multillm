@@ -312,6 +312,17 @@ class StreamState:
         self.current_block_index = 0
 
 
+def count_tokens(text: str, model_alias: Optional[str] = None) -> int:
+    """
+    Approximates token count based on character length (common heuristic).
+    A more accurate implementation would use a model-specific tokenizer.
+    """
+    if not text:
+        return 0
+    # Simple heuristic: 1 token ~= 4 characters
+    return max(1, len(text) // 4)
+
+
 def anthropic_sse_event(event_type: str, data: dict) -> str:
     """Format a single Anthropic SSE event."""
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
