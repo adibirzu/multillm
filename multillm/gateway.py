@@ -48,6 +48,7 @@ from .converters import (
     make_anthropic_response,
     extract_text_from_anthropic,
     anthropic_messages_to_openai,
+    count_tokens,
 )
 from .oca_auth import get_oca_bearer_token
 from .streaming import (
@@ -57,6 +58,7 @@ from .streaming import (
     stream_oca,
     stream_gemini,
 )
+from .stream_utils import StreamTokenCounter
 from .adapters import get_adapter, list_adapters
 from .adapters.setup import register_all_adapters
 from .tracking import (
@@ -939,15 +941,47 @@ async def messages(request: Request):
                     return JSONResponse(cached)
 
             if is_streaming:
-                response = await route_streaming(body, route, effective_alias)
-                elapsed_ms = (time.time() - t0) * 1000
-                record_usage(
-                    project=PROJECT, model_alias=effective_alias, backend=effective_backend,
-                    real_model=effective_route.get("model", effective_alias),
-                    input_tokens=0, output_tokens=0,
-                    latency_ms=elapsed_ms, status="streaming",
+                # Calculate initial input tokens before starting the stream
+                prompt_text = extract_text_from_anthropic(body)
+                initial_input_tokens = count_tokens(prompt_text, effective_alias)
+
+                # Get the StreamingResponse from the backend
+                streaming_response = await route_streaming(body, route, effective_alias)
+
+                # Define the completion callback for token tracking
+                def on_stream_complete(
+                    input_tokens: int,
+                    output_tokens: int,
+                    elapsed_ms: float,
+                ):
+                    log.info(
+                        "rid=%s model=%s backend=%s ms=%.0f in=%d out=%d (streaming complete)",
+                        request_id, effective_alias, effective_backend, elapsed_ms,
+                        input_tokens, output_tokens,
+                    )
+                    record_usage(
+                        project=PROJECT, model_alias=effective_alias, backend=effective_backend,
+                        real_model=effective_route.get("model", effective_alias),
+                        input_tokens=input_tokens, output_tokens=output_tokens,
+                        latency_ms=elapsed_ms, status="streaming",
+                    )
+                    record_otel_metrics(effective_alias, effective_backend, PROJECT, input_tokens, output_tokens, elapsed_ms)
+
+
+                # Wrap the original streaming generator with our token counter
+                token_counted_generator = StreamTokenCounter(
+                    original_generator=streaming_response.body_iterator,
+                    completion_callback=on_stream_complete,
+                    input_tokens=initial_input_tokens,
+                    model_alias=effective_alias,
                 )
-                return response
+
+                # Create a new StreamingResponse with the wrapped generator
+                return StreamingResponse(
+                    token_counted_generator,
+                    media_type=streaming_response.media_type,
+                    headers=streaming_response.headers,
+                )
 
             result = await route_request(body, model_alias=effective_alias, route=route)
             elapsed_ms = (time.time() - t0) * 1000
