@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "multillm"
-version = "0.6.0"
+version = "0.6.2"
 description = "Multi-LLM gateway, orchestrator, and tracker for Claude Code"
 readme = "README.md"
 requires-python = ">=3.11"

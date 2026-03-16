@@ -1,6 +1,6 @@
 {
     "name": "multillm",
-    "version": "0.6.0",
+    "version": "0.6.2",
     "description": "Route Claude Code to 16+ LLM backends through one gateway. Token tracking, cost dashboard, shared memory, model discovery, and slash commands — all local.",
     "author": {
         "name": "adibirzu"
