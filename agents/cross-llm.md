@@ -15,6 +15,7 @@ Use the `mcp__multillm__*` tools to leverage multiple LLM backends from any clie
 - `mcp__multillm__llm_get_context` — Retrieve context shared by another LLM
 - `mcp__multillm__llm_usage` — View token usage and costs across all backends
 - `mcp__multillm__llm_sessions` — View recent sessions
+- `mcp__multillm__llm_usage` with short windows such as `1`, `6`, `12`, or `24` hours for hourly inspection
 
 ## Cross-LLM Patterns
 
@@ -41,3 +42,10 @@ mcp__multillm__llm_share_context(context="Project uses FastAPI + SQLite...", tar
 # In Codex session:
 mcp__multillm__llm_get_context(source="claude")
 ```
+
+### Use a shared memory and usage store across devices
+```
+export MULTILLM_HOME="$HOME/Library/Mobile Documents/com~apple~CloudDocs/.multillm"
+```
+
+Point every device at the same `MULTILLM_HOME` before starting the gateway if you want one consolidated memory, usage, and session history store.

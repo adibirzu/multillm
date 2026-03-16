@@ -175,6 +175,14 @@ class TestOpenaiToAnthropicResponse:
         result = openai_response_to_anthropic(oai, "test")
         assert result["stop_reason"] == "max_tokens"
 
+    def test_prompt_cache_tokens_map(self):
+        oai = {
+            "choices": [{"message": {"content": "cached"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 20, "completion_tokens": 5, "prompt_tokens_details": {"cached_tokens": 12}},
+        }
+        result = openai_response_to_anthropic(oai, "test")
+        assert result["usage"]["cache_read_input_tokens"] == 12
+
 
 # ── Tool Definition Conversion ──────────────────────────────────────────────
 

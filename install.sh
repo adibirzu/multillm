@@ -8,6 +8,8 @@ REPO_URL="https://github.com/adibirzu/multillm.git"
 INSTALL_DIR="${MULTILLM_INSTALL_DIR:-$HOME/.local/share/multillm}"
 DATA_DIR="$HOME/.multillm"
 CLAUDE_DIR="$HOME/.claude"
+LOCAL_BIN_DIR="$HOME/.local/bin"
+MCP_FILE="$CLAUDE_DIR/.mcp.json"
 
 C_GREEN='\033[0;32m'
 C_CYAN='\033[0;36m'
@@ -64,6 +66,7 @@ ok "Python package installed"
 
 # ── Create data directory ──────────────────────────────────────────────────
 mkdir -p "$DATA_DIR"
+mkdir -p "$LOCAL_BIN_DIR"
 
 # ── Create .env if missing ─────────────────────────────────────────────────
 if [[ ! -f "$INSTALL_DIR/.env" && -f "$INSTALL_DIR/.env.example" ]]; then
@@ -125,6 +128,68 @@ fi
 # ── Make hook executable ───────────────────────────────────────────────────
 chmod +x "$INSTALL_DIR/hooks/start-gateway.sh"
 
+# ── Install launcher wrappers ───────────────────────────────────────────────
+info "Installing launcher wrappers..."
+cat > "$LOCAL_BIN_DIR/claude-multillm" <<EOF
+#!/bin/bash
+export MULTILLM_HOME="\${MULTILLM_HOME:-$DATA_DIR}"
+export ANTHROPIC_BASE_URL="\${ANTHROPIC_BASE_URL:-http://localhost:8080}"
+exec claude "\$@"
+EOF
+chmod +x "$LOCAL_BIN_DIR/claude-multillm"
+
+cat > "$LOCAL_BIN_DIR/codex-multillm" <<EOF
+#!/bin/bash
+export MULTILLM_HOME="\${MULTILLM_HOME:-$DATA_DIR}"
+exec codex "\$@"
+EOF
+chmod +x "$LOCAL_BIN_DIR/codex-multillm"
+ok "Installed launcher wrappers in $LOCAL_BIN_DIR"
+
+# ── Register MCP server for Claude/Codex-compatible clients ───────────────
+info "Registering MCP server config..."
+mkdir -p "$CLAUDE_DIR"
+if [[ -f "$MCP_FILE" ]]; then
+    python3 -c "
+import json
+from pathlib import Path
+p = Path('$MCP_FILE')
+data = json.loads(p.read_text())
+data.setdefault('mcpServers', {})['multillm'] = {
+    'command': 'python3',
+    'args': ['-m', 'multillm.mcp_server'],
+    'env': {'LLM_GATEWAY_URL': 'http://localhost:8080'}
+}
+p.write_text(json.dumps(data, indent=2))
+print('Updated MCP config')
+"
+else
+    cat > "$MCP_FILE" <<MCPEOF
+{
+  "mcpServers": {
+    "multillm": {
+      "command": "python3",
+      "args": ["-m", "multillm.mcp_server"],
+      "env": {
+        "LLM_GATEWAY_URL": "http://localhost:8080"
+      }
+    }
+  }
+}
+MCPEOF
+fi
+ok "MCP config ready at $MCP_FILE"
+
+# ── Register MCP server for Codex CLI when available ──────────────────────
+if command -v codex >/dev/null 2>&1; then
+    info "Registering MCP server for Codex CLI..."
+    codex mcp get multillm >/dev/null 2>&1 || \
+      codex mcp add multillm --env LLM_GATEWAY_URL=http://localhost:8080 -- python3 -m multillm.mcp_server >/dev/null 2>&1 || true
+    ok "Codex MCP registration checked"
+else
+    warn "Codex CLI not found — skipping Codex MCP registration"
+fi
+
 # ── Verify installation ───────────────────────────────────────────────────
 if python3 -c "import multillm" 2>/dev/null; then
     ok "Package verified"
@@ -144,6 +209,7 @@ echo ""
 echo "  2. Connect Claude Code:"
 echo -e "     ${C_CYAN}export ANTHROPIC_BASE_URL=http://localhost:8080${C_RESET}"
 echo -e "     ${C_CYAN}claude${C_RESET}"
+echo -e "     ${C_CYAN}# or just run: claude-multillm${C_RESET}"
 echo ""
 echo "  3. Use slash commands:"
 echo -e "     ${C_CYAN}/llm-ask ollama/llama3 explain this code${C_RESET}"
@@ -152,7 +218,10 @@ echo -e "     ${C_CYAN}/llm-council what's the best approach?${C_RESET}"
 echo ""
 echo -e "  Dashboard: ${C_CYAN}http://localhost:8080/dashboard${C_RESET}"
 echo -e "  Config:    ${C_CYAN}$INSTALL_DIR/.env${C_RESET}"
+echo -e "  Launchers: ${C_CYAN}$LOCAL_BIN_DIR/claude-multillm${C_RESET} ${C_CYAN}$LOCAL_BIN_DIR/codex-multillm${C_RESET}"
 echo ""
 echo -e "  The gateway auto-starts with Claude Code sessions via hooks."
 echo -e "  Add API keys to .env for cloud backends (Ollama works out of the box)."
+echo -e "  Use the work-orchestrator / council / security agents for automatic cross-LLM help."
+echo -e "  Codex will use MultiLLM via MCP if Codex CLI is installed."
 echo ""

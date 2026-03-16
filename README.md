@@ -1,7 +1,7 @@
 # MultiLLM Gateway
 
 > Route Claude Code to **16 LLM backends** through a single local gateway.
-> Token tracking, cost dashboard, shared memory, slash commands — all running on your machine.
+> Token tracking, hourly usage dashboard, shared memory, slash commands — all running on your machine.
 
 ```
 Claude Code ──→ MultiLLM Gateway :8080 ──→ Ollama, OpenAI, Gemini, Groq, DeepSeek,
@@ -33,6 +33,15 @@ python -m multillm.gateway
 
 The gateway auto-starts when Claude Code launches (via session hooks). No need to run it manually after install.
 
+Launcher scripts are also installed into `~/.local/bin` when possible:
+
+```bash
+claude-multillm
+codex-multillm
+```
+
+These wrappers start the client with MultiLLM-oriented defaults so usage is more likely to be captured OOTB.
+
 ## Connect Claude Code
 
 ```bash
@@ -61,6 +70,22 @@ That's it. Claude Code now routes through MultiLLM. Use any model:
 | `/llm-settings` | View/update gateway config |
 | `/llm-dashboard` | Open the real-time web dashboard |
 
+## OOTB Routing
+
+For usage to appear in the dashboard, the client must either:
+
+- send requests through the MultiLLM gateway, or
+- expose local stats files that MultiLLM can read directly
+
+Claude Code is covered both ways:
+
+- direct Claude stats are read from `~/.claude/`
+- gateway-routed Claude requests are tracked live
+
+Codex, OCA, GPT-5.4, and other models appear live when they are used through MultiLLM routes such as `codex/...`, `oca/...`, `openai/...`, or `openrouter/...`.
+
+If you want this behavior by default, use the installed launcher scripts or set your client base URL / MCP config to MultiLLM.
+
 ## Add API Keys
 
 Only configure the backends you use. Ollama works with zero config.
@@ -83,8 +108,11 @@ Open `http://localhost:8080/dashboard` for real-time stats:
 
 - Provider status (online/offline) with live request counts
 - Token usage and costs by backend and model
+- Hourly windows (`1h`, `6h`, `12h`, `24h`) plus longer rollups
+- Derived metrics such as tokens/request, cost/request, requests/hour
 - Active and historical sessions
 - Claude Code stats integration
+- Project-scoped filtering across the whole panel, not just sessions
 
 ## Backends
 
@@ -124,7 +152,7 @@ groq/llama-3.3-70b     deepseek/chat          deepseek/reasoner
 oca/gpt5               codex/cli              openrouter/claude-sonnet
 ```
 
-Add custom aliases in `~/.multillm/routes.json`:
+Add custom aliases in `$MULTILLM_HOME/routes.json` or `~/.multillm/routes.json`:
 
 ```json
 {
@@ -151,6 +179,16 @@ For MCP-compatible clients (Cline, Codex CLI), add to `~/.claude/.mcp.json`:
 
 Exposes 20 tools: `llm_ask_model`, `llm_council`, `llm_memory_store`, `llm_memory_search`, `llm_usage`, etc.
 
+## Multi-Device Setup
+
+To consolidate usage, memory, routes, PID files, and logs across devices, point every machine at the same synced directory before starting the gateway:
+
+```bash
+export MULTILLM_HOME="$HOME/Library/Mobile Documents/com~apple~CloudDocs/.multillm"
+```
+
+You can also use `MULTILLM_DATA_DIR`, but `MULTILLM_HOME` is now the preferred top-level variable.
+
 ## Features
 
 | Feature | Details |
@@ -159,6 +197,7 @@ Exposes 20 tools: `llm_ask_model`, `llm_council`, `llm_memory_store`, `llm_memor
 | **Auto-Discovery** | Finds models from all configured backends on startup |
 | **Fallback Chain** | Cloud fails → auto-fallback to local Ollama models |
 | **Shared Memory** | Cross-LLM memory with FTS5 full-text search |
+| **Work Orchestration** | Built-in council, second-opinion, and context-sharing agents |
 | **Circuit Breaker** | 5 failures → open, 60s recovery → half-open probe |
 | **Usage Tracking** | Per-project token/cost tracking in SQLite |
 | **HTTP/2 Pooling** | Persistent connection pools per backend |
@@ -216,7 +255,7 @@ multillm/
     └── dashboard.html
 ```
 
-Data stored in `~/.multillm/` (SQLite DBs, PID file, logs).
+Data is stored in `MULTILLM_HOME` if set, otherwise `~/.multillm/` (SQLite DBs, PID file, logs).
 
 ## License
 

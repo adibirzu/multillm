@@ -150,6 +150,8 @@ def openai_response_to_anthropic(response: dict, model_alias: str) -> dict:
     stop_map = {"stop": "end_turn", "length": "max_tokens", "tool_calls": "tool_use"}
     stop_reason = stop_map.get(stop, stop)
 
+    prompt_details = usage.get("prompt_tokens_details", {}) or {}
+
     return {
         "id": f"msg_{uuid.uuid4().hex[:24]}",
         "type": "message",
@@ -161,6 +163,7 @@ def openai_response_to_anthropic(response: dict, model_alias: str) -> dict:
         "usage": {
             "input_tokens": usage.get("prompt_tokens", 0),
             "output_tokens": usage.get("completion_tokens", 0),
+            "cache_read_input_tokens": prompt_details.get("cached_tokens", 0),
         },
     }
 
@@ -256,10 +259,14 @@ def make_anthropic_response(
     output_tokens: int = 0,
     stop_reason: str = "end_turn",
     content_blocks: Optional[list[dict]] = None,
+    usage_extras: Optional[dict] = None,
 ) -> dict:
     """Create an Anthropic-format response from raw text or content blocks."""
     if content_blocks is None:
         content_blocks = [{"type": "text", "text": text}]
+    usage = {"input_tokens": input_tokens, "output_tokens": output_tokens}
+    if usage_extras:
+        usage.update({k: v for k, v in usage_extras.items() if v is not None})
     return {
         "id": f"msg_{uuid.uuid4().hex[:24]}",
         "type": "message",
@@ -268,7 +275,7 @@ def make_anthropic_response(
         "model": model,
         "stop_reason": stop_reason,
         "stop_sequence": None,
-        "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+        "usage": usage,
     }
 
 

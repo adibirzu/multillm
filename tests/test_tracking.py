@@ -57,6 +57,26 @@ class TestUsageTracking:
         assert entry is not None
         assert entry["total_cost_usd"] > 0  # Should have non-zero cost for Anthropic
 
+    def test_cache_token_tracking(self):
+        record_usage(
+            project="test-cache",
+            model_alias="anthropic/claude",
+            backend="anthropic",
+            real_model="claude-sonnet-4-6",
+            input_tokens=1000,
+            output_tokens=100,
+            cache_read_input_tokens=500,
+            cache_creation_input_tokens=200,
+            latency_ms=200.0,
+        )
+
+        summary = get_usage_summary(project="test-cache", hours=1)
+        entry = next((s for s in summary if s["model_alias"] == "anthropic/claude"), None)
+        assert entry is not None
+        assert entry["total_cache_read_input"] >= 500
+        assert entry["total_cache_creation_input"] >= 200
+        assert entry["total_cost_usd"] > 0
+
     def test_free_backend_zero_cost(self):
         record_usage(
             project="test-free",

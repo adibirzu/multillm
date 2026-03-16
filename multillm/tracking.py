@@ -11,7 +11,6 @@ import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Optional
 
 from .config import (
@@ -58,6 +57,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
             real_model TEXT,
             input_tokens INTEGER DEFAULT 0,
             output_tokens INTEGER DEFAULT 0,
+            cache_read_input_tokens INTEGER DEFAULT 0,
+            cache_creation_input_tokens INTEGER DEFAULT 0,
             latency_ms REAL DEFAULT 0,
             cost_estimate_usd REAL DEFAULT 0,
             status TEXT DEFAULT 'ok',
@@ -78,6 +79,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
             total_requests INTEGER DEFAULT 0,
             total_input_tokens INTEGER DEFAULT 0,
             total_output_tokens INTEGER DEFAULT 0,
+            total_cache_read_input_tokens INTEGER DEFAULT 0,
+            total_cache_creation_input_tokens INTEGER DEFAULT 0,
             total_cost_usd REAL DEFAULT 0,
             models_used TEXT DEFAULT '[]'
         );
@@ -90,6 +93,16 @@ def _init_db(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE usage ADD COLUMN session_id TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_session ON usage(session_id)")
+    for table, column in (
+        ("usage", "cache_read_input_tokens"),
+        ("usage", "cache_creation_input_tokens"),
+        ("sessions", "total_cache_read_input_tokens"),
+        ("sessions", "total_cache_creation_input_tokens"),
+    ):
+        try:
+            conn.execute(f"SELECT {column} FROM {table} LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} INTEGER DEFAULT 0")
 
 
 @contextmanager
@@ -133,7 +146,9 @@ def _get_or_create_session(conn: sqlite3.Connection, project: str, now: float) -
 
 
 def _update_session(conn: sqlite3.Connection, session_id: str, model_alias: str,
-                    input_tokens: int, output_tokens: int, cost: float, now: float) -> None:
+                    input_tokens: int, output_tokens: int,
+                    cache_read_input_tokens: int, cache_creation_input_tokens: int,
+                    cost: float, now: float) -> None:
     """Update session aggregates."""
     # Get current models_used
     row = conn.execute("SELECT models_used FROM sessions WHERE id = ?", (session_id,)).fetchone()
@@ -150,11 +165,35 @@ def _update_session(conn: sqlite3.Connection, session_id: str, model_alias: str,
                 total_requests = total_requests + 1,
                 total_input_tokens = total_input_tokens + ?,
                 total_output_tokens = total_output_tokens + ?,
+                total_cache_read_input_tokens = total_cache_read_input_tokens + ?,
+                total_cache_creation_input_tokens = total_cache_creation_input_tokens + ?,
                 total_cost_usd = total_cost_usd + ?,
                 models_used = ?
             WHERE id = ?""",
-            (now, input_tokens, output_tokens, cost, json.dumps(models), session_id),
+            (
+                now, input_tokens, output_tokens,
+                cache_read_input_tokens, cache_creation_input_tokens,
+                cost, json.dumps(models), session_id,
+            ),
         )
+
+
+def _estimate_cost(
+    backend: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
+) -> float:
+    costs = COST_TABLE.get(backend, {"input": 0, "output": 0})
+    total = (
+        input_tokens * costs.get("input", 0)
+        + output_tokens * costs.get("output", 0)
+    )
+    if backend == "anthropic":
+        total += cache_read_input_tokens * 0.3
+        total += cache_creation_input_tokens * 3.75
+    return total / 1_000_000
 
 
 def record_usage(
@@ -165,12 +204,19 @@ def record_usage(
     input_tokens: int,
     output_tokens: int,
     latency_ms: float,
+    cache_read_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
     status: str = "ok",
     error_message: Optional[str] = None,
 ) -> str:
     """Record a single LLM request to the usage database. Returns the usage ID."""
-    costs = COST_TABLE.get(backend, {"input": 0, "output": 0})
-    cost = (input_tokens * costs["input"] + output_tokens * costs["output"]) / 1_000_000
+    cost = _estimate_cost(
+        backend,
+        input_tokens,
+        output_tokens,
+        cache_read_input_tokens=cache_read_input_tokens,
+        cache_creation_input_tokens=cache_creation_input_tokens,
+    )
     now = time.time()
     usage_id = f"req_{uuid.uuid4().hex[:16]}"
 
@@ -179,9 +225,10 @@ def record_usage(
         conn.execute(
             """INSERT INTO usage
                (id, timestamp, project, model_alias, backend, real_model,
-                input_tokens, output_tokens, latency_ms, cost_estimate_usd,
+                input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+                latency_ms, cost_estimate_usd,
                 status, error_message, session_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 usage_id,
                 now,
@@ -191,6 +238,8 @@ def record_usage(
                 real_model,
                 input_tokens,
                 output_tokens,
+                cache_read_input_tokens,
+                cache_creation_input_tokens,
                 latency_ms,
                 cost,
                 status,
@@ -198,7 +247,12 @@ def record_usage(
                 session_id,
             ),
         )
-        _update_session(conn, session_id, model_alias, input_tokens, output_tokens, cost, now)
+        _update_session(
+            conn, session_id, model_alias,
+            input_tokens, output_tokens,
+            cache_read_input_tokens, cache_creation_input_tokens,
+            cost, now,
+        )
     return usage_id
 
 
@@ -216,6 +270,8 @@ def get_usage_summary(
                 COUNT(*) as request_count,
                 SUM(input_tokens) as total_input,
                 SUM(output_tokens) as total_output,
+                SUM(cache_read_input_tokens) as total_cache_read_input,
+                SUM(cache_creation_input_tokens) as total_cache_creation_input,
                 AVG(latency_ms) as avg_latency_ms,
                 SUM(cost_estimate_usd) as total_cost_usd,
                 SUM(CASE WHEN status != 'ok' THEN 1 ELSE 0 END) as error_count
@@ -241,6 +297,8 @@ def get_project_summary(hours: int = 24) -> list[dict]:
                       COUNT(*) as requests,
                       SUM(input_tokens) as input_tokens,
                       SUM(output_tokens) as output_tokens,
+                      SUM(cache_read_input_tokens) as cache_read_input_tokens,
+                      SUM(cache_creation_input_tokens) as cache_creation_input_tokens,
                       SUM(cost_estimate_usd) as cost_usd
                FROM usage WHERE timestamp > ?
                GROUP BY project ORDER BY cost_usd DESC""",
@@ -253,6 +311,8 @@ def update_streaming_usage(
     usage_id: str,
     input_tokens: int,
     output_tokens: int,
+    cache_read_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
 ) -> None:
     """Update a streaming usage record with actual token counts after stream completes."""
     if not usage_id:
@@ -264,21 +324,37 @@ def update_streaming_usage(
             return
         backend = row["backend"]
         session_id = row["session_id"]
-        costs = COST_TABLE.get(backend, {"input": 0, "output": 0})
-        cost = (input_tokens * costs["input"] + output_tokens * costs["output"]) / 1_000_000
+        cost = _estimate_cost(
+            backend,
+            input_tokens,
+            output_tokens,
+            cache_read_input_tokens=cache_read_input_tokens,
+            cache_creation_input_tokens=cache_creation_input_tokens,
+        )
         conn.execute(
-            """UPDATE usage SET input_tokens = ?, output_tokens = ?, cost_estimate_usd = ?
+            """UPDATE usage SET input_tokens = ?, output_tokens = ?,
+                      cache_read_input_tokens = ?, cache_creation_input_tokens = ?, cost_estimate_usd = ?
                WHERE id = ?""",
-            (input_tokens, output_tokens, cost, usage_id),
+            (
+                input_tokens, output_tokens,
+                cache_read_input_tokens, cache_creation_input_tokens,
+                cost, usage_id,
+            ),
         )
         if session_id:
             conn.execute(
                 """UPDATE sessions SET
                     total_input_tokens = total_input_tokens + ?,
                     total_output_tokens = total_output_tokens + ?,
+                    total_cache_read_input_tokens = total_cache_read_input_tokens + ?,
+                    total_cache_creation_input_tokens = total_cache_creation_input_tokens + ?,
                     total_cost_usd = total_cost_usd + ?
                 WHERE id = ?""",
-                (input_tokens, output_tokens, cost, session_id),
+                (
+                    input_tokens, output_tokens,
+                    cache_read_input_tokens, cache_creation_input_tokens,
+                    cost, session_id,
+                ),
             )
     log.debug("Updated streaming usage %s: in=%d out=%d", usage_id, input_tokens, output_tokens)
 
@@ -378,18 +454,26 @@ def get_session_detail(session_id: str) -> dict:
     return result
 
 
-def get_dashboard_stats(hours: int = 720) -> dict:
+def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict:
     """Get aggregated stats for the dashboard (default: last 30 days)."""
     since = time.time() - (hours * 3600)
     with _get_db() as conn:
+        where_clause = "timestamp > ?"
+        params: list = [since]
+        if project:
+            where_clause += " AND project = ?"
+            params.append(project)
+
         # Overall totals
         totals = conn.execute(
             """SELECT COUNT(*) as total_requests,
                       COALESCE(SUM(input_tokens), 0) as total_input,
                       COALESCE(SUM(output_tokens), 0) as total_output,
+                      COALESCE(SUM(cache_read_input_tokens), 0) as total_cache_read_input,
+                      COALESCE(SUM(cache_creation_input_tokens), 0) as total_cache_creation_input,
                       COALESCE(SUM(cost_estimate_usd), 0) as total_cost
-               FROM usage WHERE timestamp > ?""",
-            (since,),
+               FROM usage WHERE """ + where_clause,
+            params,
         ).fetchone()
 
         # By backend
@@ -398,10 +482,12 @@ def get_dashboard_stats(hours: int = 720) -> dict:
                       COUNT(*) as requests,
                       COALESCE(SUM(input_tokens), 0) as input_tokens,
                       COALESCE(SUM(output_tokens), 0) as output_tokens,
+                      COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_input_tokens,
+                      COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_input_tokens,
                       COALESCE(SUM(cost_estimate_usd), 0) as cost_usd
-               FROM usage WHERE timestamp > ?
+               FROM usage WHERE """ + where_clause + """
                GROUP BY backend ORDER BY cost_usd DESC""",
-            (since,),
+            params,
         ).fetchall()
 
         # By model
@@ -410,11 +496,13 @@ def get_dashboard_stats(hours: int = 720) -> dict:
                       COUNT(*) as requests,
                       COALESCE(SUM(input_tokens), 0) as input_tokens,
                       COALESCE(SUM(output_tokens), 0) as output_tokens,
+                      COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_input_tokens,
+                      COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_input_tokens,
                       COALESCE(SUM(cost_estimate_usd), 0) as cost_usd,
                       AVG(latency_ms) as avg_latency_ms
-               FROM usage WHERE timestamp > ?
+               FROM usage WHERE """ + where_clause + """
                GROUP BY model_alias, backend ORDER BY requests DESC""",
-            (since,),
+            params,
         ).fetchall()
 
         # Daily breakdown (last 30 days)
@@ -423,34 +511,74 @@ def get_dashboard_stats(hours: int = 720) -> dict:
                       COUNT(*) as requests,
                       COALESCE(SUM(input_tokens), 0) as input_tokens,
                       COALESCE(SUM(output_tokens), 0) as output_tokens,
+                      COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_input_tokens,
+                      COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_input_tokens,
                       COALESCE(SUM(cost_estimate_usd), 0) as cost_usd
-               FROM usage WHERE timestamp > ?
+               FROM usage WHERE """ + where_clause + """
                GROUP BY day ORDER BY day ASC""",
-            (since,),
+            params,
         ).fetchall()
 
         # Session count
+        session_where = "started_at > ?"
+        session_params: list = [since]
+        if project:
+            session_where += " AND project = ?"
+            session_params.append(project)
         session_count = conn.execute(
-            "SELECT COUNT(*) FROM sessions WHERE started_at > ?", (since,),
+            "SELECT COUNT(*) FROM sessions WHERE " + session_where, session_params,
         ).fetchone()
 
-        # Hourly breakdown (last 48 hours max)
-        hourly_since = max(since, time.time() - 48 * 3600)
+        # Hourly breakdown (last 168 hours max)
+        hourly_since = max(since, time.time() - 168 * 3600)
+        hourly_where = "timestamp > ?"
+        hourly_params: list = [hourly_since]
+        if project:
+            hourly_where += " AND project = ?"
+            hourly_params.append(project)
         hourly = conn.execute(
             """SELECT strftime('%Y-%m-%d %H:00', timestamp, 'unixepoch', 'localtime') as hour,
                       backend,
                       COUNT(*) as requests,
                       COALESCE(SUM(input_tokens), 0) as input_tokens,
                       COALESCE(SUM(output_tokens), 0) as output_tokens,
+                      COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_input_tokens,
+                      COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_input_tokens,
                       COALESCE(SUM(cost_estimate_usd), 0) as cost_usd
-               FROM usage WHERE timestamp > ?
+               FROM usage WHERE """ + hourly_where + """
                GROUP BY hour, backend ORDER BY hour ASC""",
-            (hourly_since,),
+            hourly_params,
         ).fetchall()
 
+    totals_dict = dict(totals) if totals else {}
+    total_requests = totals_dict.get("total_requests", 0) or 0
+    total_input = totals_dict.get("total_input", 0) or 0
+    total_output = totals_dict.get("total_output", 0) or 0
+    total_cache_read = totals_dict.get("total_cache_read_input", 0) or 0
+    total_cache_creation = totals_dict.get("total_cache_creation_input", 0) or 0
+    total_tokens = total_input + total_output + total_cache_read + total_cache_creation
+    billable_input_tokens = total_input + total_cache_read + total_cache_creation
+    total_cost = totals_dict.get("total_cost", 0) or 0
+    session_total = session_count[0] if session_count else 0
+
     return {
-        "totals": dict(totals) if totals else {},
-        "session_count": session_count[0] if session_count else 0,
+        "hours": hours,
+        "project": project,
+        "totals": totals_dict,
+        "session_count": session_total,
+        "derived": {
+            "total_tokens": total_tokens,
+            "billable_input_tokens": billable_input_tokens,
+            "cache_read_input_tokens": total_cache_read,
+            "cache_creation_input_tokens": total_cache_creation,
+            "avg_requests_per_session": (total_requests / session_total) if session_total else 0,
+            "avg_tokens_per_request": (total_tokens / total_requests) if total_requests else 0,
+            "avg_cost_per_request": (total_cost / total_requests) if total_requests else 0,
+            "avg_cost_per_1k_tokens": ((total_cost / total_tokens) * 1000) if total_tokens else 0,
+            "requests_per_hour": (total_requests / hours) if hours else 0,
+            "tokens_per_hour": (total_tokens / hours) if hours else 0,
+            "cost_per_hour": (total_cost / hours) if hours else 0,
+        },
         "by_backend": [dict(r) for r in by_backend],
         "by_model": [dict(r) for r in by_model],
         "daily": [dict(r) for r in daily],

@@ -3,7 +3,7 @@ description: View or update MultiLLM gateway settings
 allowed-tools: Bash
 ---
 
-View or update gateway settings (persisted to ~/.multillm/memory.db).
+View or update gateway settings (persisted to `MULTILLM_HOME/memory.db` or `~/.multillm/memory.db`).
 
 **View all settings:**
 ```bash
@@ -29,3 +29,7 @@ Available settings:
 - `streaming_enabled`: Enable/disable streaming
 - `fallback_chain`: Ordered list of fallback models
 - `otel_enabled`: Enable/disable OpenTelemetry
+- `auto_orchestration_enabled`: Allow cross-LLM delegation by default
+- `auto_second_opinion_model`: Default model for second opinions
+- `auto_council_models`: Default model set for council/orchestration
+- `auto_share_context`: Share working context across clients/sessions by default

@@ -6,7 +6,7 @@ MultiLLM is a unified LLM gateway that proxies requests to 16+ backends through 
 
 **Gateway URL**: `http://localhost:8080`
 **Dashboard**: `http://localhost:8080/dashboard`
-**Data directory**: `~/.multillm/` (SQLite DBs, PID file, logs)
+**Data directory**: `MULTILLM_HOME` or `~/.multillm/` (SQLite DBs, PID file, logs)
 
 ## Architecture
 
@@ -54,6 +54,21 @@ The gateway provides a shared memory store that persists across all LLM sessions
 - Searching across previously stored knowledge
 - Building institutional memory across projects
 
+## Automatic Help
+
+Use the built-in orchestration agents when you want the system to decide when other models should help:
+
+- `work-orchestrator` for council, second-opinion, and context-sharing decisions
+- `arch-council` for architectural decisions
+- `security-reviewer` for security-sensitive changes
+
+Default orchestration behavior is controlled by gateway settings:
+
+- `auto_orchestration_enabled`
+- `auto_second_opinion_model`
+- `auto_council_models`
+- `auto_share_context`
+
 ### Memory API
 
 ```bash
@@ -85,7 +100,7 @@ curl -X DELETE http://localhost:8080/api/memory/{id}
 - `POST /api/discover` — Force re-discovery
 
 ### Usage & Sessions
-- `GET /api/dashboard?hours=168` — Aggregated stats
+- `GET /api/dashboard?hours=168&project=name` — Aggregated stats with derived metrics and optional project filter
 - `GET /api/sessions?hours=168&limit=50` — Session list
 - `GET /api/sessions/{id}` — Session detail with per-request breakdown
 - `GET /api/active-sessions` — Currently active sessions
@@ -145,7 +160,7 @@ Run the test suite:
 python -m pytest tests/ -v
 ```
 
-209 tests covering: converters, gateway, memory, streaming, tracking, sessions, discovery, caching, http_pool, auth, resilience, health, rate_limit.
+Tests cover converters, gateway, memory, streaming, tracking, sessions, discovery, caching, http_pool, auth, resilience, health, rate_limit.
 
 ## Development Notes
 

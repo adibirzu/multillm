@@ -107,6 +107,13 @@
     margin-top: 4px;
   }
 
+  .stats-note {
+    margin-top: -12px;
+    margin-bottom: 18px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
   .panels {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -421,6 +428,9 @@
   <h1><span>Multi</span>LLM Dashboard</h1>
   <div class="controls">
     <select id="timeRange">
+      <option value="1">Last 1h</option>
+      <option value="6">Last 6h</option>
+      <option value="12">Last 12h</option>
       <option value="24">Last 24h</option>
       <option value="168" selected>Last 7 days</option>
       <option value="720">Last 30 days</option>
@@ -439,6 +449,7 @@
   <div class="stats-grid" id="statsGrid">
     <div class="loading">Loading...</div>
   </div>
+  <div class="stats-note" id="statsNote"></div>
 
   <!-- Provider Status Strip -->
   <div class="provider-strip" id="providerStrip"></div>
@@ -544,13 +555,14 @@
             <th>Project</th>
             <th>Models</th>
             <th>Requests</th>
+            <th>Tok/Req</th>
             <th>Tokens In</th>
             <th>Tokens Out</th>
             <th>Cost</th>
           </tr>
         </thead>
         <tbody id="sessionsBody">
-          <tr><td colspan="8" class="loading">Loading...</td></tr>
+          <tr><td colspan="9" class="loading">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -702,10 +714,11 @@ function getProject() {
 async function loadDashboard() {
   const hours = getHours();
   const project = getProject();
+  const projectParam = project ? `&project=${encodeURIComponent(project)}` : '';
 
   const [stats, sessions, backends, cacheStats, claudeStats, active, otelStatus] = await Promise.all([
-    fetchJSON(`${API}/api/dashboard?hours=${hours}`),
-    fetchJSON(`${API}/api/sessions?hours=${hours}&limit=50` + (project ? `&project=${project}` : '')),
+    fetchJSON(`${API}/api/dashboard?hours=${hours}${projectParam}`),
+    fetchJSON(`${API}/api/sessions?hours=${hours}&limit=50${projectParam}`),
     fetchJSON(`${API}/api/backends?refresh=false`).catch(() => ({backends: {}})),
     fetchJSON(`${API}/api/cache`).catch(() => ({})),
     fetchJSON(`${API}/api/claude-stats`).catch(() => ({available: false})),
@@ -744,6 +757,7 @@ async function loadDashboard() {
 
 function renderStats(stats, cache, otel, claudeStats) {
   const t = stats.totals || {};
+  const d = stats.derived || {};
   // Compute Claude Code tokens/cost separately — do NOT sum into gateway totals
   let claudeTokens = 0, claudeCost = 0;
   if (claudeStats && claudeStats.available && claudeStats.modelUsage) {
@@ -802,17 +816,31 @@ function renderStats(stats, cache, otel, claudeStats) {
     <div class="stat-card">
       <div class="label">Gateway Tokens</div>
       <div class="value token-num">${fmt(gwTokens)}</div>
-      <div class="sub">${fmt(t.total_input)} in / ${fmt(t.total_output)} out</div>
+      <div class="sub">${fmt(t.total_input)} in / ${fmt(t.total_output)} out / ${fmt(t.total_cache_read_input || 0)} cache read / ${fmt(t.total_cache_creation_input || 0)} cache write</div>
     </div>
     <div class="stat-card">
       <div class="label">Gateway Cost (est.)</div>
       <div class="value">${fmtCost(gwCost)}</div>
       <div class="sub">${(stats.by_model || []).length} models</div>
     </div>
+    <div class="stat-card">
+      <div class="label">Tokens / Request</div>
+      <div class="value token-num">${Number(d.avg_tokens_per_request || 0).toFixed(1)}</div>
+      <div class="sub">${Number(d.requests_per_hour || 0).toFixed(2)} req/h</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Cost / Request</div>
+      <div class="value">${'$' + Number(d.avg_cost_per_request || 0).toFixed(4)}</div>
+      <div class="sub">${'$' + Number(d.cost_per_hour || 0).toFixed(4)} / hour</div>
+    </div>
     ${claudeCard}
     ${cacheCard}
     ${otelCard}
   `;
+
+  const scope = stats.project ? `Project: ${stats.project}` : 'All projects';
+  document.getElementById('statsNote').textContent =
+    `${scope} · Window: ${stats.hours || getHours()}h · ${Number(d.avg_requests_per_session || 0).toFixed(2)} req/session · ${fmt(d.billable_input_tokens || 0)} billable input tok · ${fmt(d.cache_read_input_tokens || 0)} cache read · ${fmt(d.cache_creation_input_tokens || 0)} cache write · $${Number(d.avg_cost_per_1k_tokens || 0).toFixed(4)} per 1K tokens`;
 }
 
 function renderDailyChart(daily) {
@@ -855,7 +883,7 @@ function renderBackendBars(backends) {
     return `<div class="bar-row" style="cursor:pointer" onclick="showBackendDrilldown('${b.backend}')">
       <div class="bar-label"><span class="model-tag backend-${b.backend}">${b.backend}</span></div>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
-      <div class="bar-value">${fmt(total)} tok &middot; ${fmtCost(b.cost_usd)}</div>
+      <div class="bar-value">${fmt(total)} tok &middot; ${fmt(b.cache_read_input_tokens || 0)} cr &middot; ${fmt(b.cache_creation_input_tokens || 0)} cw &middot; ${fmtCost(b.cost_usd)}</div>
     </div>`;
   }).join('');
 }
@@ -874,11 +902,13 @@ function renderModelBars(models) {
     const color = BACKEND_COLORS[m.backend] || '#6c5ce7';
     const inTok = m.input_tokens || 0;
     const outTok = m.output_tokens || 0;
+    const cacheReadTok = m.cache_read_input_tokens || 0;
+    const cacheWriteTok = m.cache_creation_input_tokens || 0;
     const latency = m.avg_latency_ms ? `${Math.round(m.avg_latency_ms)}ms` : '';
     return `<div class="bar-row" style="cursor:pointer" onclick="showModelDrilldown(${idx})">
       <div class="bar-label"><span class="model-tag backend-${m.backend}">${m.model_alias}</span></div>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
-      <div class="bar-value" style="min-width:220px">${m.requests} reqs &middot; ${fmt(inTok)} in / ${fmt(outTok)} out &middot; ${latency ? latency + ' &middot; ' : ''}${fmtCost(m.cost_usd)}</div>
+      <div class="bar-value" style="min-width:280px">${m.requests} reqs &middot; ${fmt(inTok)} in / ${fmt(outTok)} out / ${fmt(cacheReadTok)} cr / ${fmt(cacheWriteTok)} cw &middot; ${latency ? latency + ' &middot; ' : ''}${fmtCost(m.cost_usd)}</div>
     </div>`;
   }).join('');
 }
@@ -928,7 +958,7 @@ function renderSessions(sessions) {
   countEl.textContent = `${sessions.length} sessions`;
 
   if (!sessions.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No sessions yet. Usage will appear here as you use Claude Code with MultiLLM.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No sessions yet. Usage will appear here as you use Claude Code with MultiLLM.</td></tr>';
     return;
   }
 
@@ -945,6 +975,7 @@ function renderSessions(sessions) {
       <td>${s.project || '-'}</td>
       <td>${modelTags || '-'}</td>
       <td class="token-num">${s.total_requests || 0}</td>
+      <td class="token-num">${(s.total_requests || 0) ? (((s.total_input_tokens || 0) + (s.total_output_tokens || 0)) / s.total_requests).toFixed(1) : '0.0'}</td>
       <td class="token-num">${fmt(s.total_input_tokens)}</td>
       <td class="token-num">${fmt(s.total_output_tokens)}</td>
       <td class="token-num">${fmtCost(s.total_cost_usd)}</td>
@@ -986,7 +1017,9 @@ async function showSession(sessionId) {
           ${fmtTime(detail.started_at)} &mdash; ${fmtDuration(detail.started_at, detail.last_active_at)} &middot;
           ${detail.total_requests || 0} requests &middot;
           ${fmt(detail.total_input_tokens)} in / ${fmt(detail.total_output_tokens)} out &middot;
-          ${fmtCost(detail.total_cost_usd)}
+          ${fmt(detail.total_cache_read_input_tokens || 0)} cache read / ${fmt(detail.total_cache_creation_input_tokens || 0)} cache write &middot;
+          ${fmtCost(detail.total_cost_usd)} &middot;
+          ${detail.total_requests ? (((detail.total_input_tokens || 0) + (detail.total_output_tokens || 0)) / detail.total_requests).toFixed(1) : '0.0'} tok/req
         </div>
         <div>${models}</div>
       </div>
@@ -1073,7 +1106,8 @@ function renderProviderStrip(backends, usageByBackend) {
 function renderLimits(claude, gwStats) {
   const el = document.getElementById('limitsPanel');
   const rows = [];
-  let dateLabel = 'This week';
+  const hours = gwStats.hours || getHours();
+  let dateLabel = hours < 24 ? `Last ${hours}h` : 'This week';
 
   // Claude tokens (from stats-cache.json)
   if (claude && claude.available && claude.latestTokens) {
@@ -1115,7 +1149,7 @@ function renderLimits(claude, gwStats) {
   }
 
   if (!rows.length) {
-    el.innerHTML = '<div class="empty-state" style="font-size:11px">No usage this week yet</div>';
+    el.innerHTML = `<div class="empty-state" style="font-size:11px">No usage in the last ${hours}h yet</div>`;
     return;
   }
 
@@ -1137,6 +1171,10 @@ function renderLimits(claude, gwStats) {
       <span style="color:var(--text-dim)">Gateway API cost (est.)</span>
       <span style="color:var(--text-dim)">${fmtCost(totalEstCost)}</span>
     </div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+      <span style="color:var(--text-dim)">Gateway cache read/write</span>
+      <span style="color:var(--text-dim)">${fmt((gwStats.derived || {}).cache_read_input_tokens || 0)} / ${fmt((gwStats.derived || {}).cache_creation_input_tokens || 0)} tok</span>
+    </div>
     <div style="display:flex;justify-content:space-between">
       <span style="color:var(--text-dim)">Claude Code usage (est.)</span>
       <span style="color:var(--text-dim)">${fmtCost(claudeEstCost)}</span>
@@ -1144,6 +1182,7 @@ function renderLimits(claude, gwStats) {
     <div style="font-size:9px;color:var(--text-dim);margin-top:6px;text-align:center">All costs are estimates based on public pricing &middot; Claude Max is flat-rate</div>
   </div>`;
 
+  const derived = gwStats.derived || {};
   el.innerHTML = rows.map(r => {
     const pct = r.limit > 0 ? Math.min(100, (r.used / r.limit) * 100) : 0;
     const barColor = pct > 90 ? '#e17055' : pct > 70 ? '#fdcb6e' : r.color;
@@ -1157,7 +1196,7 @@ function renderLimits(claude, gwStats) {
       </div>
       <div class="limit-info">${limitStr}</div>
     </div>`;
-  }).join('') + `<div style="text-align:right;font-size:9px;color:var(--text-dim);margin-top:4px">${dateLabel} &middot; Weekly limits (configurable)</div>` + costNote;
+  }).join('') + `<div style="text-align:right;font-size:9px;color:var(--text-dim);margin-top:4px">${dateLabel} &middot; ${Number(derived.tokens_per_hour || 0).toFixed(1)} tok/h &middot; ${Number(derived.requests_per_hour || 0).toFixed(2)} req/h</div>` + costNote;
 }
 
 function renderActiveSessions(active) {
@@ -1258,6 +1297,7 @@ function renderClaudeHistory(data) {
 
 function renderHourlyChart(hourly) {
   const container = document.getElementById('hourlyChart');
+  const hoursWindow = getHours();
   if (!hourly || !hourly.length) {
     container.innerHTML = '<div class="empty-state">No hourly data yet</div>';
     return;
@@ -1272,7 +1312,7 @@ function renderHourlyChart(hourly) {
     backends.add(h.backend);
   });
 
-  const sortedHours = Object.keys(hours).sort();
+  const sortedHours = Object.keys(hours).sort().slice(-Math.min(Math.max(hoursWindow, 1), 168));
   const maxReqs = Math.max(...sortedHours.map(h => {
     return Object.values(hours[h]).reduce((a, b) => a + b, 0);
   }), 1);
@@ -1340,6 +1380,8 @@ async function showBackendDrilldown(backend) {
     const backendInfo = (stats.by_backend || []).find(b => b.backend === backend) || {};
     const totalIn = backendInfo.input_tokens || 0;
     const totalOut = backendInfo.output_tokens || 0;
+    const totalCacheRead = backendInfo.cache_read_input_tokens || 0;
+    const totalCacheWrite = backendInfo.cache_creation_input_tokens || 0;
     const totalReqs = backendInfo.requests || 0;
     const color = BACKEND_COLORS[backend] || '#6c5ce7';
 
@@ -1396,6 +1438,8 @@ async function showBackendDrilldown(backend) {
         <div class="stat-card" style="padding:12px"><div class="label">Requests</div><div class="value" style="font-size:20px">${fmt(totalReqs)}</div></div>
         <div class="stat-card" style="padding:12px"><div class="label">Input Tokens</div><div class="value token-num" style="font-size:20px">${fmt(totalIn)}</div></div>
         <div class="stat-card" style="padding:12px"><div class="label">Output Tokens</div><div class="value token-num" style="font-size:20px">${fmt(totalOut)}</div></div>
+        <div class="stat-card" style="padding:12px"><div class="label">Cache Read</div><div class="value token-num" style="font-size:20px">${fmt(totalCacheRead)}</div></div>
+        <div class="stat-card" style="padding:12px"><div class="label">Cache Write</div><div class="value token-num" style="font-size:20px">${fmt(totalCacheWrite)}</div></div>
         <div class="stat-card" style="padding:12px"><div class="label">Cost (est.)</div><div class="value" style="font-size:20px">${fmtCost(backendInfo.cost_usd)}</div></div>
       </div>
       ${hourlyHtml}
@@ -1421,9 +1465,13 @@ function showModelDrilldown(idx) {
 
   const inTok = m.input_tokens || 0;
   const outTok = m.output_tokens || 0;
-  const totalTok = inTok + outTok;
+  const cacheReadTok = m.cache_read_input_tokens || 0;
+  const cacheWriteTok = m.cache_creation_input_tokens || 0;
+  const totalTok = inTok + outTok + cacheReadTok + cacheWriteTok;
   const inPct = totalTok > 0 ? ((inTok / totalTok) * 100).toFixed(1) : '0';
   const outPct = totalTok > 0 ? ((outTok / totalTok) * 100).toFixed(1) : '0';
+  const cacheReadPct = totalTok > 0 ? ((cacheReadTok / totalTok) * 100).toFixed(1) : '0';
+  const cacheWritePct = totalTok > 0 ? ((cacheWriteTok / totalTok) * 100).toFixed(1) : '0';
   const avgTokPerReq = m.requests > 0 ? Math.round(totalTok / m.requests) : 0;
   const isClaude = m._is_claude_code;
 
@@ -1442,10 +1490,16 @@ function showModelDrilldown(idx) {
     <div style="display:flex;gap:4px;height:24px;border-radius:6px;overflow:hidden;margin-bottom:8px">
       <div style="width:${inPct}%;background:${color};opacity:0.8" title="Input: ${fmt(inTok)}"></div>
       <div style="width:${outPct}%;background:${color};opacity:0.4" title="Output: ${fmt(outTok)}"></div>
+      <div style="width:${cacheReadPct}%;background:#74b9ff;opacity:0.85" title="Cache read: ${fmt(cacheReadTok)}"></div>
+      <div style="width:${cacheWritePct}%;background:#fdcb6e;opacity:0.85" title="Cache write: ${fmt(cacheWriteTok)}"></div>
     </div>
     <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);margin-bottom:16px">
       <span>Input: ${fmt(inTok)} (${inPct}%)</span>
       <span>Output: ${fmt(outTok)} (${outPct}%)</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);margin-bottom:16px">
+      <span>Cache read: ${fmt(cacheReadTok)} (${cacheReadPct}%)</span>
+      <span>Cache write: ${fmt(cacheWriteTok)} (${cacheWritePct}%)</span>
     </div>
     <div style="font-size:11px;color:var(--text-dim)">
       Avg tokens/request: ${fmt(avgTokPerReq)}

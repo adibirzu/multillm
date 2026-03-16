@@ -2,7 +2,7 @@
 Centralized configuration for MultiLLM.
 
 All config comes from environment variables with sensible defaults.
-Per-machine overrides can be stored in ~/.multillm/config.json.
+Per-machine overrides can be stored in the MultiLLM data directory.
 
 NO secrets, API keys, internal URLs, or PII should be hardcoded here.
 All sensitive values MUST come from environment variables.
@@ -13,7 +13,13 @@ import os
 from pathlib import Path
 
 # ── Data directory (portable across machines) ────────────────────────────────
-DATA_DIR = Path(os.getenv("MULTILLM_DATA_DIR", Path.home() / ".multillm"))
+MULTILLM_HOME = os.getenv("MULTILLM_HOME", "")
+DATA_DIR = Path(
+    os.getenv(
+        "MULTILLM_DATA_DIR",
+        MULTILLM_HOME if MULTILLM_HOME else (Path.home() / ".multillm"),
+    )
+)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Gateway ──────────────────────────────────────────────────────────────────
@@ -184,7 +190,7 @@ def load_routes() -> dict:
         with open(path) as f:
             custom = json.load(f)
         routes.update({k: v for k, v in custom.items() if not k.startswith("_")})
-    # Check ~/.multillm/routes.json
+    # Check the shared/local MultiLLM data directory
     local_routes = DATA_DIR / "routes.json"
     if local_routes.exists():
         with open(local_routes) as f:

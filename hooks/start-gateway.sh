@@ -1,16 +1,18 @@
 #!/bin/bash
 # MultiLLM plugin: ensure the gateway is running on SessionStart
-GATEWAY_PORT="${GATEWAY_PORT:-8080}"
-GATEWAY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PIDFILE="$HOME/.multillm/gateway.pid"
-LOGFILE="$HOME/.multillm/gateway.log"
+GATEWAY_PORT="${MULTILLM_GATEWAY_PORT:-${GATEWAY_PORT:-8080}}"
+GATEWAY_DIR="${MULTILLM_GATEWAY_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+MULTILLM_HOME_DIR="${MULTILLM_HOME:-${MULTILLM_DATA_DIR:-$HOME/.multillm}}"
+PIDFILE="$MULTILLM_HOME_DIR/gateway.pid"
+LOGFILE="$MULTILLM_HOME_DIR/gateway.log"
+ENVFILE="${MULTILLM_ENV_FILE:-$GATEWAY_DIR/.env}"
 
-mkdir -p "$HOME/.multillm"
+mkdir -p "$MULTILLM_HOME_DIR"
 
 # Load env vars from .env if it exists
-if [[ -f "$GATEWAY_DIR/.env" ]]; then
+if [[ -f "$ENVFILE" ]]; then
     set -a
-    source "$GATEWAY_DIR/.env"
+    source "$ENVFILE"
     set +a
 fi
 
