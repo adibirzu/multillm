@@ -327,8 +327,20 @@ async def llm_usage(params: UsageInput) -> str:
     """Show token usage, costs, and latency across all LLMs and projects."""
     by_model = get_usage_summary(project=params.project, hours=params.hours)
     by_project = get_project_summary(hours=params.hours)
+    dashboard = get_dashboard_stats(hours=params.hours, project=params.project)
+    derived = dashboard.get("derived", {})
 
     lines = [f"# LLM Usage (last {params.hours}h)\n"]
+
+    lines.append(
+        "## Summary\n"
+        f"- Requests/session: {derived.get('avg_requests_per_session', 0):.2f}\n"
+        f"- Tokens/request: {derived.get('avg_tokens_per_request', 0):.1f}\n"
+        f"- Cost/request: ${derived.get('avg_cost_per_request', 0):.6f}\n"
+        f"- Cost/1K tokens: ${derived.get('avg_cost_per_1k_tokens', 0):.6f}\n"
+        f"- Requests/hour: {derived.get('requests_per_hour', 0):.2f}\n"
+        f"- Tokens/hour: {derived.get('tokens_per_hour', 0):.1f}"
+    )
 
     if by_project:
         lines.append("## By Project")
@@ -338,7 +350,10 @@ async def llm_usage(params: UsageInput) -> str:
             total_cost += cost
             lines.append(
                 f"- **{p['project']}**: {p['requests']} requests, "
-                f"{p.get('input_tokens',0):,}+{p.get('output_tokens',0):,} tokens, ${cost:.4f}"
+                f"{p.get('input_tokens',0):,}+{p.get('output_tokens',0):,} tokens"
+                + (f" (+{p.get('cache_read_input_tokens',0):,} cache read, +{p.get('cache_creation_input_tokens',0):,} cache write)"
+                   if p.get('cache_read_input_tokens',0) or p.get('cache_creation_input_tokens',0) else "")
+                + f", ${cost:.4f}"
             )
         lines.append(f"\n**Total cost: ${total_cost:.4f}**\n")
 
@@ -347,7 +362,10 @@ async def llm_usage(params: UsageInput) -> str:
         for m in by_model:
             lines.append(
                 f"- **{m['model_alias']}** ({m['backend']}): "
-                f"{m['request_count']} reqs, {m.get('total_input',0):,}+{m.get('total_output',0):,} tokens, "
+                f"{m['request_count']} reqs, {m.get('total_input',0):,}+{m.get('total_output',0):,} tokens"
+                + (f" (+{m.get('total_cache_read_input',0):,} cache read, +{m.get('total_cache_creation_input',0):,} cache write)"
+                   if m.get('total_cache_read_input',0) or m.get('total_cache_creation_input',0) else "")
+                + ", "
                 f"avg {m.get('avg_latency_ms',0):.0f}ms, ${m.get('total_cost_usd',0):.4f}"
                 + (f", {m.get('error_count',0)} errors" if m.get('error_count') else "")
             )
@@ -394,7 +412,8 @@ async def llm_sessions(hours: int = 168, project: Optional[str] = None) -> str:
         return "No sessions found. Dashboard: http://localhost:8080/dashboard"
 
     from datetime import datetime
-    lines = [f"# LLM Sessions (last {hours//24}d)\n"]
+    label = f"{hours}h" if hours < 24 else f"{hours // 24}d"
+    lines = [f"# LLM Sessions (last {label})\n"]
     lines.append(f"Dashboard: http://localhost:8080/dashboard\n")
     for s in sessions:
         started = datetime.fromtimestamp(s["started_at"]).strftime("%b %d %H:%M")

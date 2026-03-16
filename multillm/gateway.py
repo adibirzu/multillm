@@ -1,10 +1,12 @@
 """
 MultiLLM Gateway — Anthropic-compatible proxy with streaming and tool support.
 
-Routes requests to: Ollama, LM Studio, OpenRouter, OpenAI, Anthropic,
-Oracle Code Assist (OCA), Google Gemini, Codex CLI.
+Routes requests to 16+ backends: Ollama, LM Studio, OpenAI, Anthropic,
+OpenRouter, Google Gemini, Groq, DeepSeek, Mistral, Together, xAI, Fireworks,
+Azure OpenAI, AWS Bedrock, Oracle Code Assist (OCA), Codex CLI, Gemini CLI.
 
-Features: SSE streaming, tool_use passthrough, token tracking, OpenTelemetry.
+Features: SSE streaming, tool_use passthrough, token tracking, cache token
+tracking, adaptive routing, circuit breakers, health probes, OpenTelemetry.
 
 Usage:
   python -m multillm          # starts on :8080
@@ -117,6 +119,23 @@ ROUTES = load_routes()
 PROJECT = detect_project()
 
 
+def _extract_usage_metrics(payload: dict) -> dict:
+    """Normalize usage payloads from Anthropic-compatible and OpenAI-compatible responses."""
+    usage = payload.get("usage", {}) or {}
+    prompt_details = usage.get("prompt_tokens_details", {}) or {}
+    return {
+        "input_tokens": usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0,
+        "output_tokens": usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0,
+        "cache_read_input_tokens": (
+            usage.get("cache_read_input_tokens",
+                      usage.get("cacheReadInputTokens", prompt_details.get("cached_tokens", 0))) or 0
+        ),
+        "cache_creation_input_tokens": (
+            usage.get("cache_creation_input_tokens", usage.get("cacheCreationInputTokens", 0)) or 0
+        ),
+    }
+
+
 async def _run_discovery():
     """Discover models from all backends and merge into ROUTES."""
     try:
@@ -151,7 +170,7 @@ async def lifespan(application: FastAPI):
     await close_http_pools()
 
 
-app = FastAPI(title="MultiLLM Gateway", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="MultiLLM Gateway", version="0.6.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -257,7 +276,7 @@ async def _call_oca(model: str, body: dict) -> dict:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {token}",
         "client": "multillm-gateway",
-        "client-version": "0.2.0",
+        "client-version": "0.6.0",
     }
 
     url = f"{OCA_ENDPOINT}/{OCA_API_VERSION}/app/litellm/chat/completions"
@@ -932,19 +951,24 @@ async def messages(request: Request):
 
             result = await route_request(body, model_alias=effective_alias, route=route)
             elapsed_ms = (time.time() - t0) * 1000
-            usage = result.get("usage", {})
-            in_tok = usage.get("input_tokens", 0)
-            out_tok = usage.get("output_tokens", 0)
+            usage = _extract_usage_metrics(result)
+            in_tok = usage["input_tokens"]
+            out_tok = usage["output_tokens"]
+            cache_read_tok = usage["cache_read_input_tokens"]
+            cache_create_tok = usage["cache_creation_input_tokens"]
 
             log.info(
-                "rid=%s model=%s backend=%s ms=%.0f in=%d out=%d",
-                request_id, effective_alias, backend, elapsed_ms, in_tok, out_tok,
+                "rid=%s model=%s backend=%s ms=%.0f in=%d out=%d cache_read=%d cache_write=%d",
+                request_id, effective_alias, backend, elapsed_ms, in_tok, out_tok, cache_read_tok, cache_create_tok,
             )
 
             record_usage(
                 project=PROJECT, model_alias=effective_alias, backend=backend,
                 real_model=route.get("model", effective_alias),
-                input_tokens=in_tok, output_tokens=out_tok, latency_ms=elapsed_ms,
+                input_tokens=in_tok, output_tokens=out_tok,
+                cache_read_input_tokens=cache_read_tok,
+                cache_creation_input_tokens=cache_create_tok,
+                latency_ms=elapsed_ms,
             )
 
             # ── Cache store (async, non-blocking) ────────────────────
@@ -993,7 +1017,7 @@ async def messages(request: Request):
 
                     result = await route_request(fallback_body)
                     elapsed_ms = (time.time() - t0) * 1000
-                    usage = result.get("usage", {})
+                    usage = _extract_usage_metrics(result)
 
                     # Add fallback notice to response
                     content = result.get("content", [])
@@ -1008,8 +1032,10 @@ async def messages(request: Request):
                     record_usage(
                         project=PROJECT, model_alias=fb_alias, backend=effective_backend,
                         real_model=fb_route["model"],
-                        input_tokens=usage.get("input_tokens", 0),
-                        output_tokens=usage.get("output_tokens", 0),
+                        input_tokens=usage["input_tokens"],
+                        output_tokens=usage["output_tokens"],
+                        cache_read_input_tokens=usage["cache_read_input_tokens"],
+                        cache_creation_input_tokens=usage["cache_creation_input_tokens"],
                         latency_ms=elapsed_ms, status="fallback",
                     )
                     return JSONResponse(result)
@@ -1214,8 +1240,8 @@ async def get_context_api(session_id: str, target_llm: Optional[str] = None):
 # ── Dashboard API ────────────────────────────────────────────────────────────
 
 @app.get("/api/dashboard")
-async def dashboard_api(hours: int = 720):
-    return get_dashboard_stats(hours=hours)
+async def dashboard_api(hours: int = 720, project: Optional[str] = None):
+    return get_dashboard_stats(hours=hours, project=project)
 
 
 @app.get("/api/sessions")

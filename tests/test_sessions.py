@@ -75,6 +75,23 @@ class TestSessionCreation:
         assert s["total_output_tokens"] == 150
         assert s["total_requests"] == 2
 
+    def test_session_aggregates_cache_tokens(self):
+        record_usage(
+            project="sess-cache",
+            model_alias="anthropic/claude",
+            backend="anthropic",
+            real_model="claude-sonnet-4-6",
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_input_tokens=25,
+            cache_creation_input_tokens=10,
+            latency_ms=100.0,
+        )
+        sessions = get_sessions(hours=1, project="sess-cache")
+        s = sessions[0]
+        assert s["total_cache_read_input_tokens"] == 25
+        assert s["total_cache_creation_input_tokens"] == 10
+
     def test_session_tracks_models_used(self):
         _record(project="sess-models", model="ollama/llama3")
         _record(project="sess-models", model="openai/gpt-4o")
@@ -164,17 +181,34 @@ class TestDashboardStats:
         _record(project="dash-test")
         stats = get_dashboard_stats(hours=1)
         assert "totals" in stats
+        assert "hours" in stats
         assert "session_count" in stats
+        assert "derived" in stats
         assert "by_backend" in stats
         assert "by_model" in stats
         assert "daily" in stats
+        assert "hourly" in stats
 
     def test_dashboard_stats_counts(self):
-        _record(project="dash-count", input_tokens=500, output_tokens=200)
+        record_usage(
+            project="dash-count",
+            model_alias="anthropic/claude",
+            backend="anthropic",
+            real_model="claude-sonnet-4-6",
+            input_tokens=500,
+            output_tokens=200,
+            cache_read_input_tokens=100,
+            cache_creation_input_tokens=50,
+            latency_ms=200.0,
+        )
         stats = get_dashboard_stats(hours=1)
         assert stats["totals"]["total_requests"] >= 1
         assert stats["totals"]["total_input"] >= 500
+        assert stats["totals"]["total_cache_read_input"] >= 100
+        assert stats["totals"]["total_cache_creation_input"] >= 50
         assert stats["session_count"] >= 1
+        assert stats["derived"]["total_tokens"] >= 850
+        assert stats["derived"]["avg_tokens_per_request"] > 0
 
     def test_dashboard_daily_breakdown(self):
         _record(project="dash-daily")
@@ -183,3 +217,13 @@ class TestDashboardStats:
         day = stats["daily"][-1]
         assert "day" in day
         assert day["requests"] >= 1
+
+    def test_dashboard_stats_project_filter(self):
+        _record(project="dash-alpha", input_tokens=300, output_tokens=100)
+        _record(project="dash-beta", input_tokens=50, output_tokens=25)
+        stats = get_dashboard_stats(hours=1, project="dash-alpha")
+        assert stats["project"] == "dash-alpha"
+        assert stats["totals"]["total_input"] >= 300
+        assert stats["totals"]["total_output"] >= 100
+        assert stats["totals"]["total_input"] < 350
+        assert stats["session_count"] == 1

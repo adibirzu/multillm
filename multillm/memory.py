@@ -2,7 +2,7 @@
 Shared memory for multi-LLM conversations and gateway settings.
 
 Uses SQLite with FTS5 for fast full-text search and local RAG capabilities.
-Memory is stored at ~/.multillm/memory.db — portable across machines via file copy.
+Memory is stored in the MultiLLM data directory and can be shared across machines.
 
 Two storage areas:
 - **Project memory**: per-project knowledge shared between LLMs (FTS5-indexed)
@@ -238,6 +238,10 @@ _DEFAULT_SETTINGS = {
     "streaming_enabled": True,
     "otel_enabled": False,
     "fallback_chain": ["ollama/qwen3-30b", "ollama/llama3", "ollama/mistral"],
+    "auto_orchestration_enabled": True,
+    "auto_second_opinion_model": "oca/gpt5",
+    "auto_council_models": ["ollama/qwen3-30b", "oca/gpt5", "gemini/flash"],
+    "auto_share_context": True,
 }
 
 

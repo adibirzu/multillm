@@ -76,6 +76,20 @@ class TestUsageEndpoint:
         assert response.status_code == 200
 
 
+class TestDashboardEndpoints:
+
+    def test_dashboard_api_returns_derived_metrics(self):
+        response = client.get("/api/dashboard?hours=1")
+        assert response.status_code == 200
+        data = response.json()
+        assert "derived" in data
+        assert "hours" in data
+
+    def test_dashboard_api_accepts_project_filter(self):
+        response = client.get("/api/dashboard?hours=1&project=testproject")
+        assert response.status_code == 200
+
+
 class TestSettingsEndpoints:
 
     def test_get_settings(self):
