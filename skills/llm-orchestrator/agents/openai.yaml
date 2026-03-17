@@ -1,0 +1,81 @@
+interface:
+  display_name: "LLM Orchestrator"
+  short_description: "Route work through MultiLLM and helper agents"
+  default_prompt: "Use $llm-orchestrator to route this task through MultiLLM, choose helper models, and share context when useful."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "multillm"
+      description: "Local MultiLLM MCP server and gateway tools"
+policy:
+  allow_implicit_invocation: true
+agents:
+  task-planner:
+    description: "Break down complex tasks and assign to best-fit models"
+    auto_trigger:
+      - "plan"
+      - "break down"
+      - "how should we approach"
+      - "decompose"
+  arch-council:
+    description: "Query 3-4 models for architectural decisions"
+    auto_trigger:
+      - "architecture"
+      - "tradeoff"
+      - "compare approaches"
+      - "design decision"
+      - "migration strategy"
+  code-reviewer:
+    description: "Multi-perspective code review with cross-family second opinion"
+    auto_trigger:
+      - "review this"
+      - "check this code"
+      - "is this correct"
+      - "PR review"
+  security-reviewer:
+    description: "Security-focused review with GPT-4o second opinion"
+    auto_trigger:
+      - "security"
+      - "auth"
+      - "credentials"
+      - "IAM"
+      - "crypto"
+  session-manager:
+    description: "Save and recover context across sessions"
+    auto_trigger:
+      - "save context"
+      - "checkpoint"
+      - "end session"
+      - "what was I working on"
+  local-summarizer:
+    description: "Token-efficient summarization using free local models"
+    auto_trigger:
+      - "summarize"
+      - "save tokens"
+      - "too long"
+model_profiles:
+  planning:
+    council_models:
+      - "ollama/qwen3-30b"
+      - "openrouter/gpt4o-mini"
+      - "openrouter/deepseek"
+      - "gemini/flash"
+    description: "Diverse perspectives for architecture and design decisions"
+  execution:
+    primary: "claude-sonnet-4-6"
+    reviewer: "openrouter/gpt4o"
+    description: "Fast implementation with cross-family review"
+  qa:
+    reviewer: "openrouter/gpt4o"
+    council_models:
+      - "openrouter/gpt4o-mini"
+      - "gemini/flash"
+    description: "Thorough review with multiple perspectives"
+  budget:
+    primary: "ollama/qwen3-30b"
+    reviewer: "ollama/llama3"
+    council_models:
+      - "ollama/qwen3-30b"
+      - "ollama/llama3"
+      - "groq/llama-3.3-70b"
+    description: "Free/cheap models only for cost-sensitive work"

@@ -56,11 +56,42 @@ The gateway provides a shared memory store that persists across all LLM sessions
 
 ## Automatic Help
 
-Use the built-in orchestration agents when you want the system to decide when other models should help:
+The orchestration system auto-detects when to invoke agents based on the task phase. **You don't need to ask for help explicitly** — the agents should be triggered proactively.
 
-- `work-orchestrator` for council, second-opinion, and context-sharing decisions
-- `arch-council` for architectural decisions
-- `security-reviewer` for security-sensitive changes
+### Agent Roster
+
+| Agent | Phase | Auto-Trigger When |
+|-------|-------|-------------------|
+| `work-orchestrator` | Any | Detects phase and routes to specialists; high-risk changes; uncertainty |
+| `task-planner` | Planning | Complex tasks needing decomposition; multi-step work; ambiguous goals |
+| `arch-council` | Planning | Architecture decisions; tradeoff analysis; competing designs |
+| `code-reviewer` | QA | Code just written/modified; PR review; implementation quality check |
+| `security-reviewer` | QA | Auth, crypto, secrets, IAM, compliance changes |
+| `local-summarizer` | Any | Large files (>200 lines); log analysis; token-saving exploration |
+
+### Phase-Based Routing
+
+**Planning:** "how should we...", "design", "plan", "compare" → `task-planner` or `arch-council`
+**Execution:** Code changes touching auth/security → `security-reviewer`; high-risk refactors → `work-orchestrator`
+**QA:** "review", "check", "validate" → `code-reviewer`; security areas → `security-reviewer`
+
+### Checkpoint Discipline
+
+After every orchestration action, agents store findings to shared memory automatically. This ensures:
+- Other LLM sessions (Codex, Gemini CLI) can find prior decisions
+- Repeated questions get answered from memory, not re-analyzed
+- Cross-device work has continuity
+
+### Orchestration Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/llm-orchestrator` | Unified entry point — auto-routes to the right agent/tool |
+| `/llm-council` | Query 2-5 models in parallel |
+| `/llm-review` | Get a second opinion from another LLM |
+| `/llm-ask` | Direct question to a specific model |
+
+### Settings
 
 Default orchestration behavior is controlled by gateway settings:
 
@@ -68,6 +99,31 @@ Default orchestration behavior is controlled by gateway settings:
 - `auto_second_opinion_model`
 - `auto_council_models`
 - `auto_share_context`
+
+Use `skills/llm-orchestrator` as the reusable skill entry point for routing work through MultiLLM, pulling in other models, and consolidating context across devices.
+
+### Session Lifecycle
+
+Use `session-manager` agent for context continuity:
+
+- **Session start:** Searches shared memory for prior checkpoints and presents a recovery summary
+- **Session end:** Stores a structured checkpoint (completed, pending, decisions, open questions)
+- **Context large:** Auto-checkpoints before context gets compacted
+
+Hook scripts available at `skills/llm-orchestrator/hooks/`:
+- `auto-checkpoint.sh [project] [summary]` — Store checkpoint to shared memory
+- `session-recover.sh [project]` — Retrieve last checkpoint
+
+### Model Profiles
+
+Defined in `skills/llm-orchestrator/agents/openai.yaml`:
+
+| Profile | Models | Use Case |
+|---------|--------|----------|
+| **planning** | qwen3-30b, gpt4o-mini, deepseek, gemini/flash | Architecture, design decisions |
+| **execution** | claude-sonnet + gpt4o reviewer | Implementation with review |
+| **qa** | gpt4o reviewer + gpt4o-mini/gemini council | Thorough code review |
+| **budget** | All local/free models | Cost-sensitive work |
 
 ### Memory API
 
