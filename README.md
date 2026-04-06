@@ -108,6 +108,9 @@ Open `http://localhost:8080/dashboard` for real-time stats:
 
 - Provider status (online/offline) with live request counts
 - Token usage and costs by backend and model
+- Direct-client status for Claude Code, Codex CLI, and Gemini CLI
+- Plan/usage limit tracking for Claude, Gemini CLI, and Codex CLI external providers
+- Remaining tokens by direct-client model for the selected window
 - Hourly windows (`1h`, `6h`, `12h`, `24h`) plus longer rollups
 - Derived metrics such as tokens/request, cost/request, requests/hour
 - Active and historical sessions
@@ -218,6 +221,22 @@ You can also use `MULTILLM_DATA_DIR`, but `MULTILLM_HOME` is now the preferred t
 | GET/POST | `/api/memory` | Shared memory |
 | GET | `/api/memory/search?q=...` | FTS5 memory search |
 | GET/PUT | `/settings` | Gateway settings |
+
+Usage limit defaults for the dashboard live in `/settings` under `usage_limits`:
+
+```json
+{
+  "usage_limits": {
+    "claude_opus": 35000000,
+    "claude_sonnet": 70000000,
+    "claude_haiku": 140000000,
+    "gemini_cli": 14000000,
+    "codex_cli_external": 70000000
+  }
+}
+```
+
+This lets you tune the dashboard percentages to match your actual plan or team policy without editing code.
 
 ## Testing
 

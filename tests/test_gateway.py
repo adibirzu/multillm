@@ -89,6 +89,11 @@ class TestDashboardEndpoints:
         response = client.get("/api/dashboard?hours=1&project=testproject")
         assert response.status_code == 200
 
+    def test_dashboard_page_includes_inline_favicon(self):
+        response = client.get("/dashboard")
+        assert response.status_code == 200
+        assert 'rel="icon"' in response.text
+
 
 class TestSettingsEndpoints:
 
@@ -97,6 +102,7 @@ class TestSettingsEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert "default_model" in data
+        assert "usage_limits" in data
 
     def test_update_settings(self):
         response = client.put("/settings", json={"test_setting": "test_value"})
@@ -194,3 +200,151 @@ class TestMemorySearchEndpoint:
         assert response.status_code == 200
 
         delete_memory(mem_id)
+
+
+class TestObservabilityEndpoints:
+
+    @patch("multillm.gateway.get_langfuse_status")
+    def test_otel_endpoint_includes_langfuse_status(self, mock_langfuse_status):
+        mock_langfuse_status.return_value = {
+            "enabled": True,
+            "initialized": True,
+            "host": "http://localhost:3001",
+            "has_keys": True,
+        }
+
+        response = client.get("/api/otel")
+        assert response.status_code == 200
+        data = response.json()
+        assert "langfuse" in data
+        assert data["langfuse"]["initialized"] is True
+
+    @patch("multillm.gateway.get_gemini_stats")
+    def test_gemini_stats_endpoint(self, mock_gemini_stats):
+        mock_gemini_stats.return_value = {"available": True, "totalSessions": 2, "totalTokens": 1000}
+
+        response = client.get("/api/gemini-stats?hours=24")
+        assert response.status_code == 200
+        assert response.json()["available"] is True
+
+    @patch("multillm.gateway.get_gemini_stats")
+    def test_gemini_stats_endpoint_forwards_project_filter(self, mock_gemini_stats):
+        mock_gemini_stats.return_value = {"available": True, "totalSessions": 2, "totalTokens": 1000}
+
+        response = client.get("/api/gemini-stats?hours=24&project=testproject")
+        assert response.status_code == 200
+        mock_gemini_stats.assert_called_once_with(hours=24, project="testproject")
+
+    @patch("multillm.gateway.get_codex_stats")
+    def test_codex_stats_endpoint(self, mock_codex_stats):
+        mock_codex_stats.return_value = {"available": True, "totalSessions": 2, "totalTokens": 1000}
+
+        response = client.get("/api/codex-stats?hours=24")
+        assert response.status_code == 200
+        assert response.json()["available"] is True
+
+    @patch("multillm.gateway.get_codex_stats")
+    def test_codex_stats_endpoint_forwards_project_filter(self, mock_codex_stats):
+        mock_codex_stats.return_value = {"available": True, "totalSessions": 2, "totalTokens": 1000}
+
+        response = client.get("/api/codex-stats?hours=24&project=testproject")
+        assert response.status_code == 200
+        mock_codex_stats.assert_called_once_with(hours=24, project="testproject")
+
+    @patch("multillm.gateway.get_claude_code_stats")
+    def test_claude_stats_endpoint_forwards_filters(self, mock_claude_stats):
+        mock_claude_stats.return_value = {"available": True, "totalSessions": 1, "totalMessages": 2, "modelUsage": {}}
+
+        response = client.get("/api/claude-stats?hours=24&project=testproject")
+        assert response.status_code == 200
+        mock_claude_stats.assert_called_once_with(hours=24, project="testproject")
+
+    @patch("multillm.gateway.get_gemini_stats")
+    @patch("multillm.gateway.get_codex_stats")
+    @patch("multillm.gateway.get_claude_code_stats")
+    @patch("multillm.gateway.get_dashboard_stats")
+    def test_all_llm_usage_endpoint_returns_limit_summary(
+        self,
+        mock_dashboard_stats,
+        mock_claude_stats,
+        mock_codex_stats,
+        mock_gemini_stats,
+    ):
+        mock_dashboard_stats.return_value = {
+            "totals": {
+                "total_input": 100,
+                "total_output": 50,
+                "total_cost": 1.25,
+                "total_requests": 2,
+            },
+            "session_count": 1,
+            "by_model": [],
+        }
+        mock_claude_stats.return_value = {
+            "available": True,
+            "totalSessions": 3,
+            "totalMessages": 10,
+            "modelUsage": {
+                "claude-sonnet-4-6": {
+                    "inputTokens": 1000,
+                    "outputTokens": 500,
+                    "cacheReadInputTokens": 0,
+                    "cacheCreationInputTokens": 0,
+                    "estimatedCostUSD": 0.15,
+                }
+            },
+            "dailyActivity": [],
+            "dailyModelTokens": [
+                {"date": "2026-04-06", "tokensByModel": {"claude-sonnet-4-6": 1500}}
+            ],
+            "latestDate": "2026-04-06",
+        }
+        mock_codex_stats.return_value = {
+            "available": True,
+            "totalSessions": 2,
+            "totalTokens": 4000,
+            "totalActualCostUSD": 1.2,
+            "totalListPriceUSD": 2.4,
+            "byModel": {},
+            "byProvider": {
+                "openai": {
+                    "tokens": 1000,
+                    "sessions": 1,
+                    "actualCostUSD": 1.2,
+                    "listPriceUSD": 1.2,
+                    "isOCA": False,
+                },
+                "oca-chicago": {
+                    "tokens": 3000,
+                    "sessions": 1,
+                    "actualCostUSD": 0.0,
+                    "listPriceUSD": 1.2,
+                    "isOCA": True,
+                },
+            },
+            "daily": [],
+        }
+        mock_gemini_stats.return_value = {
+            "available": True,
+            "totalSessions": 4,
+            "totalTokens": 5000,
+            "totalEstimatedCostUSD": 0.9,
+            "model": "gemini-2.5-pro",
+            "byProject": {},
+            "daily": [],
+        }
+
+        response = client.get("/api/all-llm-usage?hours=24")
+        assert response.status_code == 200
+        data = response.json()
+        mock_claude_stats.assert_called_once_with(hours=24, project=None)
+        assert "statusBySource" in data
+        assert "limits" in data
+        assert data["statusBySource"]["gemini_cli"]["status"] == "active"
+        assert data["statusBySource"]["codex_cli"]["status"] == "external_usage"
+        limit_ids = {item["id"] for item in data["limits"]["items"]}
+        assert "gemini_cli" in limit_ids
+        assert "codex_cli_external" in limit_ids
+        assert "modelItems" in data["limits"]
+        claude_source = next(item for item in data["sources"] if item["source"] == "claude_code")
+        assert claude_source["tokens"] == 1500

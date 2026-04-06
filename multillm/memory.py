@@ -242,6 +242,14 @@ _DEFAULT_SETTINGS = {
     "auto_second_opinion_model": "oca/gpt5",
     "auto_council_models": ["ollama/qwen3-30b", "oca/gpt5", "gemini/flash"],
     "auto_share_context": True,
+    "usage_limits": {
+        "claude_opus": 35_000_000,
+        "claude_sonnet": 70_000_000,
+        "claude_haiku": 140_000_000,
+        "claude_other": 70_000_000,
+        "gemini_cli": 14_000_000,
+        "codex_cli_external": 70_000_000,
+    },
 }
 
 
