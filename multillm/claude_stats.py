@@ -11,6 +11,7 @@ Provides read-only access to:
 
 import json
 import logging
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +20,7 @@ log = logging.getLogger("multillm.claude_stats")
 CLAUDE_DIR = Path.home() / ".claude"
 STATS_FILE = CLAUDE_DIR / "stats-cache.json"
 HISTORY_FILE = CLAUDE_DIR / "history.jsonl"
+PROJECTS_DIR = CLAUDE_DIR / "projects"
 
 # Anthropic pricing per 1M tokens (estimated for Max plan / API)
 CLAUDE_PRICING = {
@@ -61,33 +63,248 @@ def _estimate_cost(model: str, usage: dict) -> float:
     ) / 1_000_000
 
 
-def get_claude_code_stats() -> dict:
-    """Get comprehensive Claude Code usage stats."""
-    stats = _load_stats()
-    if not stats:
-        return {"available": False, "error": "No Claude Code stats found"}
+def _normalize_usage(usage: dict) -> dict:
+    return {
+        "inputTokens": int(usage.get("inputTokens", 0) or 0),
+        "outputTokens": int(usage.get("outputTokens", 0) or 0),
+        "cacheReadInputTokens": int(usage.get("cacheReadInputTokens", 0) or 0),
+        "cacheCreationInputTokens": int(usage.get("cacheCreationInputTokens", 0) or 0),
+    }
 
-    # Model usage with estimated costs
-    model_usage = {}
-    for model, usage in stats.get("modelUsage", {}).items():
-        cost = _estimate_cost(model, usage)
-        model_usage[model] = {
-            **usage,
-            "estimatedCostUSD": round(cost, 2),
-        }
 
-    # Daily activity (last 30 days)
-    daily = stats.get("dailyActivity", [])[-30:]
+def _with_estimated_cost(model_usage: dict[str, dict]) -> dict[str, dict]:
+    enriched: dict[str, dict] = {}
+    for model, usage in model_usage.items():
+        normalized = _normalize_usage(usage)
+        normalized["estimatedCostUSD"] = round(_estimate_cost(model, normalized), 4)
+        enriched[model] = normalized
+    return enriched
 
-    # Daily model tokens (last 30 days)
-    daily_model = stats.get("dailyModelTokens", [])[-30:]
 
-    # Session history summary
-    history = _load_session_history(limit=50)
+def _local_day(timestamp: datetime) -> str:
+    return timestamp.astimezone().date().isoformat()
 
-    # Latest day's usage for limit tracking
-    # Use today's data if available, otherwise fall back to the most recent day
+
+def _parse_timestamp(value: object) -> Optional[datetime]:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _decode_project_dir(project_dir: str) -> str:
+    parts = [part for part in project_dir.split("-") if part]
+    return parts[-1] if parts else project_dir
+
+
+def _resolve_project_name(cwd: object, project_dir: str) -> str:
+    if isinstance(cwd, str) and cwd:
+        name = Path(cwd).name
+        if name:
+            return name
+    return _decode_project_dir(project_dir)
+
+
+def _extract_user_text(message: object) -> str:
+    if isinstance(message, str):
+        return message
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str) and text:
+                    return text
+    return ""
+
+
+def _empty_session(session_id: str, project: str, cwd: str) -> dict:
+    return {
+        "sessionId": session_id,
+        "project": project,
+        "cwd": cwd,
+        "firstCommand": "",
+        "timestamp": "",
+        "lastTimestamp": "",
+        "commandCount": 0,
+        "messageCount": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "estimatedCostUSD": 0.0,
+        "models_used": set(),
+        "_matched": False,
+    }
+
+
+def _add_usage(target: dict, usage: dict) -> None:
+    target["inputTokens"] += int(usage.get("inputTokens", 0) or 0)
+    target["outputTokens"] += int(usage.get("outputTokens", 0) or 0)
+    target["cacheReadInputTokens"] += int(usage.get("cacheReadInputTokens", 0) or 0)
+    target["cacheCreationInputTokens"] += int(usage.get("cacheCreationInputTokens", 0) or 0)
+
+
+def _load_windowed_stats(hours: Optional[int], project: Optional[str]) -> Optional[dict]:
+    if not PROJECTS_DIR.exists():
+        return None
+
+    cutoff = None
+    if hours:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    model_usage: dict[str, dict] = {}
+    daily_tokens: dict[str, dict[str, int]] = {}
+    daily_activity: dict[str, dict] = {}
+    sessions: dict[str, dict] = {}
+
+    for session_file in PROJECTS_DIR.glob("*/*.jsonl"):
+        try:
+            if cutoff is not None and session_file.stat().st_mtime < cutoff.timestamp():
+                continue
+        except OSError:
+            continue
+
+        project_dir = session_file.parent.name
+        try:
+            with open(session_file) as handle:
+                for raw_line in handle:
+                    raw_line = raw_line.strip()
+                    if not raw_line:
+                        continue
+                    try:
+                        entry = json.loads(raw_line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    timestamp = _parse_timestamp(entry.get("timestamp"))
+                    if cutoff is not None and (timestamp is None or timestamp < cutoff):
+                        continue
+
+                    cwd = entry.get("cwd", "") or ""
+                    session_project = _resolve_project_name(cwd, project_dir)
+                    if project and session_project != project:
+                        continue
+
+                    session_id = entry.get("sessionId") or session_file.stem
+                    session = sessions.setdefault(session_id, _empty_session(session_id, session_project, cwd))
+                    session["_matched"] = True
+
+                    if timestamp is not None:
+                        iso_timestamp = timestamp.isoformat()
+                        if not session["timestamp"] or iso_timestamp < session["timestamp"]:
+                            session["timestamp"] = iso_timestamp
+                        if not session["lastTimestamp"] or iso_timestamp > session["lastTimestamp"]:
+                            session["lastTimestamp"] = iso_timestamp
+                        day = _local_day(timestamp)
+                        day_activity = daily_activity.setdefault(
+                            day,
+                            {"date": day, "messageCount": 0, "sessionIds": set()},
+                        )
+                        day_activity["sessionIds"].add(session_id)
+
+                    entry_type = entry.get("type")
+                    message = entry.get("message")
+
+                    if entry_type == "user":
+                        session["commandCount"] += 1
+                        if not session["firstCommand"]:
+                            session["firstCommand"] = _extract_user_text(message)
+                        continue
+
+                    if entry_type != "assistant" or not isinstance(message, dict):
+                        continue
+
+                    usage_payload = message.get("usage") or {}
+                    model = str(message.get("model") or "")
+                    if not model:
+                        continue
+
+                    usage = {
+                        "inputTokens": int(usage_payload.get("input_tokens", 0) or 0),
+                        "outputTokens": int(usage_payload.get("output_tokens", 0) or 0),
+                        "cacheReadInputTokens": int(usage_payload.get("cache_read_input_tokens", 0) or 0),
+                        "cacheCreationInputTokens": int(usage_payload.get("cache_creation_input_tokens", 0) or 0),
+                    }
+
+                    if timestamp is None:
+                        continue
+
+                    session["messageCount"] += 1
+                    _add_usage(session, usage)
+                    session["estimatedCostUSD"] += _estimate_cost(model, usage)
+                    session["models_used"].add(model)
+
+                    aggregate = model_usage.setdefault(model, _normalize_usage({}))
+                    _add_usage(aggregate, usage)
+
+                    day = _local_day(timestamp)
+                    token_total = (
+                        usage["inputTokens"]
+                        + usage["outputTokens"]
+                        + usage["cacheReadInputTokens"]
+                        + usage["cacheCreationInputTokens"]
+                    )
+                    daily_tokens.setdefault(day, {})
+                    daily_tokens[day][model] = daily_tokens[day].get(model, 0) + token_total
+                    daily_activity.setdefault(day, {"date": day, "messageCount": 0, "sessionIds": set()})
+                    daily_activity[day]["messageCount"] += 1
+        except OSError:
+            continue
+
+    filtered_sessions = []
+    for session in sessions.values():
+        if not session.pop("_matched", False):
+            continue
+        session["models_used"] = sorted(session["models_used"])
+        session["estimatedCostUSD"] = round(session["estimatedCostUSD"], 4)
+        filtered_sessions.append(session)
+
+    filtered_sessions.sort(key=lambda item: item.get("lastTimestamp", ""), reverse=True)
+
+    daily_model_tokens = [
+        {"date": day, "tokensByModel": daily_tokens[day]}
+        for day in sorted(daily_tokens)
+    ]
+    daily_activity_rows = []
+    for day in sorted(daily_activity):
+        row = daily_activity[day]
+        daily_activity_rows.append({
+            "date": day,
+            "messageCount": row.get("messageCount", 0),
+            "sessionCount": len(row.get("sessionIds", set())),
+        })
+
+    latest_tokens = {}
+    latest_activity = {}
+    latest_date = daily_model_tokens[-1]["date"] if daily_model_tokens else ""
+    if latest_date:
+        latest_tokens = daily_model_tokens[-1]["tokensByModel"]
+        latest_activity = next((row for row in daily_activity_rows if row.get("date") == latest_date), {})
+
+    return {
+        "totalSessions": len(filtered_sessions),
+        "totalMessages": sum(session.get("messageCount", 0) for session in filtered_sessions),
+        "modelUsage": _with_estimated_cost(model_usage),
+        "dailyActivity": daily_activity_rows,
+        "dailyModelTokens": daily_model_tokens,
+        "sessionHistory": filtered_sessions[:50],
+        "latestTokens": latest_tokens,
+        "latestDate": latest_date,
+        "latestActivity": latest_activity,
+        "precision": "message_usage",
+    }
+
+
+def _build_latest_day_summary(daily: list[dict], daily_model: list[dict]) -> tuple[dict, str, dict]:
     from datetime import date
+
     today_str = date.today().isoformat()
     latest_tokens = {}
     latest_activity = {}
@@ -103,21 +320,47 @@ def get_claude_code_stats() -> dict:
     for entry in daily:
         if entry.get("date") in (today_str, latest_date):
             latest_activity = entry
+    return latest_tokens, latest_date, latest_activity
 
-    return {
+
+def get_claude_code_stats(hours: Optional[int] = None, project: Optional[str] = None) -> dict:
+    """Get comprehensive Claude Code usage stats."""
+    stats = _load_stats()
+    if not stats:
+        return {"available": False, "error": "No Claude Code stats found"}
+
+    lifetime_model_usage = _with_estimated_cost(stats.get("modelUsage", {}))
+    lifetime_daily = stats.get("dailyActivity", [])[-30:]
+    lifetime_daily_model = stats.get("dailyModelTokens", [])[-30:]
+    lifetime_history = _load_session_history(limit=50)
+    latest_tokens, latest_date, latest_activity = _build_latest_day_summary(
+        lifetime_daily,
+        lifetime_daily_model,
+    )
+
+    filtered = _load_windowed_stats(hours=hours, project=project) if (hours or project) else None
+
+    response = {
         "available": True,
         "totalSessions": stats.get("totalSessions", 0),
         "totalMessages": stats.get("totalMessages", 0),
         "firstSessionDate": stats.get("firstSessionDate"),
         "longestSession": stats.get("longestSession"),
-        "modelUsage": model_usage,
-        "dailyActivity": daily,
-        "dailyModelTokens": daily_model,
-        "sessionHistory": history,
+        "modelUsage": lifetime_model_usage,
+        "dailyActivity": lifetime_daily,
+        "dailyModelTokens": lifetime_daily_model,
+        "sessionHistory": lifetime_history,
         "latestTokens": latest_tokens,
         "latestDate": latest_date,
         "latestActivity": latest_activity,
     }
+
+    if filtered is not None:
+        response.update(filtered)
+        response["windowHours"] = hours
+        response["project"] = project
+
+    return response
 
 
 def _load_session_history(limit: int = 50) -> list[dict]:

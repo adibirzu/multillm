@@ -23,6 +23,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+langfuse = [
+    "langfuse>=2.0.0",
+]
 cache = [
     "langcache>=0.1.0",
 ]

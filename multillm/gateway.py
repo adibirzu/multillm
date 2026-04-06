@@ -64,11 +64,18 @@ from .adapters.setup import register_all_adapters
 from .tracking import (
     record_usage, get_usage_summary, get_project_summary,
     get_sessions, get_session_detail, get_dashboard_stats, get_active_sessions,
-    init_otel, trace_llm_call, record_otel_metrics, get_recent_backend_latency,
+    init_otel, trace_llm_call, finalize_llm_span, record_otel_metrics,
+    get_recent_backend_latency,
 )
+from .langfuse_integration import (
+    init_langfuse, shutdown_langfuse, trace_llm_generation, get_langfuse_status,
+)
+from .llm_observability import build_llm_observability_summary
 from .discovery import discover_all_models, discovered_to_routes
 from .caching import cache_search, cache_store, get_cache_stats, LANGCACHE_ENABLED
 from .claude_stats import get_claude_code_stats
+from .codex_stats import get_codex_stats
+from .gemini_stats import get_gemini_stats
 from .http_pool import get_client, close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
 from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker, calculate_backend_score
@@ -159,6 +166,7 @@ async def _run_discovery():
 async def lifespan(application: FastAPI):
     register_all_adapters()
     init_otel(application)
+    init_langfuse()
     log.info("Loaded %d static routes, %d adapters for project '%s'",
              len(ROUTES), len(list_adapters()), PROJECT)
     if auth_enabled():
@@ -169,6 +177,7 @@ async def lifespan(application: FastAPI):
     start_health_checks()
     yield
     stop_health_checks()
+    shutdown_langfuse()
     await close_http_pools()
 
 
@@ -924,7 +933,7 @@ async def messages(request: Request):
     effective_backend = backend
     effective_route = route
 
-    with trace_llm_call(effective_alias, backend, PROJECT):
+    with trace_llm_call(effective_alias, backend, PROJECT) as span:
         try:
             # ── Cache lookup (non-streaming only) ────────────────────
             if not is_streaming and LANGCACHE_ENABLED:
@@ -966,6 +975,16 @@ async def messages(request: Request):
                         latency_ms=elapsed_ms, status="streaming",
                     )
                     record_otel_metrics(effective_alias, effective_backend, PROJECT, input_tokens, output_tokens, elapsed_ms)
+
+                    # Langfuse: record streaming LLM generation
+                    trace_llm_generation(
+                        model_alias=effective_alias, backend=effective_backend,
+                        real_model=effective_route.get("model", effective_alias),
+                        project=PROJECT,
+                        input_tokens=input_tokens, output_tokens=output_tokens,
+                        latency_ms=elapsed_ms, is_streaming=True,
+                        request_id=request_id,
+                    )
 
 
                 # Wrap the original streaming generator with our token counter
@@ -1009,6 +1028,25 @@ async def messages(request: Request):
             if LANGCACHE_ENABLED:
                 asyncio.create_task(cache_store(body, result, effective_alias, backend, PROJECT))
             record_otel_metrics(effective_alias, backend, PROJECT, in_tok, out_tok, elapsed_ms)
+
+            # ── Finalize OTel span with GenAI token attributes ────────
+            finalize_llm_span(
+                span, input_tokens=in_tok, output_tokens=out_tok,
+                cache_read_tokens=cache_read_tok, cache_create_tokens=cache_create_tok,
+                model_alias=effective_alias,
+            )
+
+            # ── Langfuse LLM observability ────────────────────────────
+            trace_llm_generation(
+                model_alias=effective_alias, backend=backend,
+                real_model=route.get("model", effective_alias),
+                project=PROJECT,
+                input_tokens=in_tok, output_tokens=out_tok,
+                cache_read_tokens=cache_read_tok, cache_create_tokens=cache_create_tok,
+                latency_ms=elapsed_ms, is_streaming=False,
+                request_id=request_id,
+                prompt_text=extract_text_from_anthropic(body),
+            )
 
             return JSONResponse(result)
 
@@ -1333,9 +1371,229 @@ async def delete_route(alias: str):
 
 
 @app.get("/api/claude-stats")
-async def claude_stats_api():
+async def claude_stats_api(hours: Optional[int] = None, project: Optional[str] = None):
     """Get Claude Code token usage, costs, and session history."""
-    return get_claude_code_stats()
+    return get_claude_code_stats(hours=hours, project=project)
+
+
+@app.get("/api/codex-stats")
+async def codex_stats_api(hours: int = 168, project: Optional[str] = None):
+    """Get Codex CLI token usage, costs, and session history."""
+    return get_codex_stats(hours=hours, project=project)
+
+
+@app.get("/api/gemini-stats")
+async def gemini_stats_api(hours: int = 168, project: Optional[str] = None):
+    """Get Gemini CLI token usage, costs, and session history."""
+    return get_gemini_stats(hours=hours, project=project)
+
+
+@app.get("/api/all-llm-usage")
+async def all_llm_usage_api(hours: int = 168, project: Optional[str] = None):
+    """Unified cross-LLM usage ledger — merges gateway, Claude Code, Codex CLI, and Gemini CLI."""
+    from datetime import date as _date
+
+    today_str = _date.today().isoformat()
+
+    # 1. Gateway-proxied traffic
+    gw = get_dashboard_stats(hours=hours, project=project)
+
+    # 2. Claude Code (direct, not proxied)
+    claude = get_claude_code_stats(hours=hours, project=project)
+
+    # 3. Codex CLI
+    codex = get_codex_stats(hours=hours, project=project)
+
+    # 4. Gemini CLI
+    gemini = get_gemini_stats(hours=hours, project=project)
+
+    observability = build_llm_observability_summary(
+        hours=hours,
+        gateway_stats=gw,
+        claude_stats=claude,
+        codex_stats=codex,
+        gemini_stats=gemini,
+    )
+
+    # Build unified summary
+    sources = []
+    grand_tokens = 0
+    grand_cost = 0.0
+    grand_list_price = 0.0
+    all_models = []
+
+    # --- Gateway ---
+    gw_tokens = (gw.get("totals", {}).get("total_input", 0) or 0) + (
+        gw.get("totals", {}).get("total_output", 0) or 0
+    )
+    gw_cost = gw.get("totals", {}).get("total_cost", 0) or 0.0
+    sources.append({
+        "source": "gateway",
+        "available": True,
+        "tokens": gw_tokens,
+        "costUSD": round(gw_cost, 4),
+        "requests": gw.get("totals", {}).get("total_requests", 0),
+        "sessions": gw.get("session_count", 0),
+    })
+    grand_tokens += gw_tokens
+    grand_cost += gw_cost
+    grand_list_price += gw_cost
+    for m in gw.get("by_model", []):
+        mcost = round(m.get("cost_usd", 0) or 0, 4)
+        all_models.append({
+            "model": m.get("model_alias", ""),
+            "backend": m.get("backend", "gateway"),
+            "source": "gateway",
+            "tokens": (m.get("input_tokens", 0) or 0) + (m.get("output_tokens", 0) or 0),
+            "requests": m.get("requests", 0),
+            "actualCostUSD": mcost,
+            "listPriceUSD": mcost,
+        })
+
+    # --- Claude Code ---
+    claude_tokens = 0
+    claude_cost = 0.0
+    if claude.get("available"):
+        for model, u in claude.get("modelUsage", {}).items():
+            mtok = (
+                (u.get("inputTokens", 0) or 0)
+                + (u.get("outputTokens", 0) or 0)
+                + (u.get("cacheReadInputTokens", 0) or 0)
+                + (u.get("cacheCreationInputTokens", 0) or 0)
+            )
+            mcost = u.get("estimatedCostUSD", 0) or 0.0
+            claude_tokens += mtok
+            claude_cost += mcost
+            all_models.append({
+                "model": model,
+                "backend": "claude_code",
+                "source": "claude_code",
+                "tokens": mtok,
+                "requests": 0,
+                "actualCostUSD": round(mcost, 2),
+                "listPriceUSD": round(mcost, 2),
+            })
+
+    sources.append({
+        "source": "claude_code",
+        "available": claude.get("available", False),
+        "tokens": claude_tokens,
+        "actualCostUSD": round(claude_cost, 2),
+        "listPriceUSD": round(claude_cost, 2),
+        "sessions": claude.get("totalSessions", 0),
+        "messages": claude.get("totalMessages", 0),
+        "dataAsOf": claude.get("latestDate", ""),
+    })
+    grand_tokens += claude_tokens
+    grand_cost += claude_cost
+    grand_list_price += claude_cost
+
+    # --- Codex CLI ---
+    codex_tokens = codex.get("totalTokens", 0) if codex.get("available") else 0
+    codex_actual = codex.get("totalActualCostUSD", 0) if codex.get("available") else 0.0
+    codex_list = codex.get("totalListPriceUSD", 0) if codex.get("available") else 0.0
+    if codex.get("available"):
+        for model, agg in codex.get("byModel", {}).items():
+            all_models.append({
+                "model": model,
+                "backend": "codex_cli",
+                "source": "codex_cli",
+                "tokens": agg.get("tokens", 0),
+                "requests": agg.get("sessions", 0),
+                "actualCostUSD": round(agg.get("actualCostUSD", 0), 4),
+                "listPriceUSD": round(agg.get("listPriceUSD", 0), 4),
+            })
+
+    sources.append({
+        "source": "codex_cli",
+        "available": codex.get("available", False),
+        "tokens": codex_tokens,
+        "actualCostUSD": round(codex_actual, 4),
+        "listPriceUSD": round(codex_list, 4),
+        "savedByOCA": round(codex_list - codex_actual, 4),
+        "sessions": codex.get("totalSessions", 0),
+        "byProvider": codex.get("byProvider", {}),
+    })
+    grand_tokens += codex_tokens
+    grand_cost += codex_actual
+    grand_list_price += codex_list
+
+    # --- Gemini CLI ---
+    gemini_tokens = gemini.get("totalTokens", 0) if gemini.get("available") else 0
+    gemini_cost = gemini.get("totalEstimatedCostUSD", 0) if gemini.get("available") else 0.0
+    if gemini.get("available"):
+        all_models.append({
+            "model": gemini.get("model", "gemini-2.5-pro"),
+            "backend": "gemini_cli",
+            "source": "gemini_cli",
+            "tokens": gemini_tokens,
+            "requests": gemini.get("totalSessions", 0),
+            "actualCostUSD": round(gemini_cost, 4),
+            "listPriceUSD": round(gemini_cost, 4),
+        })
+
+    sources.append({
+        "source": "gemini_cli",
+        "available": gemini.get("available", False),
+        "tokens": gemini_tokens,
+        "actualCostUSD": round(gemini_cost, 4),
+        "listPriceUSD": round(gemini_cost, 4),
+        "sessions": gemini.get("totalSessions", 0),
+        "byProject": gemini.get("byProject", {}),
+    })
+    grand_tokens += gemini_tokens
+    grand_cost += gemini_cost
+    grand_list_price += gemini_cost
+
+    # Sort models by tokens descending
+    all_models.sort(key=lambda x: x["tokens"], reverse=True)
+
+    # Today's breakdown
+    today = {"date": today_str, "sources": {}}
+
+    # Claude today
+    if claude.get("available"):
+        for entry in claude.get("dailyActivity", []):
+            if entry.get("date") == today_str:
+                today["sources"]["claude_code"] = {
+                    "messages": entry.get("messageCount", 0),
+                    "sessions": entry.get("sessionCount", 0),
+                }
+
+    # Codex today
+    if codex.get("available"):
+        for d in codex.get("daily", []):
+            if d.get("date") == today_str:
+                today["sources"]["codex_cli"] = {
+                    "tokens": d.get("tokens", 0),
+                    "sessions": d.get("sessions", 0),
+                    "actualCostUSD": d.get("actualCostUSD", 0),
+                    "listPriceUSD": d.get("listPriceUSD", 0),
+                    "models": d.get("models", []),
+                }
+
+    # Gemini today
+    if gemini.get("available"):
+        for d in gemini.get("daily", []):
+            if d.get("date") == today_str:
+                today["sources"]["gemini_cli"] = {
+                    "tokens": d.get("totalTokens", 0),
+                    "sessions": d.get("sessions", 0),
+                    "costUSD": d.get("costUSD", 0),
+                }
+
+    return {
+        "hours": hours,
+        "project": project,
+        "grandTotalTokens": grand_tokens,
+        "grandTotalCostUSD": round(grand_cost, 2),
+        "grandTotalListPriceUSD": round(grand_list_price, 2),
+        "sources": sources,
+        "byModel": all_models,
+        "today": today,
+        "statusBySource": observability["statusBySource"],
+        "limits": observability["limits"],
+    }
 
 
 @app.get("/api/cache")
@@ -1358,6 +1616,7 @@ async def otel_status_api():
             "region": OCI_APM_REGION if OCI_APM_DOMAIN_ID else None,
             "endpoint": OCI_APM_ENDPOINT if OCI_APM_DOMAIN_ID else None,
         },
+        "langfuse": get_langfuse_status(),
         "has_metrics": _meter is not None,
     }
 

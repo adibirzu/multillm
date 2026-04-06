@@ -12,6 +12,18 @@ import json
 import os
 from pathlib import Path
 
+# Load .env file if present (before reading any env vars)
+_env_file = Path(__file__).resolve().parent.parent / ".env"
+if _env_file.exists():
+    with open(_env_file) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _key, _, _val = _line.partition("=")
+                _key, _val = _key.strip(), _val.strip()
+                if _key and _key not in os.environ:
+                    os.environ[_key] = _val
+
 # ── Data directory (portable across machines) ────────────────────────────────
 MULTILLM_HOME = os.getenv("MULTILLM_HOME", "")
 DATA_DIR = Path(
@@ -74,6 +86,12 @@ OCI_APM_ENDPOINT = os.getenv(
     f"https://apm-trace.{OCI_APM_REGION}.oci.oraclecloud.com/20200101/opentelemetry/"
     if OCI_APM_DOMAIN_ID else "",
 )
+
+# ── Langfuse (LLM Observability) ─────────────────────────────────────────────
+LANGFUSE_ENABLED = os.getenv("LANGFUSE_ENABLED", "false").lower() in ("true", "1", "yes")
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
+LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "http://localhost:3001")
 
 # ── Project detection ────────────────────────────────────────────────────────
 def detect_project() -> str:

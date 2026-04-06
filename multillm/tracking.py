@@ -699,19 +699,67 @@ def init_otel(app=None):
 
 @contextmanager
 def trace_llm_call(model_alias: str, backend: str, project: str):
-    """Context manager that creates an OTel span for an LLM call."""
+    """Context manager that creates an OTel span for an LLM call.
+
+    Uses GenAI semantic conventions (gen_ai.*) so downstream collectors
+    (e.g., OTel Collector routing connector) can detect LLM traces and
+    route them to Langfuse or other LLM-specific backends.
+    """
     if _tracer:
+        # Map backend to gen_ai.system value
+        system_map = {
+            "anthropic": "anthropic", "openai": "openai", "gemini": "google",
+            "ollama": "ollama", "openrouter": "openrouter", "groq": "groq",
+            "deepseek": "deepseek", "mistral": "mistral", "together": "together",
+            "xai": "xai", "fireworks": "fireworks", "oca": "oracle",
+            "azure_openai": "azure", "bedrock": "aws", "lmstudio": "lmstudio",
+            "codex_cli": "openai", "gemini_cli": "google",
+        }
         with _tracer.start_as_current_span(
-            "llm.call",
+            "gen_ai.chat",
             attributes={
+                # GenAI semantic conventions (for collector routing)
+                "gen_ai.system": system_map.get(backend, backend),
+                "gen_ai.request.model": model_alias,
+                "gen_ai.operation.name": "chat",
+                # MultiLLM-specific attributes
                 "llm.model": model_alias,
                 "llm.backend": backend,
                 "llm.project": project,
+                "llm.provider": backend,
             },
         ) as span:
             yield span
     else:
         yield None
+
+
+def finalize_llm_span(
+    span,
+    *,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cache_read_tokens: int = 0,
+    cache_create_tokens: int = 0,
+    model_alias: str = "",
+    status: str = "ok",
+):
+    """Set final GenAI attributes on a span after the LLM call completes."""
+    if span is None:
+        return
+    try:
+        span.set_attribute("gen_ai.response.model", model_alias)
+        span.set_attribute("gen_ai.usage.input_tokens", input_tokens)
+        span.set_attribute("gen_ai.usage.output_tokens", output_tokens)
+        span.set_attribute("gen_ai.usage.total_tokens", input_tokens + output_tokens)
+        if cache_read_tokens:
+            span.set_attribute("gen_ai.usage.cache_read_tokens", cache_read_tokens)
+        if cache_create_tokens:
+            span.set_attribute("gen_ai.usage.cache_create_tokens", cache_create_tokens)
+        if status != "ok":
+            span.set_attribute("gen_ai.error", True)
+    except Exception:
+        pass
 
 
 def record_otel_metrics(

@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MultiLLM Dashboard</title>
+<link rel="icon" href="data:,">
 <style>
   :root {
     --bg: #0f1117;
@@ -72,6 +73,127 @@
 
   .controls button:hover { border-color: var(--accent); }
 
+  .dashboard-toolbar {
+    margin-bottom: 24px;
+  }
+
+  .toolbar-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+  }
+
+  .toolbar-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .toolbar-field label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: var(--text-dim);
+  }
+
+  .toolbar-field select,
+  .toolbar-field input,
+  .toolbar-field button {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 12px;
+  }
+
+  .toolbar-field input::placeholder { color: var(--text-dim); }
+
+  .toolbar-actions {
+    display: flex;
+    gap: 10px;
+    align-items: end;
+  }
+
+  .toolbar-field button:hover,
+  .toolbar-field select:hover,
+  .toolbar-field input:hover {
+    border-color: var(--accent5);
+  }
+
+  .live-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+
+  .live-toggle.active {
+    border-color: var(--accent2);
+    color: var(--accent2);
+  }
+
+  .toolbar-meta {
+    margin-top: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .pill.ok { color: var(--accent2); border-color: #00b89455; }
+  .pill.warn { color: var(--accent3); border-color: #fdcb6e55; }
+  .pill.critical { color: var(--accent4); border-color: #e1705555; }
+  .pill.info { color: var(--accent5); border-color: #74b9ff55; }
+
+  .pulse-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+
+  .pulse-card {
+    background: linear-gradient(135deg, rgba(116,185,255,0.08), rgba(108,92,231,0.05));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+  }
+
+  .pulse-card .eyebrow {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+
+  .pulse-card .headline {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .pulse-card .detail {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
   .container { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
 
   .stats-grid {
@@ -130,6 +252,7 @@
     border: 1px solid var(--border);
     border-radius: 10px;
     overflow: hidden;
+    min-width: 0;
   }
 
   .panel-header {
@@ -212,6 +335,9 @@
     vertical-align: top;
   }
 
+  .sessions-table.compact th { padding: 6px 6px; font-size: 9px; }
+  .sessions-table.compact td { padding: 6px 6px; font-size: 10px; }
+
   .sessions-table tr:hover { background: var(--surface2); }
   .sessions-table tr { cursor: pointer; }
 
@@ -232,6 +358,7 @@
   .backend-openrouter { background: #fd79a833; color: #fd79a8; }
   .backend-codex_cli { background: #55efc433; color: #55efc4; }
   .backend-claude_code { background: #d4a0ff33; color: #d4a0ff; }
+  .backend-gemini_cli { background: #ffeaa733; color: #ffeaa7; }
   .backend-lmstudio { background: #81ecec33; color: #81ecec; }
   .backend-groq { background: #f9722033; color: #f97220; }
   .backend-deepseek { background: #536dfe33; color: #536dfe; }
@@ -260,9 +387,11 @@
     font-size: 11px;
     font-weight: 600;
     transition: border-color 0.3s;
+    cursor: pointer;
   }
   .provider-chip.active { border-color: var(--accent2); }
   .provider-chip.inactive { opacity: 0.4; }
+  .provider-chip.focused { border-color: var(--accent5); box-shadow: 0 0 0 1px rgba(116,185,255,0.15) inset; }
   .provider-dot {
     width: 8px; height: 8px; border-radius: 50%;
   }
@@ -375,10 +504,19 @@
   .daily-bar {
     flex: 1;
     min-width: 8px;
-    background: var(--accent);
+    display: flex;
+    flex-direction: column-reverse;
+    overflow: hidden;
+    background: rgba(108, 92, 231, 0.08);
     border-radius: 2px 2px 0 0;
     position: relative;
     transition: height 0.3s ease;
+  }
+
+  .daily-segment {
+    width: 100%;
+    min-height: 2px;
+    opacity: 0.9;
   }
 
   .daily-bar:hover { opacity: 0.8; }
@@ -394,7 +532,9 @@
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 10px;
-    white-space: nowrap;
+    min-width: 220px;
+    white-space: normal;
+    line-height: 1.45;
     z-index: 10;
   }
 
@@ -406,6 +546,13 @@
     font-size: 9px;
     color: var(--text-dim);
     padding-top: 4px;
+  }
+
+  .chart-note {
+    margin-top: 8px;
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.5;
   }
 
   .loading {
@@ -454,10 +601,77 @@
   <!-- Provider Status Strip -->
   <div class="provider-strip" id="providerStrip"></div>
 
+  <div class="panel dashboard-toolbar">
+    <div class="panel-header">
+      <span>Live Controls</span>
+      <span style="font-size:10px;color:var(--text-dim)">filters and realtime behavior</span>
+    </div>
+    <div class="panel-body">
+      <div class="toolbar-grid">
+        <div class="toolbar-field">
+          <label for="metricMode">Graph Metric</label>
+          <select id="metricMode">
+            <option value="tokens" selected>Tokens</option>
+            <option value="requests">Requests</option>
+            <option value="cost">Cost</option>
+          </select>
+        </div>
+        <div class="toolbar-field">
+          <label for="sourceFilter">Source / Backend</label>
+          <select id="sourceFilter">
+            <option value="all">All sources</option>
+          </select>
+        </div>
+        <div class="toolbar-field">
+          <label for="modelSearch">Model / Project Search</label>
+          <input id="modelSearch" type="text" placeholder="Filter models, providers, projects..." />
+        </div>
+        <div class="toolbar-field">
+          <label for="refreshRate">Refresh Interval</label>
+          <select id="refreshRate">
+            <option value="5" selected>5s</option>
+            <option value="10">10s</option>
+            <option value="15">15s</option>
+            <option value="30">30s</option>
+            <option value="60">60s</option>
+          </select>
+        </div>
+        <div class="toolbar-field">
+          <label>Realtime</label>
+          <button id="liveToggle" class="live-toggle active" type="button">Live ON</button>
+        </div>
+        <div class="toolbar-field">
+          <label>Actions</label>
+          <button id="clearFilters" type="button">Clear Focus</button>
+        </div>
+      </div>
+      <div class="toolbar-meta" id="toolbarMeta"></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <span>Realtime Pulse</span>
+      <span style="font-size:10px;color:var(--text-dim)">current focus, limits, and active traffic</span>
+    </div>
+    <div class="panel-body">
+      <div class="pulse-grid" id="pulseGrid">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Usage Limits -->
   <div class="panel" style="margin-bottom:24px">
     <div class="panel-header" id="limitsHeader">Weekly Usage &amp; Cost</div>
     <div class="panel-body" id="limitsPanel" style="padding:12px 16px">
+      <div class="loading">Loading...</div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">Remaining Tokens by Model</div>
+    <div class="panel-body" id="modelHeadroom">
       <div class="loading">Loading...</div>
     </div>
   </div>
@@ -475,10 +689,14 @@
   <!-- Charts + Breakdown -->
   <div class="panels">
     <div class="panel">
-      <div class="panel-header">Daily Activity</div>
+      <div class="panel-header">
+        <span>Daily Activity by Source</span>
+        <span style="font-size:10px;color:var(--text-dim)">stacked direct + proxied usage</span>
+      </div>
       <div class="panel-body">
         <div class="daily-chart" id="dailyChart"></div>
         <div class="chart-labels" id="chartLabels"></div>
+        <div class="chart-note" id="dailyChartNote"></div>
       </div>
     </div>
     <div class="panel">
@@ -493,8 +711,8 @@
   <!-- Hourly Activity (per-backend stacked) -->
   <div class="panel" style="margin-bottom:24px">
     <div class="panel-header">
-      <span>Hourly Activity by Backend</span>
-      <span style="font-size:10px;color:var(--text-dim)">last 48 hours</span>
+      <span>Hourly Activity by Source</span>
+      <span style="font-size:10px;color:var(--text-dim)">request-level for gateway, session-level for direct clients</span>
     </div>
     <div class="panel-body" id="hourlyChart" style="padding:12px 16px;overflow-x:auto">
       <div class="loading">Loading...</div>
@@ -524,6 +742,14 @@
     </div>
   </div>
 
+  <!-- Unified LLM Usage Ledger -->
+  <div class="panel">
+    <div class="panel-header">All LLM Usage — Unified Ledger</div>
+    <div class="panel-body" id="unifiedLedger">
+      <div class="loading">Loading...</div>
+    </div>
+  </div>
+
   <!-- Claude Code Stats -->
   <div class="panels">
     <div class="panel">
@@ -535,6 +761,38 @@
     <div class="panel">
       <div class="panel-header">Claude Code — Session History</div>
       <div class="panel-body" id="claudeHistory" style="max-height:300px;overflow-y:auto">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Codex CLI Stats -->
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-header">Codex CLI — Model &amp; Provider Usage</div>
+      <div class="panel-body" id="codexModelUsage">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">Codex CLI — Session History</div>
+      <div class="panel-body" id="codexHistory" style="max-height:300px;overflow-y:auto">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gemini CLI Stats -->
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-header">Gemini CLI — Project Usage</div>
+      <div class="panel-body" id="geminiProjectUsage">
+        <div class="loading">Loading...</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">Gemini CLI — Session History</div>
+      <div class="panel-body" id="geminiHistory" style="max-height:300px;overflow-y:auto">
         <div class="loading">Loading...</div>
       </div>
     </div>
@@ -583,6 +841,7 @@
 <script>
 const API = window.location.origin;
 const BACKEND_COLORS = {
+  gateway: '#6c5ce7',
   ollama: '#00b894', anthropic: '#a29bfe', openai: '#74b9ff',
   gemini: '#fdcb6e', oca: '#e17055', openrouter: '#fd79a8',
   codex_cli: '#55efc4', lmstudio: '#81ecec',
@@ -594,6 +853,7 @@ const BACKEND_COLORS = {
 
 // Provider display metadata for the status strip
 const PROVIDERS = {
+  gateway:      { label: 'Gateway',     icon: '🌐', type: 'proxy' },
   ollama:       { label: 'Ollama',      icon: '🦙', type: 'local' },
   lmstudio:     { label: 'LM Studio',   icon: '🔬', type: 'local' },
   openai:       { label: 'OpenAI',      icon: '🤖', type: 'cloud' },
@@ -610,8 +870,30 @@ const PROVIDERS = {
   azure_openai: { label: 'Azure',       icon: '☁️', type: 'cloud' },
   bedrock:      { label: 'Bedrock',     icon: '🪨', type: 'cloud' },
   codex_cli:    { label: 'Codex CLI',   icon: '💻', type: 'local' },
+  gemini_cli:   { label: 'Gemini CLI',  icon: '💠', type: 'local' },
   claude_code:  { label: 'Claude Code', icon: '🟣', type: 'direct' },
 };
+
+const DIRECT_SOURCES = new Set(['claude_code', 'codex_cli', 'gemini_cli']);
+
+const METRIC_META = {
+  tokens: { label: 'Tokens', suffix: 'tok' },
+  requests: { label: 'Requests', suffix: 'reqs' },
+  cost: { label: 'Cost', suffix: 'usd' },
+};
+
+const dashboardState = {
+  metric: 'tokens',
+  source: 'all',
+  query: '',
+  live: true,
+  refreshSeconds: 5,
+};
+
+let latestPayload = null;
+let liveTicker = null;
+let loadInFlight = false;
+let lastLoadAt = 0;
 
 function fmt(n) {
   if (n == null) return '0';
@@ -652,6 +934,332 @@ function statusClass(status) {
   if (status.includes('fallback')) return 'status-fallback';
   if (status.includes('streaming')) return 'status-streaming';
   return 'status-ok';
+}
+
+function normalizeText(value) {
+  return String(value || '').toLowerCase();
+}
+
+function totalTokenValue(entry) {
+  return (entry.input_tokens || 0) + (entry.output_tokens || 0) + (entry.cache_read_input_tokens || 0) + (entry.cache_creation_input_tokens || 0);
+}
+
+function metricValue(entry, metric) {
+  if (metric === 'requests') return entry.requests || entry.sessions || 0;
+  if (metric === 'cost') return entry.cost_usd || entry.costUSD || entry.actualCostUSD || 0;
+  return totalTokenValue(entry);
+}
+
+function sourceLabel(source) {
+  return (PROVIDERS[source] && PROVIDERS[source].label) || source;
+}
+
+function sourceMatches(source, activeSource) {
+  return activeSource === 'all' || source === activeSource;
+}
+
+function queryMatches(values) {
+  if (!dashboardState.query) return true;
+  const needle = normalizeText(dashboardState.query);
+  return values.some(value => normalizeText(value).includes(needle));
+}
+
+function getSelectedMetricMeta() {
+  return METRIC_META[dashboardState.metric] || METRIC_META.tokens;
+}
+
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+function toTimestampMs(value) {
+  if (!value) return null;
+  if (typeof value === 'number') return value > 1e12 ? value : value * 1000;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function toLocalHourKey(value) {
+  const ts = toTimestampMs(value);
+  if (!ts) return '';
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:00`;
+}
+
+function getWindowDayCount(hours) {
+  return Math.max(1, Math.ceil((hours || getHours()) / 24));
+}
+
+function trimDailyWindow(daily, hours) {
+  return (daily || [])
+    .sort((a, b) => a.day.localeCompare(b.day))
+    .slice(-getWindowDayCount(hours));
+}
+
+function emptyMetrics() {
+  return {
+    requests: 0,
+    sessions: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cost_usd: 0,
+  };
+}
+
+function accumulateMetrics(target, metrics) {
+  target.requests += metrics.requests || 0;
+  target.sessions += metrics.sessions || 0;
+  target.input_tokens += metrics.input_tokens || 0;
+  target.output_tokens += metrics.output_tokens || 0;
+  target.cache_read_input_tokens += metrics.cache_read_input_tokens || 0;
+  target.cache_creation_input_tokens += metrics.cache_creation_input_tokens || 0;
+  target.cost_usd += metrics.cost_usd || 0;
+  return target;
+}
+
+function ensureTimeAggregate(map, key) {
+  if (!map[key]) {
+    map[key] = {
+      day: key,
+      hour: key,
+      ...emptyMetrics(),
+      sources: {},
+    };
+  }
+  return map[key];
+}
+
+function addAggregateEntry(map, key, source, metrics) {
+  if (!key || !source) return;
+  const aggregate = ensureTimeAggregate(map, key);
+  accumulateMetrics(aggregate, metrics);
+  if (!aggregate.sources[source]) {
+    aggregate.sources[source] = emptyMetrics();
+  }
+  accumulateMetrics(aggregate.sources[source], metrics);
+}
+
+function buildClaudeCostRateMap(claudeStats) {
+  const rates = {};
+  const usage = (claudeStats && claudeStats.modelUsage) || {};
+  Object.entries(usage).forEach(([model, entry]) => {
+    const totalTokens = (entry.inputTokens || 0)
+      + (entry.outputTokens || 0)
+      + (entry.cacheReadInputTokens || 0)
+      + (entry.cacheCreationInputTokens || 0);
+    if (totalTokens > 0 && entry.estimatedCostUSD) {
+      rates[model] = (entry.estimatedCostUSD || 0) / totalTokens;
+    }
+  });
+  return rates;
+}
+
+function buildClaudeDailyRollups(claudeStats) {
+  const daily = {};
+  if (!claudeStats || !claudeStats.available) return daily;
+
+  const costRates = buildClaudeCostRateMap(claudeStats);
+  (claudeStats.dailyModelTokens || []).forEach(entry => {
+    const tokensByModel = entry.tokensByModel || {};
+    const totalTokens = Object.values(tokensByModel).reduce((sum, value) => sum + (value || 0), 0);
+    const cost = Object.entries(tokensByModel).reduce((sum, [model, value]) => {
+      return sum + ((costRates[model] || 0) * (value || 0));
+    }, 0);
+    daily[entry.date] = {
+      date: entry.date,
+      totalTokens,
+      costUSD: cost,
+      tokensByModel,
+      messageCount: 0,
+      sessionCount: 0,
+    };
+  });
+
+  (claudeStats.dailyActivity || []).forEach(entry => {
+    if (!daily[entry.date]) {
+      daily[entry.date] = {
+        date: entry.date,
+        totalTokens: 0,
+        costUSD: 0,
+        tokensByModel: {},
+        messageCount: 0,
+        sessionCount: 0,
+      };
+    }
+    daily[entry.date].messageCount = entry.messageCount || 0;
+    daily[entry.date].sessionCount = entry.sessionCount || 0;
+  });
+
+  return daily;
+}
+
+function buildOverviewDaily(payload, hourly) {
+  const selected = dashboardState.source;
+  const hours = payload.stats.hours || getHours();
+
+  if (selected !== 'all' && !DIRECT_SOURCES.has(selected)) {
+    return trimDailyWindow(buildDailyFromHourly(hourly), hours);
+  }
+
+  const days = {};
+  const addDay = (day, source, metrics) => addAggregateEntry(days, day, source, metrics);
+
+  if (selected === 'all') {
+    (payload.stats.daily || []).forEach(day => {
+      addDay(day.day, 'gateway', {
+        requests: day.requests || 0,
+        input_tokens: day.input_tokens || 0,
+        output_tokens: day.output_tokens || 0,
+        cache_read_input_tokens: day.cache_read_input_tokens || 0,
+        cache_creation_input_tokens: day.cache_creation_input_tokens || 0,
+        cost_usd: day.cost_usd || 0,
+      });
+    });
+  }
+
+  if (selected === 'all' || selected === 'claude_code') {
+    Object.values(buildClaudeDailyRollups(payload.claudeStats)).forEach(day => {
+      addDay(day.date, 'claude_code', {
+        requests: day.messageCount || day.sessionCount || 0,
+        sessions: day.sessionCount || 0,
+        input_tokens: day.totalTokens || 0,
+        cost_usd: day.costUSD || 0,
+      });
+    });
+  }
+
+  if (selected === 'all' || selected === 'codex_cli') {
+    (payload.codexStats.daily || []).forEach(day => {
+      addDay(day.date, 'codex_cli', {
+        requests: day.sessions || 0,
+        sessions: day.sessions || 0,
+        input_tokens: day.tokens || 0,
+        cost_usd: day.actualCostUSD || 0,
+      });
+    });
+  }
+
+  if (selected === 'all' || selected === 'gemini_cli') {
+    (payload.geminiStats.daily || []).forEach(day => {
+      addDay(day.date, 'gemini_cli', {
+        requests: day.sessions || 0,
+        sessions: day.sessions || 0,
+        input_tokens: day.inputTokens || 0,
+        output_tokens: day.outputTokens || 0,
+        cache_read_input_tokens: day.cachedTokens || 0,
+        cost_usd: day.costUSD || 0,
+      });
+    });
+  }
+
+  return trimDailyWindow(Object.values(days), hours);
+}
+
+function buildOverviewHourly(payload) {
+  const hours = payload.stats.hours || getHours();
+  const cutoffMs = Date.now() - (hours * 3600 * 1000);
+  const aggregates = {};
+  const addHour = (hour, source, metrics) => {
+    if (!hour || !source) return;
+    const key = `${hour}::${source}`;
+    if (!aggregates[key]) {
+      aggregates[key] = {
+        hour,
+        backend: source,
+        ...emptyMetrics(),
+      };
+    }
+    accumulateMetrics(aggregates[key], metrics);
+  };
+
+  (payload.stats.hourly || []).forEach(entry => {
+    if (!sourceMatches(entry.backend, dashboardState.source)) return;
+    addHour(entry.hour, entry.backend, {
+      requests: entry.requests || 0,
+      input_tokens: entry.input_tokens || 0,
+      output_tokens: entry.output_tokens || 0,
+      cache_read_input_tokens: entry.cache_read_input_tokens || 0,
+      cache_creation_input_tokens: entry.cache_creation_input_tokens || 0,
+      cost_usd: entry.cost_usd || 0,
+    });
+  });
+
+  if (sourceMatches('codex_cli', dashboardState.source) && payload.codexStats && payload.codexStats.available) {
+    (payload.codexStats.sessions || []).forEach(session => {
+      const ts = toTimestampMs(session.createdAt);
+      if (!ts || ts < cutoffMs) return;
+      addHour(toLocalHourKey(ts), 'codex_cli', {
+        requests: 1,
+        sessions: 1,
+        input_tokens: session.tokensUsed || 0,
+        cost_usd: session.actualCostUSD || 0,
+      });
+    });
+  }
+
+  if (sourceMatches('gemini_cli', dashboardState.source) && payload.geminiStats && payload.geminiStats.available) {
+    (payload.geminiStats.sessions || []).forEach(session => {
+      const ts = toTimestampMs(session.lastUpdated || session.startTime || session.date);
+      if (!ts || ts < cutoffMs) return;
+      addHour(toLocalHourKey(ts), 'gemini_cli', {
+        requests: session.messageCount || 1,
+        sessions: 1,
+        input_tokens: session.inputTokens || 0,
+        output_tokens: session.outputTokens || 0,
+        cache_read_input_tokens: session.cachedTokens || 0,
+        cost_usd: session.estimatedCostUSD || 0,
+      });
+    });
+  }
+
+  if (sourceMatches('claude_code', dashboardState.source) && payload.claudeStats && payload.claudeStats.available) {
+    const claudeDaily = buildClaudeDailyRollups(payload.claudeStats);
+    const sessionsByDay = {};
+    (payload.claudeStats.sessionHistory || []).forEach(session => {
+      const ts = toTimestampMs(session.lastTimestamp || session.timestamp);
+      if (!ts || ts < cutoffMs) return;
+      const hour = toLocalHourKey(ts);
+      if (!hour) return;
+      const exactTokens = (session.inputTokens || 0)
+        + (session.outputTokens || 0)
+        + (session.cacheReadInputTokens || 0)
+        + (session.cacheCreationInputTokens || 0);
+      if (exactTokens > 0 || (session.estimatedCostUSD || 0) > 0) {
+        addHour(hour, 'claude_code', {
+          requests: session.messageCount || session.commandCount || 1,
+          sessions: 1,
+          input_tokens: (session.inputTokens || 0) + (session.cacheReadInputTokens || 0) + (session.cacheCreationInputTokens || 0),
+          output_tokens: session.outputTokens || 0,
+          cache_read_input_tokens: session.cacheReadInputTokens || 0,
+          cache_creation_input_tokens: session.cacheCreationInputTokens || 0,
+          cost_usd: session.estimatedCostUSD || 0,
+        });
+        return;
+      }
+      const day = hour.slice(0, 10);
+      if (!sessionsByDay[day]) sessionsByDay[day] = [];
+      sessionsByDay[day].push({...session, hour});
+    });
+
+    Object.entries(sessionsByDay).forEach(([day, sessions]) => {
+      const rollup = claudeDaily[day] || {};
+      const totalWeight = sessions.reduce((sum, session) => sum + Math.max(1, session.commandCount || 0), 0);
+      sessions.forEach(session => {
+        const weight = Math.max(1, session.commandCount || 0);
+        const share = totalWeight > 0 ? weight / totalWeight : 1 / sessions.length;
+        addHour(session.hour, 'claude_code', {
+          requests: weight,
+          sessions: 1,
+          input_tokens: (rollup.totalTokens || 0) * share,
+          cost_usd: (rollup.costUSD || 0) * share,
+        });
+      });
+    });
+  }
+
+  return Object.values(aggregates).sort((a, b) => a.hour.localeCompare(b.hour) || a.backend.localeCompare(b.backend));
 }
 
 async function fetchJSON(url) {
@@ -703,6 +1311,89 @@ function mergeClaudeIntoByBackend(byBackend, claudeStats) {
   }].sort((a, b) => ((b.input_tokens||0)+(b.output_tokens||0)) - ((a.input_tokens||0)+(a.output_tokens||0)));
 }
 
+function mergeDirectUsageIntoByBackend(byBackend, unified) {
+  const status = (unified && unified.statusBySource) || {};
+  const merged = [...byBackend];
+
+  const upsert = (entry) => {
+    const idx = merged.findIndex(item => item.backend === entry.backend);
+    if (idx >= 0) {
+      merged[idx] = {
+        ...merged[idx],
+        ...entry,
+        input_tokens: Math.max(merged[idx].input_tokens || 0, entry.input_tokens || 0),
+        output_tokens: Math.max(merged[idx].output_tokens || 0, entry.output_tokens || 0),
+      };
+      return;
+    }
+    merged.push(entry);
+  };
+
+  if (status.codex_cli && status.codex_cli.available && status.codex_cli.usedTokens > 0) {
+    upsert({
+      backend: 'codex_cli',
+      requests: status.codex_cli.externalSessions || status.codex_cli.sessions || 0,
+      sessions: status.codex_cli.sessions || 0,
+      input_tokens: status.codex_cli.usedTokens || 0,
+      output_tokens: 0,
+      _usage_kind: 'sessions',
+    });
+  }
+
+  if (status.gemini_cli && status.gemini_cli.available && status.gemini_cli.usedTokens > 0) {
+    upsert({
+      backend: 'gemini_cli',
+      requests: status.gemini_cli.sessions || 0,
+      sessions: status.gemini_cli.sessions || 0,
+      input_tokens: status.gemini_cli.usedTokens || 0,
+      output_tokens: 0,
+      _usage_kind: 'sessions',
+    });
+  }
+
+  return merged.sort((a, b) => ((b.input_tokens||0)+(b.output_tokens||0)) - ((a.input_tokens||0)+(a.output_tokens||0)));
+}
+
+function mergeDirectModelsIntoByModel(byModel, codexStats, geminiStats) {
+  const merged = [...byModel];
+
+  if (codexStats && codexStats.available && codexStats.byModel) {
+    for (const [model, usage] of Object.entries(codexStats.byModel)) {
+      merged.push({
+        model_alias: model,
+        backend: 'codex_cli',
+        requests: usage.sessions || 0,
+        input_tokens: usage.tokens || 0,
+        output_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cost_usd: usage.actualCostUSD || 0,
+        avg_latency_ms: 0,
+        _source: 'codex_cli',
+        _is_direct: true,
+      });
+    }
+  }
+
+  if (geminiStats && geminiStats.available) {
+    merged.push({
+      model_alias: geminiStats.model || 'gemini-2.5-pro',
+      backend: 'gemini_cli',
+      requests: geminiStats.totalSessions || 0,
+      input_tokens: geminiStats.totalInputTokens || 0,
+      output_tokens: geminiStats.totalOutputTokens || 0,
+      cache_read_input_tokens: geminiStats.totalCachedTokens || 0,
+      cache_creation_input_tokens: 0,
+      cost_usd: geminiStats.totalEstimatedCostUSD || 0,
+      avg_latency_ms: 0,
+      _source: 'gemini_cli',
+      _is_direct: true,
+    });
+  }
+
+  return merged.sort((a, b) => metricValue(b, 'tokens') - metricValue(a, 'tokens'));
+}
+
 function getHours() {
   return parseInt(document.getElementById('timeRange').value);
 }
@@ -711,53 +1402,250 @@ function getProject() {
   return document.getElementById('projectFilter').value;
 }
 
-async function loadDashboard() {
-  const hours = getHours();
+function currentProjectParam() {
   const project = getProject();
-  const projectParam = project ? `&project=${encodeURIComponent(project)}` : '';
+  return project ? `&project=${encodeURIComponent(project)}` : '';
+}
 
-  const [stats, sessions, backends, cacheStats, claudeStats, active, otelStatus] = await Promise.all([
-    fetchJSON(`${API}/api/dashboard?hours=${hours}${projectParam}`),
-    fetchJSON(`${API}/api/sessions?hours=${hours}&limit=50${projectParam}`),
-    fetchJSON(`${API}/api/backends?refresh=false`).catch(() => ({backends: {}})),
-    fetchJSON(`${API}/api/cache`).catch(() => ({})),
-    fetchJSON(`${API}/api/claude-stats`).catch(() => ({available: false})),
-    fetchJSON(`${API}/api/active-sessions`).catch(() => []),
-    fetchJSON(`${API}/api/otel`).catch(() => ({enabled: false})),
-  ]);
-
-  renderStats(stats, cacheStats, otelStatus, claudeStats);
-  renderProviderStrip(backends.backends || {}, mergeClaudeIntoByBackend(stats.by_backend || [], claudeStats));
-  renderLimits(claudeStats, stats);
-  renderActiveSessions(active);
-  renderDailyChart(stats.daily || []);
-  renderHourlyChart(stats.hourly || []);
-  renderBackendBars(mergeClaudeIntoByBackend(stats.by_backend || [], claudeStats));
-  renderModelBars(mergeClaudeModelsIntoByModel(stats.by_model || [], claudeStats));
-  renderSessions(sessions);
-  renderBackends(backends.backends || {});
-  renderClaudeModelUsage(claudeStats);
-  renderClaudeHistory(claudeStats);
-
-  document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
-
-  // Populate project filter
-  const projects = [...new Set(sessions.map(s => s.project))];
+function populateProjectFilter(payload) {
   const sel = document.getElementById('projectFilter');
   const current = sel.value;
+  const projects = new Set((payload.sessions || []).map(s => s.project).filter(Boolean));
+  (payload.codexStats && payload.codexStats.sessions || []).forEach(s => s.project && projects.add(s.project));
+  Object.keys((payload.geminiStats && payload.geminiStats.byProject) || {}).forEach(project => projects.add(project));
+  (payload.claudeStats && payload.claudeStats.sessionHistory || []).forEach(s => {
+    const project = (s.project || '').split('/').pop();
+    if (project) projects.add(project);
+  });
+
   sel.innerHTML = '<option value="">All projects</option>';
-  projects.forEach(p => {
+  [...projects].sort().forEach(project => {
     const opt = document.createElement('option');
-    opt.value = p;
-    opt.textContent = p;
-    if (p === current) opt.selected = true;
+    opt.value = project;
+    opt.textContent = project;
+    if (project === current) opt.selected = true;
     sel.appendChild(opt);
   });
 }
 
-function renderStats(stats, cache, otel, claudeStats) {
+function populateSourceFilter(payload, backendUsage) {
+  const sel = document.getElementById('sourceFilter');
+  const current = dashboardState.source;
+  const sources = new Set();
+  backendUsage.forEach(item => sources.add(item.backend));
+  Object.keys((payload.unified && payload.unified.statusBySource) || {}).forEach(source => sources.add(source));
+
+  sel.innerHTML = '<option value="all">All sources</option>';
+  [...sources]
+    .filter(source => source !== 'gateway')
+    .sort((a, b) => sourceLabel(a).localeCompare(sourceLabel(b)))
+    .forEach(source => {
+      const opt = document.createElement('option');
+      opt.value = source;
+      opt.textContent = sourceLabel(source);
+      if (source === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+}
+
+function getFilteredHourly(hourly) {
+  if (dashboardState.source === 'all') return hourly;
+  return (hourly || []).filter(item => item.backend === dashboardState.source);
+}
+
+function buildDailyFromHourly(hourly) {
+  const daily = {};
+  (hourly || []).forEach(item => {
+    const day = (item.hour || '').slice(0, 10);
+    if (!day) return;
+    if (!daily[day]) {
+      daily[day] = {
+        day,
+        requests: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cost_usd: 0,
+        sources: {},
+      };
+    }
+    daily[day].requests += item.requests || 0;
+    daily[day].input_tokens += item.input_tokens || 0;
+    daily[day].output_tokens += item.output_tokens || 0;
+    daily[day].cache_read_input_tokens += item.cache_read_input_tokens || 0;
+    daily[day].cache_creation_input_tokens += item.cache_creation_input_tokens || 0;
+    daily[day].cost_usd += item.cost_usd || 0;
+    if (item.backend) {
+      if (!daily[day].sources[item.backend]) daily[day].sources[item.backend] = emptyMetrics();
+      accumulateMetrics(daily[day].sources[item.backend], {
+        requests: item.requests || 0,
+        sessions: item.sessions || 0,
+        input_tokens: item.input_tokens || 0,
+        output_tokens: item.output_tokens || 0,
+        cache_read_input_tokens: item.cache_read_input_tokens || 0,
+        cache_creation_input_tokens: item.cache_creation_input_tokens || 0,
+        cost_usd: item.cost_usd || 0,
+      });
+    }
+  });
+  return Object.values(daily).sort((a, b) => a.day.localeCompare(b.day));
+}
+
+function getFilteredModels(models) {
+  return (models || [])
+    .filter(model => sourceMatches(model.backend, dashboardState.source))
+    .filter(model => queryMatches([model.model_alias, model.backend, model._source]));
+}
+
+function getFilteredBackends(backends) {
+  return (backends || []).filter(backend => sourceMatches(backend.backend, dashboardState.source));
+}
+
+function getFilteredSessions(sessions) {
+  return (sessions || []).filter(session => {
+    const matchesSource = dashboardState.source === 'all'
+      || (session.models_used || []).some(model => normalizeText(model).includes(normalizeText(dashboardState.source)))
+      || normalizeText(session.project).includes(normalizeText(dashboardState.source));
+    const matchesQuery = queryMatches([session.project, ...(session.models_used || [])]);
+    return matchesSource && matchesQuery;
+  });
+}
+
+function renderToolbarMeta(unified, active, filteredModels) {
+  const el = document.getElementById('toolbarMeta');
+  const source = dashboardState.source === 'all' ? 'All sources' : sourceLabel(dashboardState.source);
+  const liveClass = dashboardState.live ? 'ok' : 'warn';
+  const secondsSince = lastLoadAt ? Math.max(0, Math.floor((Date.now() - lastLoadAt) / 1000)) : 0;
+  const nextSync = dashboardState.live ? Math.max(0, dashboardState.refreshSeconds - secondsSince) : 'paused';
+  const nearLimit = (((unified && unified.limits && unified.limits.items) || []).filter(item => (item.percentUsed || 0) >= 70))
+    .sort((a, b) => (b.percentUsed || 0) - (a.percentUsed || 0))[0];
+
+  el.innerHTML = `
+    <span class="pill ${liveClass}">${dashboardState.live ? 'Live' : 'Paused'}${dashboardState.live ? ` · next sync in ${nextSync}s` : ''}</span>
+    <span class="pill info">${getSelectedMetricMeta().label} focus</span>
+    <span class="pill info">${source}</span>
+    ${dashboardState.query ? `<span class="pill info">Search: ${dashboardState.query}</span>` : ''}
+    <span class="pill info">${filteredModels.length} models in view</span>
+    <span class="pill info">${(active || []).length} active sessions</span>
+    ${nearLimit ? `<span class="pill ${(nearLimit.percentUsed || 0) >= 90 ? 'critical' : 'warn'}">${nearLimit.label} ${Number(nearLimit.percentUsed || 0).toFixed(1)}%</span>` : ''}
+  `;
+}
+
+function renderPulsePanel(payload, filteredBackends, filteredModels, filteredSessions) {
+  const el = document.getElementById('pulseGrid');
+  const unified = payload.unified || {};
+  const active = payload.active || [];
+  const limits = (unified.limits && unified.limits.items) || [];
+  const hottest = [...filteredModels].sort((a, b) => metricValue(b, dashboardState.metric) - metricValue(a, dashboardState.metric))[0];
+  const atRisk = limits.filter(item => (item.percentUsed || 0) >= 70).sort((a, b) => (b.percentUsed || 0) - (a.percentUsed || 0))[0];
+  const topBackend = [...filteredBackends].sort((a, b) => metricValue(b, dashboardState.metric) - metricValue(a, dashboardState.metric))[0];
+  const focusDetail = DIRECT_SOURCES.has(dashboardState.source)
+    ? `${filteredModels.length} direct models match · provider drilldowns stay live for direct sessions`
+    : `${filteredSessions.length} sessions and ${filteredModels.length} models match`;
+
+  el.innerHTML = `
+    <div class="pulse-card">
+      <div class="eyebrow">Live Status</div>
+      <div class="headline" style="color:${dashboardState.live ? 'var(--accent2)' : 'var(--accent3)'}">${dashboardState.live ? 'Streaming updates' : 'Manual refresh'}</div>
+      <div class="detail">Last sync ${lastLoadAt ? new Date(lastLoadAt).toLocaleTimeString() : 'never'} · refresh every ${dashboardState.refreshSeconds}s · ${active.length} active sessions</div>
+    </div>
+    <div class="pulse-card">
+      <div class="eyebrow">Focus</div>
+      <div class="headline">${dashboardState.source === 'all' ? 'All providers' : sourceLabel(dashboardState.source)}</div>
+      <div class="detail">${dashboardState.query ? `Search filter: ${dashboardState.query}` : 'No model/project search filter'} · ${focusDetail}</div>
+    </div>
+    <div class="pulse-card">
+      <div class="eyebrow">Hottest Model</div>
+      <div class="headline" style="color:var(--accent5)">${hottest ? hottest.model_alias : '—'}</div>
+      <div class="detail">${hottest ? `${sourceLabel(hottest.backend)} · ${fmt(metricValue(hottest, dashboardState.metric))} ${getSelectedMetricMeta().suffix}` : 'No model activity in the current view'}</div>
+    </div>
+    <div class="pulse-card">
+      <div class="eyebrow">Token Status</div>
+      <div class="headline" style="color:${atRisk ? 'var(--accent3)' : 'var(--accent2)'}">${atRisk ? atRisk.label : 'Healthy'}</div>
+      <div class="detail">${atRisk ? `${Number(atRisk.percentUsed || 0).toFixed(1)}% of limit used` : 'No provider is near a configured limit'}${topBackend ? ` · top backend: ${sourceLabel(topBackend.backend)}` : ''}</div>
+    </div>
+  `;
+}
+
+function renderDashboard(payload) {
+  latestPayload = payload;
+  populateProjectFilter(payload);
+
+  const backendUsage = mergeDirectUsageIntoByBackend(
+    mergeClaudeIntoByBackend(payload.stats.by_backend || [], payload.claudeStats),
+    payload.unified,
+  );
+  const allModels = mergeDirectModelsIntoByModel(
+    mergeClaudeModelsIntoByModel(payload.stats.by_model || [], payload.claudeStats),
+    payload.codexStats,
+    payload.geminiStats,
+  );
+  populateSourceFilter(payload, backendUsage);
+
+  const filteredBackends = getFilteredBackends(backendUsage);
+  const filteredModels = getFilteredModels(allModels);
+  const filteredSessions = getFilteredSessions(payload.sessions || []);
+  const overviewHourly = buildOverviewHourly(payload);
+  const overviewDaily = buildOverviewDaily(payload, overviewHourly);
+
+  renderStats(payload.stats, payload.cacheStats, payload.otelStatus, payload.claudeStats, payload.unified);
+  renderProviderStrip(payload.backends.backends || {}, backendUsage, (payload.unified && payload.unified.statusBySource) || {});
+  renderToolbarMeta(payload.unified, payload.active, filteredModels);
+  renderPulsePanel(payload, filteredBackends, filteredModels, filteredSessions);
+  renderLimits(payload.unified, payload.stats);
+  renderModelHeadroom(payload.unified);
+  renderActiveSessions(payload.active);
+  renderDailyChart(overviewDaily);
+  renderHourlyChart(overviewHourly);
+  renderBackendBars(filteredBackends);
+  renderModelBars(filteredModels);
+  renderSessions(filteredSessions);
+  renderBackends(payload.backends.backends || {});
+  renderClaudeModelUsage(payload.claudeStats);
+  renderClaudeHistory(payload.claudeStats);
+  renderCodexModelUsage(payload.codexStats);
+  renderCodexHistory(payload.codexStats);
+  renderGeminiProjectUsage(payload.geminiStats);
+  renderGeminiHistory(payload.geminiStats);
+  renderUnifiedLedger(payload.unified);
+
+  document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+
+async function loadDashboard(force = false) {
+  if (loadInFlight) return;
+  if (!force && document.hidden) return;
+
+  loadInFlight = true;
+  try {
+    const hours = getHours();
+    const projectParam = currentProjectParam();
+
+    const [stats, sessions, backends, cacheStats, claudeStats, codexStats, geminiStats, unified, active, otelStatus] = await Promise.all([
+      fetchJSON(`${API}/api/dashboard?hours=${hours}${projectParam}`),
+      fetchJSON(`${API}/api/sessions?hours=${hours}&limit=50${projectParam}`),
+      fetchJSON(`${API}/api/backends?refresh=false`).catch(() => ({backends: {}})),
+      fetchJSON(`${API}/api/cache`).catch(() => ({})),
+      fetchJSON(`${API}/api/claude-stats?hours=${hours}${projectParam}`).catch(() => ({available: false})),
+      fetchJSON(`${API}/api/codex-stats?hours=${hours}${projectParam}`).catch(() => ({available: false})),
+      fetchJSON(`${API}/api/gemini-stats?hours=${hours}${projectParam}`).catch(() => ({available: false})),
+      fetchJSON(`${API}/api/all-llm-usage?hours=${hours}${projectParam}`).catch(() => ({})),
+      fetchJSON(`${API}/api/active-sessions`).catch(() => []),
+      fetchJSON(`${API}/api/otel`).catch(() => ({enabled: false})),
+    ]);
+
+    lastLoadAt = Date.now();
+    renderDashboard({stats, sessions, backends, cacheStats, claudeStats, codexStats, geminiStats, unified, active, otelStatus});
+  } finally {
+    loadInFlight = false;
+  }
+}
+
+function renderStats(stats, cache, otel, claudeStats, unified) {
   const t = stats.totals || {};
   const d = stats.derived || {};
+  const u = unified || {};
   // Compute Claude Code tokens/cost separately — do NOT sum into gateway totals
   let claudeTokens = 0, claudeCost = 0;
   if (claudeStats && claudeStats.available && claudeStats.modelUsage) {
@@ -768,6 +1656,8 @@ function renderStats(stats, cache, otel, claudeStats) {
   }
   const gwTokens = (t.total_input || 0) + (t.total_output || 0);
   const gwCost = t.total_cost || 0;
+  const allTokens = u.grandTotalTokens || gwTokens + claudeTokens;
+  const allCost = u.grandTotalCostUSD || gwCost + claudeCost;
 
   const cacheCard = cache && cache.enabled
     ? `<div class="stat-card">
@@ -803,6 +1693,11 @@ function renderStats(stats, cache, otel, claudeStats) {
     : '';
 
   document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card">
+      <div class="label">All LLM Tokens</div>
+      <div class="value token-num" style="color:var(--accent3)">${fmt(allTokens)}</div>
+      <div class="sub">${fmtCost(allCost)} actual across direct + proxied</div>
+    </div>
     <div class="stat-card">
       <div class="label">Sessions</div>
       <div class="value">${fmt(stats.session_count)}</div>
@@ -846,18 +1741,40 @@ function renderStats(stats, cache, otel, claudeStats) {
 function renderDailyChart(daily) {
   const container = document.getElementById('dailyChart');
   const labels = document.getElementById('chartLabels');
+  const note = document.getElementById('dailyChartNote');
   if (!daily.length) {
     container.innerHTML = '<div class="empty-state">No data yet</div>';
     labels.innerHTML = '';
+    note.textContent = '';
     return;
   }
 
-  const maxReqs = Math.max(...daily.map(d => d.requests), 1);
+  const metricMeta = getSelectedMetricMeta();
+  const maxValue = Math.max(...daily.map(d => metricValue(d, dashboardState.metric)), 1);
   container.innerHTML = daily.map(d => {
-    const h = Math.max(4, (d.requests / maxReqs) * 130);
-    const tokens = (d.input_tokens || 0) + (d.output_tokens || 0);
+    const value = metricValue(d, dashboardState.metric);
+    const h = Math.max(4, (value / maxValue) * 130);
+    const tokens = totalTokenValue(d);
+    const sourceEntries = Object.entries(d.sources || {})
+      .filter(([, entry]) => metricValue(entry, dashboardState.metric) > 0)
+      .sort((a, b) => metricValue(b[1], dashboardState.metric) - metricValue(a[1], dashboardState.metric));
+    const segments = sourceEntries.map(([source, entry]) => {
+      const segmentValue = metricValue(entry, dashboardState.metric);
+      const segmentHeight = value > 0 ? Math.max(2, (segmentValue / value) * h) : 0;
+      const color = BACKEND_COLORS[source] || 'var(--accent)';
+      return `<div class="daily-segment" style="height:${segmentHeight}px;background:${color}"></div>`;
+    }).join('');
+    const breakdown = sourceEntries.map(([source, entry]) => {
+      return `<div>${sourceLabel(source)}: ${fmt(metricValue(entry, dashboardState.metric))} ${metricMeta.suffix}</div>`;
+    }).join('');
     return `<div class="daily-bar" style="height:${h}px">
-      <div class="tooltip">${d.day}<br>${d.requests} reqs, ${fmt(tokens)} tokens<br>${fmtCost(d.cost_usd)}</div>
+      ${segments}
+      <div class="tooltip">
+        <div style="font-weight:700;margin-bottom:4px">${d.day}</div>
+        <div>${fmt(value)} ${metricMeta.label.toLowerCase()}</div>
+        <div>${d.requests} reqs · ${fmt(tokens)} tokens · ${fmtCost(d.cost_usd)}</div>
+        ${breakdown ? `<div style="margin-top:6px;color:var(--text-dim)">${breakdown}</div>` : ''}
+      </div>
     </div>`;
   }).join('');
 
@@ -867,6 +1784,11 @@ function renderDailyChart(daily) {
   } else {
     labels.innerHTML = daily.map(d => `<span>${d.day}</span>`).join('');
   }
+
+  const sources = [...new Set(daily.flatMap(day => Object.keys(day.sources || {})))];
+  note.textContent = sources.length
+    ? `Visible sources: ${sources.map(sourceLabel).join(', ')}. Gateway totals stay exact; direct-client bars use the freshest local stats available for the selected window.`
+    : '';
 }
 
 function renderBackendBars(backends) {
@@ -875,15 +1797,18 @@ function renderBackendBars(backends) {
     container.innerHTML = '<div class="empty-state">No data</div>';
     return;
   }
-  const maxTokens = Math.max(...backends.map(b => (b.input_tokens || 0) + (b.output_tokens || 0)), 1);
-  container.innerHTML = backends.map(b => {
-    const total = (b.input_tokens || 0) + (b.output_tokens || 0);
-    const pct = (total / maxTokens) * 100;
+  const metricMeta = getSelectedMetricMeta();
+  const sorted = [...backends].sort((a, b) => metricValue(b, dashboardState.metric) - metricValue(a, dashboardState.metric));
+  const maxValue = Math.max(...sorted.map(b => metricValue(b, dashboardState.metric)), 1);
+  container.innerHTML = sorted.map(b => {
+    const total = totalTokenValue(b);
+    const value = metricValue(b, dashboardState.metric);
+    const pct = (value / maxValue) * 100;
     const color = BACKEND_COLORS[b.backend] || '#6c5ce7';
     return `<div class="bar-row" style="cursor:pointer" onclick="showBackendDrilldown('${b.backend}')">
       <div class="bar-label"><span class="model-tag backend-${b.backend}">${b.backend}</span></div>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
-      <div class="bar-value">${fmt(total)} tok &middot; ${fmt(b.cache_read_input_tokens || 0)} cr &middot; ${fmt(b.cache_creation_input_tokens || 0)} cw &middot; ${fmtCost(b.cost_usd)}</div>
+      <div class="bar-value">${fmt(value)} ${metricMeta.suffix} &middot; ${fmt(total)} tok &middot; ${fmtCost(b.cost_usd)}</div>
     </div>`;
   }).join('');
 }
@@ -896,9 +1821,13 @@ function renderModelBars(models) {
   }
   // Store for drill-down lookups
   window._modelData = models;
-  const maxReqs = Math.max(...models.map(m => m.requests), 1);
-  container.innerHTML = models.map((m, idx) => {
-    const pct = (m.requests / maxReqs) * 100;
+  const metricMeta = getSelectedMetricMeta();
+  const sorted = [...models].sort((a, b) => metricValue(b, dashboardState.metric) - metricValue(a, dashboardState.metric));
+  window._modelData = sorted;
+  const maxValue = Math.max(...sorted.map(m => metricValue(m, dashboardState.metric)), 1);
+  container.innerHTML = sorted.map((m, idx) => {
+    const value = metricValue(m, dashboardState.metric);
+    const pct = (value / maxValue) * 100;
     const color = BACKEND_COLORS[m.backend] || '#6c5ce7';
     const inTok = m.input_tokens || 0;
     const outTok = m.output_tokens || 0;
@@ -908,7 +1837,7 @@ function renderModelBars(models) {
     return `<div class="bar-row" style="cursor:pointer" onclick="showModelDrilldown(${idx})">
       <div class="bar-label"><span class="model-tag backend-${m.backend}">${m.model_alias}</span></div>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
-      <div class="bar-value" style="min-width:280px">${m.requests} reqs &middot; ${fmt(inTok)} in / ${fmt(outTok)} out / ${fmt(cacheReadTok)} cr / ${fmt(cacheWriteTok)} cw &middot; ${latency ? latency + ' &middot; ' : ''}${fmtCost(m.cost_usd)}</div>
+      <div class="bar-value" style="min-width:320px">${fmt(value)} ${metricMeta.suffix} &middot; ${m.requests} reqs &middot; ${fmt(inTok)} in / ${fmt(outTok)} out / ${fmt(cacheReadTok)} cr / ${fmt(cacheWriteTok)} cw &middot; ${latency ? latency + ' &middot; ' : ''}${fmtCost(m.cost_usd)}</div>
     </div>`;
   }).join('');
 }
@@ -958,7 +1887,10 @@ function renderSessions(sessions) {
   countEl.textContent = `${sessions.length} sessions`;
 
   if (!sessions.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No sessions yet. Usage will appear here as you use Claude Code with MultiLLM.</td></tr>';
+    const directHint = DIRECT_SOURCES.has(dashboardState.source)
+      ? `No gateway-proxied sessions match ${sourceLabel(dashboardState.source)}. Use the provider cards and drilldowns above for direct-client session history.`
+      : 'No sessions yet. Usage will appear here as you use Claude Code with MultiLLM.';
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-state">${directHint}</td></tr>`;
     return;
   }
 
@@ -1040,6 +1972,7 @@ const WEEKLY_LIMITS = {
   'Codex CLI':     { limit: 70_000_000, color: 'var(--accent2)' },
   'OCA':           { limit: 350_000_000, color: 'var(--accent3)' },
   'Gemini':        { limit: 14_000_000, color: '#e17055' },
+  'Gemini API':    { limit: 14_000_000, color: '#e17055' },
   'Groq':          { limit: 42_000, color: '#f97220' },       // Groq free tier
   'DeepSeek':      { limit: 70_000_000, color: '#536dfe' },
   'Mistral':       { limit: 70_000_000, color: '#ff6f00' },
@@ -1053,13 +1986,15 @@ const WEEKLY_LIMITS = {
 const CLAUDE_MAX_MONTHLY_EUR = 90;
 const CLAUDE_MAX_MONTHLY_USD = 99; // ~$99 equivalent
 
-function renderProviderStrip(backends, usageByBackend) {
+function renderProviderStrip(backends, usageByBackend, directStatus = {}) {
   const el = document.getElementById('providerStrip');
   // Build usage map
   const usageMap = {};
   usageByBackend.forEach(b => {
     usageMap[b.backend] = {
+      kind: b._usage_kind || 'requests',
       requests: b.requests || 0,
+      sessions: b.sessions || 0,
       tokens: (b.input_tokens || 0) + (b.output_tokens || 0),
     };
   });
@@ -1076,6 +2011,7 @@ function renderProviderStrip(backends, usageByBackend) {
     let dotClass = 'unconfigured';
     let statusText = 'not configured';
     let chipClass = 'inactive';
+    const direct = directStatus[id];
 
     if (backendInfo && backendInfo.available) {
       dotClass = 'online';
@@ -1086,14 +2022,33 @@ function renderProviderStrip(backends, usageByBackend) {
       statusText = 'offline';
     }
 
+    if (direct && direct.available && (!backendInfo || !backendInfo.available)) {
+      dotClass = direct.status === 'unavailable' ? 'offline' : 'online';
+      chipClass = direct.status === 'idle' ? 'inactive' : 'active';
+      if (id === 'claude_code') {
+        statusText = `${direct.sessions || 0} sessions`;
+      } else if (id === 'codex_cli') {
+        statusText = direct.status === 'external_usage'
+          ? `external ${direct.externalSessions || direct.sessions || 0} sessions`
+          : direct.status === 'oca_only'
+            ? `OCA only · ${direct.sessions || 0} sessions`
+            : `${direct.sessions || 0} sessions`;
+      } else if (id === 'gemini_cli') {
+        statusText = `${direct.sessions || 0} sessions`;
+      } else {
+        statusText = direct.status || 'active';
+      }
+    }
+
     // Show usage stats if the provider has been used
     let usageText = '';
-    if (usage && usage.requests > 0) {
-      usageText = `${usage.requests} reqs`;
+    if (usage && ((usage.kind === 'sessions' && usage.sessions > 0) || usage.requests > 0)) {
+      usageText = usage.kind === 'sessions' ? `${usage.sessions} sess` : `${usage.requests} reqs`;
       if (usage.tokens > 0) usageText += ` · ${fmt(usage.tokens)} tok`;
     }
 
-    return `<div class="provider-chip ${chipClass}" title="${p.label}: ${statusText}${usageText ? ' — ' + usageText : ''}">
+    const focusedClass = dashboardState.source === id ? 'focused' : '';
+    return `<div class="provider-chip ${chipClass} ${focusedClass}" title="${p.label}: ${statusText}${usageText ? ' — ' + usageText : ''}" onclick="setSourceFilter('${id}')">
       <div class="provider-dot ${dotClass}"></div>
       <span style="color:${color}">${p.icon} ${p.label}</span>
       ${usageText ? `<span class="provider-meta">${usageText}</span>` : ''}
@@ -1103,25 +2058,29 @@ function renderProviderStrip(backends, usageByBackend) {
   el.innerHTML = chips.join('');
 }
 
-function renderLimits(claude, gwStats) {
+function renderLimits(unified, gwStats) {
   const el = document.getElementById('limitsPanel');
   const rows = [];
   const hours = gwStats.hours || getHours();
-  let dateLabel = hours < 24 ? `Last ${hours}h` : 'This week';
+  const limitItems = (unified && unified.limits && unified.limits.items) || [];
+  const dateLabel = hours < 24 ? `Last ${hours}h` : `Last ${Math.round(hours / 24)}d`;
 
-  // Claude tokens (from stats-cache.json)
-  if (claude && claude.available && claude.latestTokens) {
-    const tokens = claude.latestTokens;
-    if (claude.latestDate && claude.latestDate !== new Date().toISOString().slice(0,10)) {
-      dateLabel = 'Week of ' + claude.latestDate;
-    }
-    for (const [model, count] of Object.entries(tokens)) {
-      const short = model.includes('opus') ? 'Claude Opus' :
-                    model.includes('sonnet') ? 'Claude Sonnet' : model.replace('claude-', '');
-      const cfg = WEEKLY_LIMITS[short] || { limit: 35_000_000, color: 'var(--accent)' };
-      rows.push({ name: short, used: count, limit: cfg.limit, color: cfg.color });
-    }
-  }
+  limitItems.forEach(item => {
+    const color = item.source === 'claude_code'
+      ? (item.label.includes('Opus') ? 'var(--accent)' : item.label.includes('Haiku') ? 'var(--accent2)' : 'var(--accent5)')
+      : item.source === 'codex_cli'
+        ? '#55efc4'
+        : '#ffeaa7';
+    rows.push({
+      name: item.label,
+      used: item.usedTokens || 0,
+      limit: item.limitTokens || 0,
+      color,
+      pct: item.percentUsed || 0,
+      status: item.status || 'idle',
+      detail: item.providers && item.providers.length ? item.providers.join(', ') : '',
+    });
+  });
 
   // Gateway-tracked backends (from dashboard stats)
   const byBackend = gwStats.by_backend || [];
@@ -1131,7 +2090,7 @@ function renderLimits(claude, gwStats) {
   });
 
   const backendToLimit = {
-    codex_cli: 'Codex CLI', oca: 'OCA', gemini: 'Gemini',
+    oca: 'OCA', gemini: 'Gemini API',
     groq: 'Groq', deepseek: 'DeepSeek', mistral: 'Mistral',
     together: 'Together', xai: 'xAI', fireworks: 'Fireworks',
     azure_openai: 'Azure', bedrock: 'Bedrock',
@@ -1155,12 +2114,13 @@ function renderLimits(claude, gwStats) {
 
   // Compute estimated monthly cost
   let totalEstCost = (gwStats.totals || {}).total_cost || 0;
-  let claudeEstCost = 0;
-  if (claude && claude.available && claude.modelUsage) {
-    for (const u of Object.values(claude.modelUsage)) {
-      claudeEstCost += u.estimatedCostUSD || 0;
-    }
-  }
+  const sourceMap = {};
+  ((unified && unified.sources) || []).forEach(source => {
+    sourceMap[source.source] = source;
+  });
+  const claudeEstCost = (sourceMap.claude_code && sourceMap.claude_code.actualCostUSD) || 0;
+  const codexExternal = limitItems.find(item => item.id === 'codex_cli_external') || {};
+  const geminiCli = limitItems.find(item => item.id === 'gemini_cli') || {};
 
   const costNote = `<div style="margin-top:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:11px">
     <div style="display:flex;justify-content:space-between;margin-bottom:6px">
@@ -1179,24 +2139,98 @@ function renderLimits(claude, gwStats) {
       <span style="color:var(--text-dim)">Claude Code usage (est.)</span>
       <span style="color:var(--text-dim)">${fmtCost(claudeEstCost)}</span>
     </div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px">
+      <span style="color:var(--text-dim)">Codex CLI external (est.)</span>
+      <span style="color:var(--text-dim)">${fmtCost(codexExternal.actualCostUSD || 0)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px">
+      <span style="color:var(--text-dim)">Gemini CLI usage (est.)</span>
+      <span style="color:var(--text-dim)">${fmtCost(geminiCli.estimatedCostUSD || 0)}</span>
+    </div>
     <div style="font-size:9px;color:var(--text-dim);margin-top:6px;text-align:center">All costs are estimates based on public pricing &middot; Claude Max is flat-rate</div>
   </div>`;
 
   const derived = gwStats.derived || {};
   el.innerHTML = rows.map(r => {
-    const pct = r.limit > 0 ? Math.min(100, (r.used / r.limit) * 100) : 0;
+    const pct = r.limit > 0 ? Math.min(100, r.pct || (r.used / r.limit) * 100) : 0;
     const barColor = pct > 90 ? '#e17055' : pct > 70 ? '#fdcb6e' : r.color;
     const limitStr = r.limit > 0 ? `${fmt(r.used)} / ${fmt(r.limit)}` : `${fmt(r.used)} (unlimited)`;
     const pctStr = r.limit > 0 ? `${pct.toFixed(1)}%` : '';
+    const statusLabel = r.limit <= 0 ? 'Unlimited' : pct >= 90 ? 'Critical' : pct >= 70 ? 'Watch' : 'Healthy';
+    const statusClass = r.limit <= 0 ? 'info' : pct >= 90 ? 'critical' : pct >= 70 ? 'warn' : 'ok';
     return `<div class="limit-row">
-      <div class="limit-label" style="color:${r.color}">${r.name}</div>
+      <div class="limit-label" style="color:${r.color}">${r.name}<div style="margin-top:4px"><span class="pill ${statusClass}" style="padding:2px 6px;font-size:9px">${statusLabel}</span></div></div>
       <div class="limit-bar-bg">
         <div class="limit-bar-fill" style="width:${r.limit > 0 ? pct : 0}%;background:${barColor}"></div>
         <div class="limit-bar-text">${pctStr}</div>
       </div>
-      <div class="limit-info">${limitStr}</div>
+      <div class="limit-info">${limitStr}${r.detail ? `<div style="margin-top:4px;font-size:9px">${r.detail}</div>` : ''}</div>
     </div>`;
   }).join('') + `<div style="text-align:right;font-size:9px;color:var(--text-dim);margin-top:4px">${dateLabel} &middot; ${Number(derived.tokens_per_hour || 0).toFixed(1)} tok/h &middot; ${Number(derived.requests_per_hour || 0).toFixed(2)} req/h</div>` + costNote;
+}
+
+function renderModelHeadroom(unified) {
+  const el = document.getElementById('modelHeadroom');
+  const limits = (unified && unified.limits) || {};
+  const items = (limits.modelItems || [])
+    .filter(item => sourceMatches(item.source, dashboardState.source))
+    .filter(item => queryMatches([item.model, item.source, item.scopeLabel || '', ...(item.providers || [])]))
+    .sort((a, b) => {
+      const aRemaining = a.remainingTokens == null ? Number.POSITIVE_INFINITY : a.remainingTokens;
+      const bRemaining = b.remainingTokens == null ? Number.POSITIVE_INFINITY : b.remainingTokens;
+      if (aRemaining !== bRemaining) return aRemaining - bRemaining;
+      return (b.usedTokens || 0) - (a.usedTokens || 0);
+    });
+
+  if (!items.length) {
+    el.innerHTML = '<div class="empty-state">No model-level remaining-token data for the current filter</div>';
+    return;
+  }
+
+  const sourceColors = { claude_code: '#d4a0ff', codex_cli: '#55efc4', gemini_cli: '#ffeaa7' };
+  const sourceLabels = { claude_code: 'Claude Code', codex_cli: 'Codex CLI', gemini_cli: 'Gemini CLI' };
+  const rows = items.slice(0, 24).map(item => {
+    const color = sourceColors[item.source] || 'var(--accent5)';
+    const remaining = item.remainingTokens == null
+      ? (item.scope === 'unlimited' ? 'Unlimited' : '—')
+      : fmt(item.remainingTokens);
+    const limitValue = item.limitTokens > 0 ? fmt(item.limitTokens) : '—';
+    const sharedUsed = item.sharedUsedTokens != null ? fmt(item.sharedUsedTokens) : '—';
+    const scopeLabel = item.scope === 'shared_provider'
+      ? `${item.scopeLabel || 'Shared'}`
+      : item.scope === 'family'
+        ? `${item.scopeLabel || 'Family'}`
+        : (item.scopeLabel || 'Unlimited');
+    const providers = item.providers && item.providers.length ? item.providers.join(', ') : '';
+    const statusClass = item.remainingTokens == null
+      ? 'info'
+      : item.remainingTokens === 0
+        ? 'critical'
+        : (item.percentUsed || 0) >= 70
+          ? 'warn'
+          : 'ok';
+    return `<tr>
+      <td style="color:${color};font-weight:600">${sourceLabels[item.source] || item.source}</td>
+      <td style="font-weight:600">${item.model}</td>
+      <td class="token-num">${fmt(item.usedTokens || 0)}</td>
+      <td class="token-num" style="color:${item.remainingTokens == null ? 'var(--text-dim)' : 'var(--accent2)'}">${remaining}</td>
+      <td class="token-num">${limitValue}</td>
+      <td><span class="pill ${statusClass}" style="padding:2px 6px;font-size:9px">${scopeLabel}</span>${providers ? `<div style="margin-top:4px;font-size:9px;color:var(--text-dim)">${providers}</div>` : ''}</td>
+      <td class="token-num" style="color:var(--text-dim)">${sharedUsed}</td>
+    </tr>`;
+  });
+
+  const windowLabel = limits.windowHours < 24
+    ? `last ${limits.windowHours}h`
+    : `last ${Math.round(limits.windowHours / 24)}d`;
+  el.innerHTML = `
+    <table class="sessions-table" style="font-size:11px">
+      <thead><tr><th>Source</th><th>Model</th><th>Model Usage</th><th>Available</th><th>Limit</th><th>Scope</th><th>Window Used</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>
+    <div class="chart-note" style="margin-top:8px">
+      Available tokens are shown for the selected window (${windowLabel}). For shared-provider scopes, the remaining value is shared across all models on that provider window.
+    </div>`;
 }
 
 function renderActiveSessions(active) {
@@ -1293,11 +2327,241 @@ function renderClaudeHistory(data) {
     </table>`;
 }
 
+// ── Codex CLI Stats ──────────────────────────────────────────────────────
+
+function renderCodexModelUsage(data) {
+  const el = document.getElementById('codexModelUsage');
+  if (!data || !data.available) {
+    el.innerHTML = '<div class="empty-state">No Codex CLI stats found<br><span style="font-size:10px;color:var(--text-dim)">Stats appear after Codex CLI usage (~/.codex/state_5.sqlite)</span></div>';
+    return;
+  }
+
+  const byModel = data.byModel || {};
+  const byProvider = data.byProvider || {};
+  if (!Object.keys(byModel).length) {
+    el.innerHTML = '<div class="empty-state">No Codex model usage data</div>';
+    return;
+  }
+
+  const savedByOCA = data.savedByOCA || 0;
+
+  const modelRows = Object.entries(byModel).map(([model, u]) => `<tr>
+    <td style="font-weight:600;color:#55efc4">${model}</td>
+    <td class="token-num">${fmt(u.tokens)}</td>
+    <td class="token-num">${u.sessions}</td>
+    <td class="token-num" style="color:var(--accent3)">${fmtCost(u.actualCostUSD)}</td>
+    <td class="token-num" style="color:var(--text-dim)">${fmtCost(u.listPriceUSD)}</td>
+  </tr>`);
+
+  const providerRows = Object.entries(byProvider).map(([prov, u]) => {
+    const ocaBadge = u.isOCA ? ' <span style="background:#55efc422;color:#55efc4;padding:1px 4px;border-radius:3px;font-size:9px">FREE</span>' : '';
+    return `<tr>
+      <td style="font-weight:600;color:#81ecec">${prov}${ocaBadge}</td>
+      <td class="token-num">${fmt(u.tokens)}</td>
+      <td class="token-num">${u.sessions}</td>
+      <td class="token-num" style="color:var(--accent3)">${fmtCost(u.actualCostUSD)}</td>
+      <td class="token-num" style="color:var(--text-dim)">${fmtCost(u.listPriceUSD)}</td>
+    </tr>`;
+  });
+
+  el.innerHTML = `
+    <div style="margin-bottom:8px;font-size:11px;color:var(--text-dim)">
+      ${data.totalSessions} sessions &middot; ${fmt(data.totalTokens)} tokens &middot;
+      Actual: <span style="color:var(--accent3)">${fmtCost(data.totalActualCostUSD)}</span>
+      &middot; List price: <span style="color:var(--text-dim)">${fmtCost(data.totalListPriceUSD)}</span>
+      ${savedByOCA > 0 ? `&middot; <span style="color:#55efc4;font-weight:600">Saved ${fmtCost(savedByOCA)} via OCA</span>` : ''}
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      <div style="flex:1 1 420px;min-width:0;overflow-x:auto">
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">By Model</div>
+        <table class="sessions-table compact" style="width:100%;table-layout:auto">
+          <thead><tr><th>Model</th><th>Tokens</th><th>Ses.</th><th>Actual</th><th>List</th></tr></thead>
+          <tbody>${modelRows.join('')}</tbody>
+        </table>
+      </div>
+      <div style="flex:1 1 420px;min-width:0;overflow-x:auto">
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">By Provider</div>
+        <table class="sessions-table compact" style="width:100%;table-layout:auto">
+          <thead><tr><th>Provider</th><th>Tokens</th><th>Ses.</th><th>Actual</th><th>List</th></tr></thead>
+          <tbody>${providerRows.join('')}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function renderCodexHistory(data) {
+  const el = document.getElementById('codexHistory');
+  if (!data || !data.available || !data.sessions || !data.sessions.length) {
+    el.innerHTML = '<div class="empty-state">No Codex session history available</div>';
+    return;
+  }
+  const sessions = data.sessions.slice(0, 20);
+  const rows = sessions.map(s => {
+    const title = (s.title || s.firstMessage || '').substring(0, 60);
+    const proj = s.project || '—';
+    const isOCA = s.provider && s.provider.toLowerCase().startsWith('oca');
+    const costCell = isOCA
+      ? `<td class="token-num" style="color:#55efc4">$0 <span style="font-size:9px;color:var(--text-dim)">(${fmtCost(s.listPriceUSD)} list)</span></td>`
+      : `<td class="token-num" style="color:var(--accent3)">${fmtCost(s.actualCostUSD)}</td>`;
+    return `<tr>
+      <td style="white-space:nowrap">${s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}</td>
+      <td style="color:#55efc4">${s.model}</td>
+      <td style="color:#81ecec;font-size:10px">${s.provider}</td>
+      <td style="font-weight:600;color:var(--accent5)">${proj}</td>
+      <td class="token-num">${fmt(s.tokensUsed)}</td>
+      ${costCell}
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title || '—'}</td>
+    </tr>`;
+  });
+  el.innerHTML = `
+    <table class="sessions-table" style="font-size:11px">
+      <thead><tr><th>Time</th><th>Model</th><th>Provider</th><th>Project</th><th>Tokens</th><th>Cost</th><th>Title</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>`;
+}
+
+// ── Gemini CLI Stats ─────────────────────────────────────────────────────
+
+function renderGeminiProjectUsage(data) {
+  const el = document.getElementById('geminiProjectUsage');
+  if (!data || !data.available) {
+    el.innerHTML = '<div class="empty-state">No Gemini CLI stats found<br><span style="font-size:10px;color:var(--text-dim)">Stats appear after Gemini CLI usage (~/.gemini/tmp/)</span></div>';
+    return;
+  }
+
+  const byProject = data.byProject || {};
+  if (!Object.keys(byProject).length) {
+    el.innerHTML = '<div class="empty-state">No Gemini project usage data</div>';
+    return;
+  }
+
+  const sorted = Object.entries(byProject).sort((a,b) => b[1].totalTokens - a[1].totalTokens);
+  const rows = sorted.map(([proj, u]) => `<tr>
+    <td style="font-weight:600;color:#ffeaa7">${proj}</td>
+    <td class="token-num">${fmt(u.inputTokens)}</td>
+    <td class="token-num">${fmt(u.outputTokens)}</td>
+    <td class="token-num" style="color:var(--text-dim)">${fmt(u.cachedTokens)}</td>
+    <td class="token-num">${u.sessions}</td>
+    <td class="token-num" style="color:var(--accent3)">${fmtCost(u.costUSD)}</td>
+  </tr>`);
+
+  el.innerHTML = `
+    <div style="margin-bottom:8px;font-size:11px;color:var(--text-dim)">
+      ${data.totalSessions} sessions &middot; ${fmt(data.totalTokens)} tokens &middot;
+      Model: <span style="color:#ffeaa7">${data.model || 'gemini-2.5-pro'}</span> &middot;
+      Est. total: <span style="color:var(--accent3)">${fmtCost(data.totalEstimatedCostUSD)}</span>
+    </div>
+    <table class="sessions-table" style="font-size:11px">
+      <thead><tr><th>Project</th><th>Input</th><th>Output</th><th>Cached</th><th>Sessions</th><th>Cost</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>`;
+}
+
+function renderGeminiHistory(data) {
+  const el = document.getElementById('geminiHistory');
+  if (!data || !data.available || !data.sessions || !data.sessions.length) {
+    el.innerHTML = '<div class="empty-state">No Gemini session history available</div>';
+    return;
+  }
+  const sessions = data.sessions.slice(0, 20);
+  const rows = sessions.map(s => `<tr>
+    <td style="white-space:nowrap">${s.date || '—'}</td>
+    <td style="font-weight:600;color:#ffeaa7">${s.project}</td>
+    <td class="token-num">${fmt(s.inputTokens)}</td>
+    <td class="token-num">${fmt(s.outputTokens)}</td>
+    <td class="token-num" style="color:var(--text-dim)">${fmt(s.cachedTokens)}</td>
+    <td class="token-num">${s.messageCount}</td>
+    <td class="token-num" style="color:var(--accent3)">${fmtCost(s.estimatedCostUSD)}</td>
+  </tr>`);
+  el.innerHTML = `
+    <table class="sessions-table" style="font-size:11px">
+      <thead><tr><th>Date</th><th>Project</th><th>Input</th><th>Output</th><th>Cached</th><th>Messages</th><th>Cost</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>`;
+}
+
+// ── Unified LLM Ledger ──────────────────────────────────────────────────
+
+function renderUnifiedLedger(data) {
+  const el = document.getElementById('unifiedLedger');
+  if (!data || !data.sources) {
+    el.innerHTML = '<div class="empty-state">No unified data available</div>';
+    return;
+  }
+
+  const sourceColors = { gateway: '#74b9ff', claude_code: '#d4a0ff', codex_cli: '#55efc4', gemini_cli: '#ffeaa7' };
+  const sourceLabels = { gateway: 'Gateway (Proxied)', claude_code: 'Claude Code', codex_cli: 'Codex CLI', gemini_cli: 'Gemini CLI' };
+
+  // Source summary cards
+  const sourceCards = (data.sources || []).map(s => {
+    const color = sourceColors[s.source] || '#ccc';
+    const label = sourceLabels[s.source] || s.source;
+    const avail = s.available ? '●' : '○';
+    const actualCost = s.actualCostUSD || s.costUSD || 0;
+    const listPrice = s.listPriceUSD || actualCost;
+    const saved = s.savedByOCA || 0;
+    const focused = dashboardState.source === s.source;
+    return `<div onclick="setSourceFilter('${s.source}')" style="flex:1;min-width:180px;background:${color}11;border:1px solid ${focused ? color : color + '33'};border-radius:8px;padding:12px;cursor:pointer">
+      <div style="font-size:10px;color:${color};text-transform:uppercase;letter-spacing:1px">${avail} ${label}</div>
+      <div style="font-size:22px;font-weight:700;color:${color};margin:4px 0" class="token-num">${fmt(s.tokens)}</div>
+      <div style="font-size:11px;color:var(--text-dim)">
+        ${fmtCost(actualCost)} actual${listPrice !== actualCost ? ` <span style="text-decoration:line-through;opacity:0.5">${fmtCost(listPrice)} list</span>` : ''}
+        ${s.sessions ? ` · ${s.sessions} sessions` : ''}
+        ${s.messages ? ` · ${fmt(s.messages)} msgs` : ''}
+        ${s.requests ? ` · ${s.requests} reqs` : ''}
+      </div>
+      ${saved > 0 ? `<div style="font-size:10px;color:#55efc4;margin-top:2px;font-weight:600">Saved ${fmtCost(saved)} via OCA</div>` : ''}
+      ${s.dataAsOf ? `<div style="font-size:9px;color:var(--text-dim);margin-top:2px">data as of ${s.dataAsOf}</div>` : ''}
+    </div>`;
+  });
+
+  // Grand total bar
+  const grandTokens = data.grandTotalTokens || 0;
+  const grandCost = data.grandTotalCostUSD || 0;
+  const grandListPrice = data.grandTotalListPriceUSD || grandCost;
+  const grandSaved = grandListPrice - grandCost;
+
+  // By model table
+  const modelRows = (data.byModel || [])
+    .filter(m => sourceMatches(m.source === 'gateway' ? m.backend : m.source, dashboardState.source))
+    .filter(m => queryMatches([m.model, m.backend, m.source]))
+    .sort((a, b) => (b.tokens || 0) - (a.tokens || 0))
+    .slice(0, 15)
+    .map(m => {
+    const color = sourceColors[m.source] || '#ccc';
+    const actual = m.actualCostUSD || m.costUSD || 0;
+    const list = m.listPriceUSD || actual;
+    const listDiff = list !== actual ? ` <span style="font-size:9px;text-decoration:line-through;opacity:0.4">${fmtCost(list)}</span>` : '';
+    return `<tr>
+      <td style="font-weight:600;color:${color}">${m.model.replace('claude-','')}</td>
+      <td style="font-size:10px;color:var(--text-dim)">${sourceLabels[m.source] || m.source}</td>
+      <td class="token-num">${fmt(m.tokens)}</td>
+      <td class="token-num">${m.requests || '—'}</td>
+      <td class="token-num" style="color:var(--accent3)">${fmtCost(actual)}${listDiff}</td>
+    </tr>`;
+  });
+
+  el.innerHTML = `
+    <div style="text-align:center;margin-bottom:12px;padding:12px;background:var(--surface);border-radius:8px">
+      <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">Grand Total — All LLMs</div>
+      <div style="font-size:32px;font-weight:800;color:var(--accent3);margin:4px 0" class="token-num">${fmt(grandTokens)} tokens</div>
+      <div style="font-size:16px;color:var(--accent3)">${fmtCost(grandCost)} actual${grandSaved > 0 ? ` <span style="font-size:12px;color:var(--text-dim);text-decoration:line-through">${fmtCost(grandListPrice)} list</span>` : ''}</div>
+      ${grandSaved > 0 ? `<div style="font-size:13px;color:#55efc4;font-weight:600;margin-top:4px">Saved ${fmtCost(grandSaved)} via OCA</div>` : ''}
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+      ${sourceCards.join('')}
+    </div>
+    <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">Top Models Across All Sources</div>
+    <table class="sessions-table" style="font-size:11px">
+      <thead><tr><th>Model</th><th>Source</th><th>Tokens</th><th>Requests</th><th>Cost</th></tr></thead>
+      <tbody>${modelRows.join('')}</tbody>
+    </table>`;
+}
+
 // ── Hourly Activity Chart ───────────────────────────────────────────────
 
 function renderHourlyChart(hourly) {
   const container = document.getElementById('hourlyChart');
-  const hoursWindow = getHours();
   if (!hourly || !hourly.length) {
     container.innerHTML = '<div class="empty-state">No hourly data yet</div>';
     return;
@@ -1306,13 +2570,14 @@ function renderHourlyChart(hourly) {
   // Group by hour, aggregate per backend
   const hours = {};
   const backends = new Set();
+  const metricMeta = getSelectedMetricMeta();
   hourly.forEach(h => {
     if (!hours[h.hour]) hours[h.hour] = {};
-    hours[h.hour][h.backend] = (hours[h.hour][h.backend] || 0) + h.requests;
+    hours[h.hour][h.backend] = (hours[h.hour][h.backend] || 0) + metricValue(h, dashboardState.metric);
     backends.add(h.backend);
   });
 
-  const sortedHours = Object.keys(hours).sort().slice(-Math.min(Math.max(hoursWindow, 1), 168));
+  const sortedHours = Object.keys(hours).sort().slice(-Math.min(Math.max(getHours(), 1), 168));
   const maxReqs = Math.max(...sortedHours.map(h => {
     return Object.values(hours[h]).reduce((a, b) => a + b, 0);
   }), 1);
@@ -1332,13 +2597,13 @@ function renderHourlyChart(hourly) {
       if (val > 0) {
         const segH = (val / total) * barHeight;
         const color = BACKEND_COLORS[backend] || '#6c5ce7';
-        segments.push(`<div style="height:${segH}px;background:${color};width:100%;opacity:0.85" title="${backend}: ${val} reqs"></div>`);
+        segments.push(`<div style="height:${segH}px;background:${color};width:100%;opacity:0.85" title="${backend}: ${fmt(val)} ${metricMeta.suffix}"></div>`);
         offset += segH;
       }
     }
 
     const hLabel = hour.slice(11, 16); // "HH:MM"
-    const tooltip = Object.entries(data).map(([b, r]) => `${b}: ${r}`).join(', ');
+    const tooltip = Object.entries(data).map(([b, r]) => `${b}: ${fmt(r)} ${metricMeta.suffix}`).join(', ');
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0">
       <div style="display:flex;flex-direction:column-reverse;height:120px;width:${barWidth - 2}px;justify-content:flex-start;border-radius:3px;overflow:hidden" title="${hour}\n${tooltip}">
         ${segments.join('')}
@@ -1350,12 +2615,25 @@ function renderHourlyChart(hourly) {
   // Legend
   const legend = [...backends].map(b => {
     const color = BACKEND_COLORS[b] || '#6c5ce7';
-    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text-dim)"><span style="width:8px;height:8px;border-radius:2px;background:${color};display:inline-block"></span>${b}</span>`;
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text-dim)"><span style="width:8px;height:8px;border-radius:2px;background:${color};display:inline-block"></span>${sourceLabel(b)}</span>`;
   }).join(' &nbsp; ');
+
+  const noteParts = [];
+  if ([...backends].some(backend => !DIRECT_SOURCES.has(backend))) {
+    noteParts.push('Gateway sources are request-level telemetry.');
+  }
+  if ([...backends].some(backend => backend === 'codex_cli' || backend === 'gemini_cli')) {
+    noteParts.push('Codex CLI and Gemini CLI buckets are grouped by session timestamps.');
+  }
+  if ([...backends].some(backend => backend === 'claude_code')) {
+    noteParts.push('Claude Code hourly tokens use direct session usage when available and fall back to session-weighted daily local stats otherwise.');
+  }
 
   container.innerHTML = `
     <div style="display:flex;gap:2px;align-items:flex-end;min-height:150px;padding-bottom:20px">${bars.join('')}</div>
+    <div style="margin-top:8px;font-size:10px;color:var(--text-dim);margin-bottom:6px">${metricMeta.label} by hour</div>
     <div style="margin-top:8px">${legend}</div>
+    ${noteParts.length ? `<div class="chart-note">${noteParts.join(' ')}</div>` : ''}
   `;
 }
 
@@ -1372,8 +2650,122 @@ async function showBackendDrilldown(backend) {
   modal.classList.add('active');
 
   try {
-    const hours = getHours();
-    const stats = await fetchJSON(`${API}/api/dashboard?hours=${hours}`);
+    const payload = latestPayload;
+    if (!payload) throw new Error('Dashboard data not loaded yet');
+
+    if (backend === 'claude_code' && payload.claudeStats && payload.claudeStats.available) {
+      const rows = Object.entries(payload.claudeStats.modelUsage || {}).map(([model, usage]) => `
+        <tr>
+          <td style="color:var(--accent5);font-weight:600">${model}</td>
+          <td class="token-num">${fmt((usage.inputTokens || 0) + (usage.outputTokens || 0) + (usage.cacheReadInputTokens || 0) + (usage.cacheCreationInputTokens || 0))}</td>
+          <td class="token-num">${fmt(usage.inputTokens || 0)}</td>
+          <td class="token-num">${fmt(usage.outputTokens || 0)}</td>
+          <td class="token-num">${fmtCost(usage.estimatedCostUSD || 0)}</td>
+        </tr>
+      `).join('');
+      body.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+          <div class="stat-card" style="padding:12px"><div class="label">Sessions</div><div class="value" style="font-size:20px">${fmt(payload.claudeStats.totalSessions || 0)}</div></div>
+          <div class="stat-card" style="padding:12px"><div class="label">Messages</div><div class="value" style="font-size:20px">${fmt(payload.claudeStats.totalMessages || 0)}</div></div>
+          <div class="stat-card" style="padding:12px"><div class="label">Models</div><div class="value" style="font-size:20px">${fmt(Object.keys(payload.claudeStats.modelUsage || {}).length)}</div></div>
+          <div class="stat-card" style="padding:12px"><div class="label">Data As Of</div><div class="value" style="font-size:18px">${payload.claudeStats.latestDate || '—'}</div></div>
+        </div>
+        <table class="sessions-table" style="font-size:11px">
+          <thead><tr><th>Model</th><th>Total Tokens</th><th>Input</th><th>Output</th><th>Cost</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="5">No Claude Code activity</td></tr>'}</tbody>
+        </table>
+      `;
+      return;
+    }
+
+    if (backend === 'codex_cli' && payload.codexStats && payload.codexStats.available) {
+      const providers = Object.entries(payload.codexStats.byProvider || {}).map(([provider, usage]) => `
+        <tr>
+          <td style="color:#81ecec;font-weight:600">${provider}</td>
+          <td class="token-num">${fmt(usage.tokens || 0)}</td>
+          <td class="token-num">${fmt(usage.sessions || 0)}</td>
+          <td class="token-num">${fmtCost(usage.actualCostUSD || 0)}</td>
+          <td class="token-num">${fmtCost(usage.listPriceUSD || 0)}</td>
+        </tr>
+      `).join('');
+      const sessions = (payload.codexStats.sessions || []).slice(0, 12).map(session => `
+        <tr>
+          <td>${session.createdAt ? new Date(session.createdAt).toLocaleString() : '—'}</td>
+          <td>${session.project || '—'}</td>
+          <td style="color:#55efc4">${session.model}</td>
+          <td style="color:#81ecec">${session.provider}</td>
+          <td class="token-num">${fmt(session.tokensUsed || 0)}</td>
+        </tr>
+      `).join('');
+      body.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+          <div class="stat-card" style="padding:12px"><div class="label">Sessions</div><div class="value" style="font-size:20px">${fmt(payload.codexStats.totalSessions || 0)}</div></div>
+          <div class="stat-card" style="padding:12px"><div class="label">Tokens</div><div class="value token-num" style="font-size:20px">${fmt(payload.codexStats.totalTokens || 0)}</div></div>
+          <div class="stat-card" style="padding:12px"><div class="label">Actual Cost</div><div class="value" style="font-size:20px">${fmtCost(payload.codexStats.totalActualCostUSD || 0)}</div></div>
+          <div class="stat-card" style="padding:12px"><div class="label">Saved via OCA</div><div class="value" style="font-size:20px;color:#55efc4">${fmtCost(payload.codexStats.savedByOCA || 0)}</div></div>
+        </div>
+        <div class="panels" style="margin-bottom:0">
+          <div class="panel">
+            <div class="panel-header">Providers</div>
+            <div class="panel-body" style="padding:0">
+              <table class="sessions-table compact"><thead><tr><th>Provider</th><th>Tokens</th><th>Ses.</th><th>Actual</th><th>List</th></tr></thead><tbody>${providers || '<tr><td colspan="5">No provider data</td></tr>'}</tbody></table>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">Recent Sessions</div>
+            <div class="panel-body" style="padding:0">
+              <table class="sessions-table compact"><thead><tr><th>Time</th><th>Project</th><th>Model</th><th>Provider</th><th>Tokens</th></tr></thead><tbody>${sessions || '<tr><td colspan="5">No sessions</td></tr>'}</tbody></table>
+            </div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (backend === 'gemini_cli' && payload.geminiStats && payload.geminiStats.available) {
+      const projects = Object.entries(payload.geminiStats.byProject || {}).map(([project, usage]) => `
+        <tr>
+          <td style="color:#ffeaa7;font-weight:600">${project}</td>
+          <td class="token-num">${fmt(usage.totalTokens || 0)}</td>
+          <td class="token-num">${fmt(usage.sessions || 0)}</td>
+          <td class="token-num">${fmtCost(usage.costUSD || 0)}</td>
+        </tr>
+      `).join('');
+      const sessions = (payload.geminiStats.sessions || []).slice(0, 12).map(session => `
+        <tr>
+          <td>${session.date || '—'}</td>
+          <td style="color:#ffeaa7">${session.project}</td>
+          <td class="token-num">${fmt(session.totalTokens || 0)}</td>
+          <td class="token-num">${fmt(session.messageCount || 0)}</td>
+          <td class="token-num">${fmtCost(session.estimatedCostUSD || 0)}</td>
+        </tr>
+      `).join('');
+      body.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+          <div class="stat-card" style="padding:12px"><div class="label">Sessions</div><div class="value" style="font-size:20px">${fmt(payload.geminiStats.totalSessions || 0)}</div></div>
+          <div class="stat-card" style="padding:12px"><div class="label">Tokens</div><div class="value token-num" style="font-size:20px">${fmt(payload.geminiStats.totalTokens || 0)}</div></div>
+          <div class="stat-card" style="padding:12px"><div class="label">Model</div><div class="value" style="font-size:18px">${payload.geminiStats.model || '—'}</div></div>
+          <div class="stat-card" style="padding:12px"><div class="label">Estimated Cost</div><div class="value" style="font-size:20px">${fmtCost(payload.geminiStats.totalEstimatedCostUSD || 0)}</div></div>
+        </div>
+        <div class="panels" style="margin-bottom:0">
+          <div class="panel">
+            <div class="panel-header">Projects</div>
+            <div class="panel-body" style="padding:0">
+              <table class="sessions-table compact"><thead><tr><th>Project</th><th>Tokens</th><th>Ses.</th><th>Cost</th></tr></thead><tbody>${projects || '<tr><td colspan="4">No project data</td></tr>'}</tbody></table>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">Recent Sessions</div>
+            <div class="panel-body" style="padding:0">
+              <table class="sessions-table compact"><thead><tr><th>Date</th><th>Project</th><th>Tokens</th><th>Msgs</th><th>Cost</th></tr></thead><tbody>${sessions || '<tr><td colspan="5">No sessions</td></tr>'}</tbody></table>
+            </div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const stats = payload.stats;
 
     // Find models for this backend
     const models = (stats.by_model || []).filter(m => m.backend === backend);
@@ -1473,12 +2865,18 @@ function showModelDrilldown(idx) {
   const cacheReadPct = totalTok > 0 ? ((cacheReadTok / totalTok) * 100).toFixed(1) : '0';
   const cacheWritePct = totalTok > 0 ? ((cacheWriteTok / totalTok) * 100).toFixed(1) : '0';
   const avgTokPerReq = m.requests > 0 ? Math.round(totalTok / m.requests) : 0;
-  const isClaude = m._is_claude_code;
+  const sourceHint = m._is_claude_code
+    ? 'via Claude Code (direct)'
+    : m._source === 'codex_cli'
+      ? 'via Codex CLI (direct)'
+      : m._source === 'gemini_cli'
+        ? 'via Gemini CLI (direct)'
+        : 'via gateway proxy';
 
   body.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
       <span class="model-tag backend-${m.backend}" style="font-size:13px">${m.backend}</span>
-      ${isClaude ? '<span style="color:var(--accent5);font-size:11px">via Claude Code (direct)</span>' : '<span style="color:var(--text-dim);font-size:11px">via gateway proxy</span>'}
+      <span style="color:var(--text-dim);font-size:11px">${sourceHint}</span>
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
       <div class="stat-card" style="padding:12px"><div class="label">Requests</div><div class="value" style="font-size:20px">${fmt(m.requests)}</div></div>
@@ -1512,15 +2910,77 @@ function closeModal(event) {
   document.getElementById('modalOverlay').classList.remove('active');
 }
 
-function refresh() { loadDashboard(); }
+function refresh() { loadDashboard(true); }
 
-document.getElementById('timeRange').addEventListener('change', loadDashboard);
-document.getElementById('projectFilter').addEventListener('change', loadDashboard);
+function setSourceFilter(source) {
+  dashboardState.source = dashboardState.source === source ? 'all' : source;
+  document.getElementById('sourceFilter').value = dashboardState.source;
+  if (latestPayload) renderDashboard(latestPayload);
+}
+
+function clearFocus() {
+  dashboardState.source = 'all';
+  dashboardState.query = '';
+  document.getElementById('sourceFilter').value = 'all';
+  document.getElementById('modelSearch').value = '';
+  if (latestPayload) renderDashboard(latestPayload);
+}
+
+function updateLiveToggle() {
+  const btn = document.getElementById('liveToggle');
+  btn.classList.toggle('active', dashboardState.live);
+  btn.textContent = dashboardState.live ? 'Live ON' : 'Live OFF';
+}
+
+function startLiveTicker() {
+  if (liveTicker) clearInterval(liveTicker);
+  liveTicker = setInterval(() => {
+    if (!latestPayload) return;
+    renderToolbarMeta(latestPayload.unified, latestPayload.active, getFilteredModels(
+      mergeDirectModelsIntoByModel(
+        mergeClaudeModelsIntoByModel(latestPayload.stats.by_model || [], latestPayload.claudeStats),
+        latestPayload.codexStats,
+        latestPayload.geminiStats,
+      ),
+    ));
+    if (dashboardState.live && !document.hidden && Date.now() - lastLoadAt >= dashboardState.refreshSeconds * 1000) {
+      loadDashboard();
+    }
+  }, 1000);
+}
+
+document.getElementById('timeRange').addEventListener('change', () => loadDashboard(true));
+document.getElementById('projectFilter').addEventListener('change', () => loadDashboard(true));
+document.getElementById('metricMode').addEventListener('change', (event) => {
+  dashboardState.metric = event.target.value;
+  if (latestPayload) renderDashboard(latestPayload);
+});
+document.getElementById('sourceFilter').addEventListener('change', (event) => {
+  dashboardState.source = event.target.value;
+  if (latestPayload) renderDashboard(latestPayload);
+});
+document.getElementById('modelSearch').addEventListener('input', (event) => {
+  dashboardState.query = event.target.value.trim();
+  if (latestPayload) renderDashboard(latestPayload);
+});
+document.getElementById('refreshRate').addEventListener('change', (event) => {
+  dashboardState.refreshSeconds = parseInt(event.target.value, 10) || 5;
+  if (latestPayload) renderDashboard(latestPayload);
+});
+document.getElementById('liveToggle').addEventListener('click', () => {
+  dashboardState.live = !dashboardState.live;
+  updateLiveToggle();
+  if (latestPayload) renderDashboard(latestPayload);
+});
+document.getElementById('clearFilters').addEventListener('click', clearFocus);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && dashboardState.live) loadDashboard(true);
+});
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-// Auto-refresh every 5 seconds for near-realtime updates
-loadDashboard();
-setInterval(loadDashboard, 5000);
+updateLiveToggle();
+loadDashboard(true);
+startLiveTicker();
 </script>
 </body>
 </html>
