@@ -28,8 +28,7 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, StreamingResponse
 
 from .config import (
     GATEWAY_PORT, OLLAMA_URL, LMSTUDIO_URL,
@@ -47,7 +46,6 @@ from .converters import (
     openai_response_to_anthropic,
     make_anthropic_response,
     extract_text_from_anthropic,
-    anthropic_messages_to_openai,
     count_tokens,
 )
 from .oca_auth import get_oca_bearer_token
@@ -59,7 +57,9 @@ from .streaming import (
     stream_gemini,
 )
 from .stream_utils import StreamTokenCounter
-from .adapters import get_adapter, list_adapters
+from .adapters import list_adapters
+from .adapters.codex_cli import CodexCLIAdapter
+from .adapters.gemini_cli import GeminiCLIAdapter
 from .adapters.setup import register_all_adapters
 from .tracking import (
     record_usage, get_usage_summary, get_project_summary,
@@ -356,120 +356,13 @@ async def _call_gemini(model: str, body: dict) -> dict:
 
 
 async def _call_codex_cli(body: dict, model_alias: str = "codex/cli") -> dict:
-    prompt = extract_text_from_anthropic(body)
-    if len(prompt) > 10000:
-        prompt = prompt[:10000] + "\n...(truncated)"
-
-    # Determine profile from route model field (e.g. "codex:gpt-5-4" → "-p gpt-5-4")
     route_model = body.get("_route_model", "")
-    if route_model.startswith("codex:"):
-        profile = route_model.split(":", 1)[1]
-    else:
-        profile = os.getenv("CODEX_DEFAULT_PROFILE", "gpt-5-4")
-
-    # Per-request sandbox override via metadata, else env var, else default
-    metadata = body.get("metadata", {})
-    sandbox = metadata.get("sandbox_mode") or os.getenv("CODEX_SANDBOX", "read-only")
-
-    try:
-        # Pipe prompt via stdin with "-" to avoid CLI argument length limits
-        proc = await asyncio.create_subprocess_exec(
-            "codex", "exec", "--full-auto", "-s", sandbox, "-p", profile, "-",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=prompt.encode("utf-8")), timeout=180
-        )
-        raw_out = stdout.decode("utf-8", errors="replace").strip()
-        raw_err = stderr.decode("utf-8", errors="replace").strip()
-        # Codex CLI outputs response to stdout; stderr has session banner + logs
-        # On rc=1 with empty stdout, try to extract text from stderr after the banner
-        text = raw_out
-        if not text and raw_err:
-            # Skip the session banner (everything before "--------\nuser\n")
-            parts = raw_err.split("--------\nuser\n", 1)
-            if len(parts) > 1:
-                # After the user prompt echo, look for assistant response
-                after_prompt = parts[1]
-                lines = after_prompt.split("\n")
-                # Skip the echoed prompt lines, take the rest
-                text = "\n".join(lines).strip()
-            if not text:
-                text = f"Codex CLI error (rc={proc.returncode}): {raw_err[:500]}"
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="Codex CLI timed out after 180s")
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="Codex CLI not found. Install: npm i -g @openai/codex")
-
-    return make_anthropic_response(
-        text=text, model=model_alias,
-        input_tokens=len(prompt) // 4, output_tokens=len(text) // 4,
-    )
+    return await CodexCLIAdapter().send(body, route_model, model_alias)
 
 
 async def _call_gemini_cli(body: dict, model_alias: str = "gemini-cli/default") -> dict:
-    prompt = extract_text_from_anthropic(body)
-    if len(prompt) > 10000:
-        prompt = prompt[:10000] + "\n...(truncated)"
-
     route_model = body.get("_route_model", "")
-    model_flag = []
-    if route_model.startswith("gemini-cli:"):
-        gemini_model = route_model.split(":", 1)[1]
-        if gemini_model:
-            model_flag = ["-m", gemini_model]
-
-    gemini_bin = os.getenv("GEMINI_CLI_PATH", "gemini")
-
-    # Per-request approval mode override via metadata, else env var, else yolo
-    metadata = body.get("metadata", {})
-    approval = metadata.get("sandbox_mode") or os.getenv("GEMINI_APPROVAL_MODE", "yolo")
-    approval_flag = ["--approval-mode", approval] if approval != "yolo" else ["--yolo"]
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            gemini_bin, "-p", prompt, "-o", "json",
-            *approval_flag, *model_flag,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
-        raw = stdout.decode("utf-8", errors="replace").strip()
-
-        json_start = raw.find("{")
-        if json_start >= 0:
-            try:
-                import json as _json
-                data = _json.loads(raw[json_start:])
-                text = data.get("response", "")
-                input_tokens = 0
-                output_tokens = 0
-                for m_stats in data.get("stats", {}).get("models", {}).values():
-                    tokens = m_stats.get("tokens", {})
-                    input_tokens += tokens.get("input", 0)
-                    output_tokens += tokens.get("candidates", 0)
-            except (ValueError, KeyError):
-                text = raw
-                input_tokens = len(prompt) // 4
-                output_tokens = len(text) // 4
-        else:
-            text = raw
-            input_tokens = len(prompt) // 4
-            output_tokens = len(text) // 4
-
-        if proc.returncode != 0 and not text:
-            text = f"Gemini CLI error (rc={proc.returncode}): {stderr.decode('utf-8', errors='replace')[:500]}"
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="Gemini CLI timed out after 180s")
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="Gemini CLI not found. Install: npm i -g @google/gemini-cli")
-
-    return make_anthropic_response(
-        text=text, model=model_alias,
-        input_tokens=input_tokens, output_tokens=output_tokens,
-    )
+    return await GeminiCLIAdapter().send(body, route_model, model_alias)
 
 
 # ── Cline-compatible backend adapters ────────────────────────────────────────
@@ -1338,13 +1231,108 @@ async def session_detail_api(session_id: str):
 async def backends_api(refresh: bool = False):
     """List all backends with their discovered models."""
     discovered = await discover_all_models(force=refresh)
+
+    def _get_oca_discovery_auth_state() -> tuple[bool, str]:
+        from .oca_auth import _is_expired, _read_cached_token
+
+        token_data = _read_cached_token()
+        if not token_data:
+            return False, "missing"
+        if _is_expired(token_data):
+            return False, "expired"
+        return True, "valid"
+
+    def _backend_auth_metadata(backend: str) -> dict:
+        auth_backends = {
+            "openai": ("OPENAI_API_KEY", bool(OPENAI_KEY)),
+            "openrouter": ("OPENROUTER_API_KEY", bool(OPENROUTER_KEY)),
+            "gemini": ("GEMINI_API_KEY or GOOGLE_API_KEY", bool(GEMINI_KEY)),
+            "groq": ("GROQ_API_KEY", bool(GROQ_KEY)),
+            "deepseek": ("DEEPSEEK_API_KEY", bool(DEEPSEEK_KEY)),
+            "mistral": ("MISTRAL_API_KEY", bool(MISTRAL_KEY)),
+            "together": ("TOGETHER_API_KEY", bool(TOGETHER_KEY)),
+            "xai": ("XAI_API_KEY", bool(XAI_KEY)),
+            "fireworks": ("FIREWORKS_API_KEY", bool(FIREWORKS_KEY)),
+        }
+        if backend == "oca":
+            authenticated, token_status = _get_oca_discovery_auth_state()
+            return {
+                "requires_auth": True,
+                "authenticated": authenticated,
+                "status_hint": "authenticated" if authenticated else "unauthenticated",
+                "note": None if authenticated else "Run: oca login",
+                "token_status": token_status,
+            }
+        if backend in auth_backends:
+            env_var, authenticated = auth_backends[backend]
+            return {
+                "requires_auth": True,
+                "authenticated": authenticated,
+                "status_hint": "configured" if authenticated else "unconfigured",
+                "note": None if authenticated else f"Set {env_var}",
+            }
+        return {
+            "requires_auth": False,
+            "authenticated": None,
+            "status_hint": "local",
+            "note": None,
+        }
+
+    def _format_catalog_source(value: str) -> str:
+        labels = {
+            "api": "live API",
+            "local_api": "local API",
+            "cache": "cache file",
+            "fallback": "fallback list",
+        }
+        return labels.get(value, value or "unknown")
+
     summary = {}
     for backend, models in discovered.items():
+        auth = _backend_auth_metadata(backend)
+        catalog_available = len(models) > 0
+        catalog_source = models[0].get("catalog_source", "api") if catalog_available else ""
+
+        if auth["requires_auth"]:
+            runnable = bool(auth["authenticated"]) and catalog_available
+            if runnable:
+                status = "available"
+                note = None
+            elif catalog_available:
+                status = "catalog_only"
+                note = (
+                    f"Catalog loaded from {_format_catalog_source(catalog_source)}; "
+                    f"{auth['note'] or 'authenticate to use this backend'}"
+                )
+            else:
+                status = auth["status_hint"]
+                note = auth["note"]
+        else:
+            runnable = catalog_available
+            status = "available" if runnable else "offline"
+            note = None if runnable else "Local service not reachable"
+
         summary[backend] = {
-            "available": len(models) > 0,
+            "available": runnable,
+            "catalog_available": catalog_available,
+            "catalog_source": catalog_source or None,
+            "status": status,
+            "requires_auth": auth["requires_auth"],
+            "authenticated": auth["authenticated"],
+            "note": note,
             "model_count": len(models),
-            "models": [{"id": m["id"], "name": m.get("name", ""), "model": m["model"]} for m in models],
+            "models": [
+                {
+                    "id": m["id"],
+                    "name": m.get("name", ""),
+                    "model": m["model"],
+                    "catalog_source": m.get("catalog_source"),
+                }
+                for m in models
+            ],
         }
+        if backend == "oca":
+            summary[backend]["token_status"] = auth.get("token_status")
     return {"backends": summary, "total_routes": len(ROUTES)}
 
 
@@ -1755,6 +1743,11 @@ async def dashboard_page():
     if not html_file.exists():
         raise HTTPException(status_code=404, detail="Dashboard not found")
     return HTMLResponse(html_file.read_text())
+
+
+@app.get("/")
+async def root_page():
+    return RedirectResponse(url="/dashboard", status_code=307)
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────

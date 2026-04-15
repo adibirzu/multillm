@@ -12,7 +12,6 @@ Usage:
 
 import logging
 import time
-from typing import Optional
 
 import httpx
 
@@ -50,6 +49,7 @@ async def discover_ollama() -> list[dict]:
                 "backend": "ollama",
                 "model": name,
                 "name": alias,
+                "catalog_source": "local_api",
                 "size": m.get("size", 0),
                 "parameter_size": m.get("details", {}).get("parameter_size", ""),
                 "family": m.get("details", {}).get("family", ""),
@@ -78,6 +78,7 @@ async def discover_lmstudio() -> list[dict]:
                 "backend": "lmstudio",
                 "model": model_id,
                 "name": model_id,
+                "catalog_source": "local_api",
                 "owned_by": m.get("owned_by", "lmstudio"),
             })
         log.info("LM Studio: discovered %d models", len(models))
@@ -111,6 +112,7 @@ async def discover_openai() -> list[dict]:
                     "backend": "openai",
                     "model": mid,
                     "name": mid,
+                    "catalog_source": "api",
                     "owned_by": m.get("owned_by", "openai"),
                 })
         log.info("OpenAI: discovered %d chat models", len(models))
@@ -143,6 +145,7 @@ async def discover_openrouter() -> list[dict]:
                 "backend": "openrouter",
                 "model": mid,
                 "name": m.get("name", short),
+                "catalog_source": "api",
                 "context_length": m.get("context_length", 0),
                 "pricing": m.get("pricing", {}),
             })
@@ -157,7 +160,7 @@ async def discover_oca() -> list[dict]:
     """Query OCA for available models (API → cache file → fallback)."""
     from .oca_auth import get_oca_bearer_token, _load_cached_oca_models
 
-    def _format_oca_models(raw_models: list) -> list[dict]:
+    def _format_oca_models(raw_models: list, *, catalog_source: str) -> list[dict]:
         models = []
         for m in raw_models:
             mid = m.get("id", m) if isinstance(m, dict) else str(m)
@@ -167,6 +170,7 @@ async def discover_oca() -> list[dict]:
                 "backend": "oca",
                 "model": mid,
                 "name": short,
+                "catalog_source": catalog_source,
             })
         return models
 
@@ -181,7 +185,7 @@ async def discover_oca() -> list[dict]:
                 )
                 r.raise_for_status()
                 data = r.json()
-            models = _format_oca_models(data.get("data", data.get("models", [])))
+            models = _format_oca_models(data.get("data", data.get("models", [])), catalog_source="api")
             if models:
                 log.info("OCA: discovered %d models from API", len(models))
                 return models
@@ -191,7 +195,7 @@ async def discover_oca() -> list[dict]:
     # Try ~/.oca/models.json cache (maintained by OCA VS Code extension)
     cached = _load_cached_oca_models()
     if cached:
-        models = _format_oca_models(cached)
+        models = _format_oca_models(cached, catalog_source="cache")
         log.info("OCA: loaded %d models from cache file", len(models))
         return models
 
@@ -199,7 +203,7 @@ async def discover_oca() -> list[dict]:
     return _format_oca_models([
         {"id": "oca/gpt5"}, {"id": "oca/llama4"}, {"id": "oca/grok4"},
         {"id": "oca/openai-o3"}, {"id": "oca/gpt-4.1"}, {"id": "oca/grok3"},
-    ])
+    ], catalog_source="fallback")
 
 
 async def discover_gemini() -> list[dict]:
@@ -225,6 +229,7 @@ async def discover_gemini() -> list[dict]:
                     "backend": "gemini",
                     "model": name,
                     "name": m.get("displayName", name),
+                    "catalog_source": "api",
                     "input_token_limit": m.get("inputTokenLimit", 0),
                     "output_token_limit": m.get("outputTokenLimit", 0),
                 })
@@ -258,6 +263,7 @@ async def _discover_openai_compat(
                 "backend": backend,
                 "model": mid,
                 "name": mid.split("/")[-1] if "/" in mid else mid,
+                "catalog_source": "api",
             })
         if models:
             log.info("%s: discovered %d models", backend.capitalize(), len(models))
