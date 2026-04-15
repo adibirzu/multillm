@@ -24,6 +24,15 @@ if _env_file.exists():
                 if _key and _key not in os.environ:
                     os.environ[_key] = _val
 
+
+def _first_env(*names: str, default: str = "") -> str:
+    """Return the first non-empty environment variable from ``names``."""
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return default
+
 # ── Data directory (portable across machines) ────────────────────────────────
 MULTILLM_HOME = os.getenv("MULTILLM_HOME", "")
 DATA_DIR = Path(
@@ -67,9 +76,21 @@ AWS_BEDROCK_PROFILE = os.getenv("AWS_BEDROCK_PROFILE", "")
 # ── OCA (Oracle Code Assist) — fully env-configured ─────────────────────────
 OCA_ENDPOINT = os.getenv("OCA_ENDPOINT", "")
 OCA_API_VERSION = os.getenv("OCA_API_VERSION", "20250206")
-OCA_TOKEN_CACHE = Path(os.getenv("OCA_CACHE_DIR", Path.home() / ".oca"))
-OCA_IDCS_URL = os.getenv("OCA_IDCS_URL", "")
-OCA_CLIENT_ID = os.getenv("OCA_CLIENT_ID", "")
+OCA_TOKEN_CACHE = Path(os.getenv("OCA_CACHE_DIR", str(Path.home() / ".oca"))).expanduser()
+OCA_IDCS_URL = _first_env(
+    "OCA_IDCS_URL",
+    "OCA_IDCS_OAUTH_URL",
+    "OCI_IDCS_OAUTH_URL",
+    "IDCS_URL",
+    "ORACLE_SSO_OAUTH_URL",
+)
+OCA_CLIENT_ID = _first_env(
+    "OCA_CLIENT_ID",
+    "OCA_IDCS_CLIENT_ID",
+    "OCI_IDCS_CLIENT_ID",
+    "IDCS_CLIENT_ID",
+    "ORACLE_SSO_CLIENT_ID",
+)
 
 # ── OpenTelemetry / OCI APM ──────────────────────────────────────────────────
 OTEL_ENABLED = os.getenv("OTEL_ENABLED", "false").lower() in ("true", "1", "yes")

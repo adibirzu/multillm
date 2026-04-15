@@ -73,7 +73,7 @@ class TestBackendsEndpoint:
         assert data["catalog_source"] == "cache"
         assert data["status"] == "catalog_only"
         assert data["authenticated"] is False
-        assert "oca login" in data["note"].lower()
+        assert "multillm-oca-login" in data["note"]
 
 
 class TestModelsEndpoint:

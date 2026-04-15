@@ -39,6 +39,7 @@ test = [
 [project.scripts]
 multillm-gateway = "multillm.gateway:main"
 multillm-mcp = "multillm.mcp_server:main"
+multillm-oca-login = "multillm.oca_login:main"
 
 [tool.setuptools.packages.find]
 include = ["multillm*"]

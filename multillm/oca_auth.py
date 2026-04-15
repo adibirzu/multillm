@@ -19,6 +19,8 @@ log = logging.getLogger("multillm.oca")
 
 TOKEN_FILE = OCA_TOKEN_CACHE / "token.json"
 REFRESH_THRESHOLD = 180  # Refresh if < 3 minutes remaining
+OCA_LOGIN_COMMAND = "multillm-oca-login"
+OCA_LOGIN_HINT = f"Run: {OCA_LOGIN_COMMAND}"
 
 
 def _read_cached_token() -> Optional[dict]:
@@ -85,7 +87,8 @@ async def get_oca_bearer_token() -> Optional[str]:
     if not token_data:
         log.warning(
             "No OCA token cached. Authenticate via OCA VS Code extension "
-            "or run the OAuth flow at http://localhost:48801/api/oca/login"
+            "or run '%s'",
+            OCA_LOGIN_COMMAND,
         )
         return None
 

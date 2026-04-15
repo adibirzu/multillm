@@ -48,7 +48,7 @@ from .converters import (
     extract_text_from_anthropic,
     count_tokens,
 )
-from .oca_auth import get_oca_bearer_token
+from .oca_auth import OCA_LOGIN_HINT, get_oca_bearer_token
 from .streaming import (
     stream_openai_compat,
     stream_ollama,
@@ -273,7 +273,7 @@ async def _call_oca(model: str, body: dict) -> dict:
     if not token:
         raise HTTPException(
             status_code=401,
-            detail="OCA not authenticated. Run OAuth flow or check ~/.oca/token.json",
+            detail=f"OCA not authenticated. {OCA_LOGIN_HINT}",
         )
 
     # OCA uses LiteLLM routing — model names include the oca/ prefix
@@ -658,7 +658,7 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
     elif backend == "oca":
         token = await get_oca_bearer_token()
         if not token:
-            raise HTTPException(status_code=401, detail="OCA not authenticated")
+            raise HTTPException(status_code=401, detail=f"OCA not authenticated. {OCA_LOGIN_HINT}")
         return await stream_oca(OCA_ENDPOINT, OCA_API_VERSION, token, body, real_model, model_alias)
 
     elif backend == "gemini":
@@ -1260,7 +1260,7 @@ async def backends_api(refresh: bool = False):
                 "requires_auth": True,
                 "authenticated": authenticated,
                 "status_hint": "authenticated" if authenticated else "unauthenticated",
-                "note": None if authenticated else "Run: oca login",
+                "note": None if authenticated else OCA_LOGIN_HINT,
                 "token_status": token_status,
             }
         if backend in auth_backends:
@@ -1694,7 +1694,7 @@ async def auth_status():
     backends["oca"] = {
         "authenticated": bool(token),
         "method": "oauth_pkce",
-        "action": None if token else "Run: oca login",
+        "action": None if token else OCA_LOGIN_HINT,
         "token_status": "valid" if token else "expired_or_missing",
     }
 
