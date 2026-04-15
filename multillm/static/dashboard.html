@@ -396,6 +396,7 @@
     width: 8px; height: 8px; border-radius: 50%;
   }
   .provider-dot.online { background: #00b894; }
+  .provider-dot.catalog { background: #fdcb6e; }
   .provider-dot.offline { background: #636e72; }
   .provider-dot.unconfigured { background: #2d3436; border: 1px dashed #636e72; }
   .provider-meta {
@@ -1135,7 +1136,9 @@ function buildOverviewDaily(payload, hourly) {
       addDay(day.date, 'codex_cli', {
         requests: day.sessions || 0,
         sessions: day.sessions || 0,
-        input_tokens: day.tokens || 0,
+        input_tokens: day.inputTokens || day.tokens || 0,
+        output_tokens: day.outputTokens || 0,
+        cache_read_input_tokens: day.cachedTokens || 0,
         cost_usd: day.actualCostUSD || 0,
       });
     });
@@ -1193,7 +1196,9 @@ function buildOverviewHourly(payload) {
       addHour(toLocalHourKey(ts), 'codex_cli', {
         requests: 1,
         sessions: 1,
-        input_tokens: session.tokensUsed || 0,
+        input_tokens: session.inputTokens || session.tokensUsed || 0,
+        output_tokens: session.outputTokens || 0,
+        cache_read_input_tokens: session.cachedTokens || 0,
         cost_usd: session.actualCostUSD || 0,
       });
     });
@@ -1363,9 +1368,9 @@ function mergeDirectModelsIntoByModel(byModel, codexStats, geminiStats) {
         model_alias: model,
         backend: 'codex_cli',
         requests: usage.sessions || 0,
-        input_tokens: usage.tokens || 0,
-        output_tokens: 0,
-        cache_read_input_tokens: 0,
+        input_tokens: usage.inputTokens || usage.tokens || 0,
+        output_tokens: usage.outputTokens || 0,
+        cache_read_input_tokens: usage.cachedTokens || 0,
         cache_creation_input_tokens: 0,
         cost_usd: usage.actualCostUSD || 0,
         avg_latency_ms: 0,
@@ -1855,7 +1860,16 @@ function renderBackends(backends) {
     const color = BACKEND_COLORS[name] || '#6c5ce7';
     const statusDot = info.available
       ? `<span style="color:${color}">●</span>`
-      : '<span style="color:var(--text-dim)">○</span>';
+      : info.status === 'catalog_only'
+        ? '<span style="color:var(--accent3)">◐</span>'
+        : '<span style="color:var(--text-dim)">○</span>';
+    const statusText = info.available
+      ? `${info.model_count} models`
+      : info.catalog_available
+        ? `${info.model_count} models · catalog only`
+        : info.status === 'offline'
+          ? 'offline'
+          : 'not configured';
     const models = (info.models || []).map(m =>
       `<span class="model-tag backend-${name}" title="${m.model}">${m.name || m.id}</span>`
     ).join(' ');
@@ -1863,9 +1877,10 @@ function renderBackends(backends) {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
         ${statusDot}
         <span style="font-weight:600;font-size:12px;text-transform:uppercase;color:${color}">${name}</span>
-        <span style="font-size:10px;color:var(--text-dim)">${info.model_count} models</span>
+        <span style="font-size:10px;color:var(--text-dim)">${statusText}</span>
       </div>
       <div style="padding-left:20px">${models || '<span style="color:var(--text-dim);font-size:11px">offline or not configured</span>'}</div>
+      ${info.note ? `<div style="padding-left:20px;margin-top:4px;font-size:10px;color:var(--text-dim)">${info.note}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -2017,9 +2032,15 @@ function renderProviderStrip(backends, usageByBackend, directStatus = {}) {
       dotClass = 'online';
       statusText = `${modelCount} models`;
       chipClass = usage ? 'active' : '';
+    } else if (backendInfo && backendInfo.status === 'catalog_only') {
+      dotClass = 'catalog';
+      statusText = backendInfo.note || `${modelCount} models · catalog only`;
+      chipClass = 'inactive';
     } else if (backendInfo) {
-      dotClass = 'offline';
-      statusText = 'offline';
+      dotClass = backendInfo.status === 'unconfigured' || backendInfo.status === 'unauthenticated'
+        ? 'unconfigured'
+        : 'offline';
+      statusText = backendInfo.note || (backendInfo.status === 'offline' ? 'offline' : 'not configured');
     }
 
     if (direct && direct.available && (!backendInfo || !backendInfo.available)) {
@@ -2332,7 +2353,7 @@ function renderClaudeHistory(data) {
 function renderCodexModelUsage(data) {
   const el = document.getElementById('codexModelUsage');
   if (!data || !data.available) {
-    el.innerHTML = '<div class="empty-state">No Codex CLI stats found<br><span style="font-size:10px;color:var(--text-dim)">Stats appear after Codex CLI usage (~/.codex/state_5.sqlite)</span></div>';
+    el.innerHTML = '<div class="empty-state">No Codex CLI stats found<br><span style="font-size:10px;color:var(--text-dim)">Stats appear after Codex CLI usage (~/.codex/state_5.sqlite and ~/.codex/sessions/)</span></div>';
     return;
   }
 
@@ -2347,7 +2368,10 @@ function renderCodexModelUsage(data) {
 
   const modelRows = Object.entries(byModel).map(([model, u]) => `<tr>
     <td style="font-weight:600;color:#55efc4">${model}</td>
-    <td class="token-num">${fmt(u.tokens)}</td>
+    <td class="token-num">${fmt(u.inputTokens || 0)}</td>
+    <td class="token-num">${fmt(u.outputTokens || 0)}</td>
+    <td class="token-num" style="color:var(--text-dim)">${fmt(u.cachedTokens || 0)}</td>
+    <td class="token-num">${fmt(u.realNetTokens || 0)}</td>
     <td class="token-num">${u.sessions}</td>
     <td class="token-num" style="color:var(--accent3)">${fmtCost(u.actualCostUSD)}</td>
     <td class="token-num" style="color:var(--text-dim)">${fmtCost(u.listPriceUSD)}</td>
@@ -2357,7 +2381,10 @@ function renderCodexModelUsage(data) {
     const ocaBadge = u.isOCA ? ' <span style="background:#55efc422;color:#55efc4;padding:1px 4px;border-radius:3px;font-size:9px">FREE</span>' : '';
     return `<tr>
       <td style="font-weight:600;color:#81ecec">${prov}${ocaBadge}</td>
-      <td class="token-num">${fmt(u.tokens)}</td>
+      <td class="token-num">${fmt(u.inputTokens || 0)}</td>
+      <td class="token-num">${fmt(u.outputTokens || 0)}</td>
+      <td class="token-num" style="color:var(--text-dim)">${fmt(u.cachedTokens || 0)}</td>
+      <td class="token-num">${fmt(u.realNetTokens || 0)}</td>
       <td class="token-num">${u.sessions}</td>
       <td class="token-num" style="color:var(--accent3)">${fmtCost(u.actualCostUSD)}</td>
       <td class="token-num" style="color:var(--text-dim)">${fmtCost(u.listPriceUSD)}</td>
@@ -2366,7 +2393,9 @@ function renderCodexModelUsage(data) {
 
   el.innerHTML = `
     <div style="margin-bottom:8px;font-size:11px;color:var(--text-dim)">
-      ${data.totalSessions} sessions &middot; ${fmt(data.totalTokens)} tokens &middot;
+      ${data.totalSessions} sessions &middot;
+      ${fmt(data.totalInputTokens || 0)} in / ${fmt(data.totalOutputTokens || 0)} out /
+      ${fmt(data.totalCachedTokens || 0)} cached / ${fmt(data.totalRealNetTokens || 0)} net &middot;
       Actual: <span style="color:var(--accent3)">${fmtCost(data.totalActualCostUSD)}</span>
       &middot; List price: <span style="color:var(--text-dim)">${fmtCost(data.totalListPriceUSD)}</span>
       ${savedByOCA > 0 ? `&middot; <span style="color:#55efc4;font-weight:600">Saved ${fmtCost(savedByOCA)} via OCA</span>` : ''}
@@ -2375,14 +2404,14 @@ function renderCodexModelUsage(data) {
       <div style="flex:1 1 420px;min-width:0;overflow-x:auto">
         <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">By Model</div>
         <table class="sessions-table compact" style="width:100%;table-layout:auto">
-          <thead><tr><th>Model</th><th>Tokens</th><th>Ses.</th><th>Actual</th><th>List</th></tr></thead>
+          <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cached</th><th>Net</th><th>Ses.</th><th>Actual</th><th>List</th></tr></thead>
           <tbody>${modelRows.join('')}</tbody>
         </table>
       </div>
       <div style="flex:1 1 420px;min-width:0;overflow-x:auto">
         <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px">By Provider</div>
         <table class="sessions-table compact" style="width:100%;table-layout:auto">
-          <thead><tr><th>Provider</th><th>Tokens</th><th>Ses.</th><th>Actual</th><th>List</th></tr></thead>
+          <thead><tr><th>Provider</th><th>Input</th><th>Output</th><th>Cached</th><th>Net</th><th>Ses.</th><th>Actual</th><th>List</th></tr></thead>
           <tbody>${providerRows.join('')}</tbody>
         </table>
       </div>
@@ -2408,14 +2437,17 @@ function renderCodexHistory(data) {
       <td style="color:#55efc4">${s.model}</td>
       <td style="color:#81ecec;font-size:10px">${s.provider}</td>
       <td style="font-weight:600;color:var(--accent5)">${proj}</td>
-      <td class="token-num">${fmt(s.tokensUsed)}</td>
+      <td class="token-num">${fmt(s.inputTokens || 0)}</td>
+      <td class="token-num">${fmt(s.outputTokens || 0)}</td>
+      <td class="token-num" style="color:var(--text-dim)">${fmt(s.cachedTokens || 0)}</td>
+      <td class="token-num">${fmt(s.realNetTokens || s.tokensUsed || 0)}</td>
       ${costCell}
       <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title || '—'}</td>
     </tr>`;
   });
   el.innerHTML = `
     <table class="sessions-table" style="font-size:11px">
-      <thead><tr><th>Time</th><th>Model</th><th>Provider</th><th>Project</th><th>Tokens</th><th>Cost</th><th>Title</th></tr></thead>
+      <thead><tr><th>Time</th><th>Model</th><th>Provider</th><th>Project</th><th>Input</th><th>Output</th><th>Cached</th><th>Net</th><th>Cost</th><th>Title</th></tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table>`;
 }

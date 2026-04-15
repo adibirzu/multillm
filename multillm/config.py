@@ -154,12 +154,12 @@ DEFAULT_ROUTES: dict[str, dict] = {
     "gemini/pro":            {"backend": "gemini",     "model": "gemini-2.0-pro"},
     "gemini/flash-lite":     {"backend": "gemini",     "model": "gemini-2.0-flash-lite"},
     # Gemini CLI (subprocess-based, uses `gemini` binary)
-    "gemini-cli/default":    {"backend": "gemini_cli", "model": "gemini-cli:"},
+    "gemini-cli/default":    {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-flash"},
     "gemini-cli/flash":      {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-flash"},
     "gemini-cli/pro":        {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-pro"},
     "gemini-cli/flash-lite": {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-flash-lite"},
     # Codex CLI (subprocess, profile-based via ~/.codex/config.toml)
-    "codex/cli":             {"backend": "codex_cli",  "model": "codex:gpt-5-4"},
+    "codex/cli":             {"backend": "codex_cli",  "model": "codex:"},
     "codex/gpt-5-4":         {"backend": "codex_cli",  "model": "codex:gpt-5-4"},
     "codex/gpt-5-codex":     {"backend": "codex_cli",  "model": "codex:gpt-5-codex"},
     "codex/gpt-5-2-codex":   {"backend": "codex_cli",  "model": "codex:gpt-5-2-codex"},

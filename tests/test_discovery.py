@@ -1,9 +1,12 @@
 """Tests for the dynamic model discovery module."""
+from unittest.mock import AsyncMock
+
 import pytest
 import httpx
 import respx
 
 from multillm.discovery import (
+    discover_oca,
     discover_ollama,
     discover_lmstudio,
     discover_openai,
@@ -156,6 +159,26 @@ class TestDiscoverGemini:
             assert models[0]["input_token_limit"] == 1048576
         finally:
             discovery.GEMINI_KEY = old_key
+
+
+class TestDiscoverOCA:
+
+    @pytest.mark.asyncio
+    async def test_discover_oca_cache_marks_catalog_source(self, monkeypatch):
+        from multillm import oca_auth
+
+        monkeypatch.setattr(oca_auth, "get_oca_bearer_token", AsyncMock(return_value=None))
+        monkeypatch.setattr(
+            oca_auth,
+            "_load_cached_oca_models",
+            lambda: [{"id": "oca/gpt-5.4"}],
+        )
+
+        models = await discover_oca()
+
+        assert len(models) == 1
+        assert models[0]["id"] == "oca/gpt-5.4"
+        assert models[0]["catalog_source"] == "cache"
 
 
 class TestDiscoverOpenRouter:

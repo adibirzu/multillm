@@ -1,9 +1,8 @@
 """Tests for the gateway HTTP endpoints."""
-import json
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
+from starlette.responses import StreamingResponse
 
 from multillm.gateway import app
 from multillm.converters import make_anthropic_response
@@ -46,6 +45,37 @@ class TestRoutesEndpoint:
             assert "model" in config, f"Route {alias} missing 'model'"
 
 
+class TestBackendsEndpoint:
+
+    @patch("multillm.gateway.discover_all_models", new_callable=AsyncMock)
+    @patch("multillm.oca_auth._read_cached_token")
+    def test_backends_marks_cached_oca_catalog_as_not_runnable(self, mock_read_cached_token, mock_discover):
+        mock_read_cached_token.return_value = None
+        mock_discover.return_value = {
+            "oca": [
+                {
+                    "id": "oca/gpt-5.4",
+                    "backend": "oca",
+                    "model": "oca/gpt-5.4",
+                    "name": "gpt-5.4",
+                    "catalog_source": "cache",
+                }
+            ],
+            "ollama": [],
+        }
+
+        response = client.get("/api/backends")
+
+        assert response.status_code == 200
+        data = response.json()["backends"]["oca"]
+        assert data["available"] is False
+        assert data["catalog_available"] is True
+        assert data["catalog_source"] == "cache"
+        assert data["status"] == "catalog_only"
+        assert data["authenticated"] is False
+        assert "oca login" in data["note"].lower()
+
+
 class TestModelsEndpoint:
 
     def test_list_models(self):
@@ -77,6 +107,11 @@ class TestUsageEndpoint:
 
 
 class TestDashboardEndpoints:
+
+    def test_root_redirects_to_dashboard(self):
+        response = client.get("/", follow_redirects=False)
+        assert response.status_code == 307
+        assert response.headers["location"] == "/dashboard"
 
     def test_dashboard_api_returns_derived_metrics(self):
         response = client.get("/api/dashboard?hours=1")
@@ -151,6 +186,38 @@ class TestMessagesEndpoint:
         assert response.status_code == 200
         assert response.json()["content"][0]["text"] == "Hi from Claude"
 
+    @patch("multillm.gateway.CodexCLIAdapter.send", new_callable=AsyncMock)
+    def test_codex_cli_route_uses_adapter_resolution(self, mock_send):
+        mock_send.return_value = make_anthropic_response("OK", "codex/gpt-5-4", 4, 1)
+
+        response = client.post("/v1/messages", json={
+            "model": "codex/gpt-5-4",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 32,
+        })
+
+        assert response.status_code == 200
+        assert response.json()["content"][0]["text"] == "OK"
+        args = mock_send.await_args.args
+        assert args[1] == "codex:gpt-5-4"
+        assert args[2] == "codex/gpt-5-4"
+
+    @patch("multillm.gateway.GeminiCLIAdapter.send", new_callable=AsyncMock)
+    def test_gemini_cli_route_uses_adapter_resolution(self, mock_send):
+        mock_send.return_value = make_anthropic_response("OK", "gemini-cli/default", 4, 1)
+
+        response = client.post("/v1/messages", json={
+            "model": "gemini-cli/default",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 32,
+        })
+
+        assert response.status_code == 200
+        assert response.json()["content"][0]["text"] == "OK"
+        args = mock_send.await_args.args
+        assert args[1] == "gemini-cli:gemini-2.5-flash"
+        assert args[2] == "gemini-cli/default"
+
     @patch("multillm.gateway._call_ollama")
     def test_request_with_system_prompt(self, mock_ollama):
         mock_response = make_anthropic_response("Yes!", "ollama/llama3", 10, 5)
@@ -188,6 +255,33 @@ class TestMessagesEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["stop_reason"] == "tool_use"
+
+    def test_streaming_request_returns_event_stream(self):
+        async def fake_stream():
+            yield b"event: message_start\ndata: {\"type\":\"message_start\"}\n\n"
+            yield b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+
+        with (
+            patch(
+                "multillm.gateway.route_streaming",
+                new=AsyncMock(return_value=StreamingResponse(fake_stream(), media_type="text/event-stream")),
+            ),
+            patch(
+                "multillm.gateway.StreamTokenCounter",
+                side_effect=lambda **kwargs: kwargs["original_generator"],
+            ),
+            patch("multillm.gateway.count_tokens", return_value=12),
+        ):
+            response = client.post("/v1/messages", json={
+                "model": "ollama/llama3",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+                "stream": True,
+            })
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        assert "message_start" in response.text
 
 
 class TestMemorySearchEndpoint:

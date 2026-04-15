@@ -20,11 +20,14 @@ class GeminiCLIAdapter(BaseAdapter):
             prompt = prompt[:10000] + "\n...(truncated)"
 
         # Model selection: "gemini-cli:gemini-3-flash-preview" → "-m gemini-3-flash-preview"
+        default_model = os.getenv("GEMINI_CLI_DEFAULT_MODEL", "gemini-2.5-flash").strip()
         model_flag = []
         if model.startswith("gemini-cli:"):
             gemini_model = model.split(":", 1)[1]
             if gemini_model:
                 model_flag = ["-m", gemini_model]
+            elif default_model:
+                model_flag = ["-m", default_model]
 
         gemini_bin = os.getenv("GEMINI_CLI_PATH", "gemini")
 
