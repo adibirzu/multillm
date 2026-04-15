@@ -145,6 +145,33 @@ Open `http://localhost:8080/dashboard` for real-time stats:
 | **AWS Bedrock** | AWS credentials | Claude, Llama (enterprise) |
 | **OCA** | OAuth (auto) | GPT-5.x, Grok, Llama 4 |
 
+### OCA Auth
+
+MultiLLM uses the shared OCA token cache at `~/.oca/token.json`.
+
+Set these before starting the gateway:
+
+```bash
+export OCA_ENDPOINT=https://...
+export OCA_IDCS_URL=https://...
+export OCA_CLIENT_ID=...
+```
+
+If you already have the `oci-coordinator` variables, MultiLLM now accepts those aliases too:
+
+```bash
+export OCA_IDCS_OAUTH_URL=https://...
+export OCA_IDCS_CLIENT_ID=...
+```
+
+Then authenticate once:
+
+```bash
+multillm-oca-login
+```
+
+That writes `~/.oca/token.json`, which both the gateway and other OCA-aware tools can reuse.
+
 ## Model Aliases
 
 ```bash

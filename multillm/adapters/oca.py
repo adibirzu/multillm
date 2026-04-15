@@ -9,7 +9,7 @@ from .base import BaseAdapter
 from ..config import OCA_ENDPOINT, OCA_API_VERSION
 from ..converters import build_openai_payload, openai_response_to_anthropic
 from ..http_pool import get_client
-from ..oca_auth import get_oca_bearer_token
+from ..oca_auth import OCA_LOGIN_HINT, get_oca_bearer_token
 from ..streaming import stream_oca
 
 log = logging.getLogger("multillm.adapters.oca")
@@ -34,7 +34,7 @@ class OCAAdapter(BaseAdapter):
         if not token:
             raise HTTPException(
                 status_code=401,
-                detail="OCA not authenticated. Run OAuth flow or check ~/.oca/token.json",
+                detail=f"OCA not authenticated. {OCA_LOGIN_HINT}",
             )
 
         payload = build_openai_payload(body, model)
@@ -91,5 +91,5 @@ class OCAAdapter(BaseAdapter):
             raise HTTPException(status_code=500, detail=err)
         token = await get_oca_bearer_token()
         if not token:
-            raise HTTPException(status_code=401, detail="OCA not authenticated")
+            raise HTTPException(status_code=401, detail=f"OCA not authenticated. {OCA_LOGIN_HINT}")
         return await stream_oca(OCA_ENDPOINT, OCA_API_VERSION, token, body, model, model_alias)
