@@ -129,6 +129,31 @@ class TestDashboardEndpoints:
         assert response.status_code == 200
         assert 'rel="icon"' in response.text
 
+    def test_dashboard_page_can_send_api_key_header(self):
+        response = client.get("/dashboard")
+        assert response.status_code == 200
+        assert "multillm_api_key" in response.text
+        assert "X-API-Key" in response.text
+
+    def test_status_api_returns_runtime_visibility_without_secrets(self):
+        response = client.get("/api/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["version"]
+        assert data["gateway"]["host"]
+        assert data["gateway"]["exposure"]["severity"] == "ok"
+        assert "http://localhost:8080" in data["gateway"]["cors_origins"]
+        assert data["runtime"]["routes"] > 0
+        assert "api_key" not in str(data).lower()
+
+    def test_dashboard_has_security_headers(self):
+        response = client.get("/dashboard")
+
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["X-Frame-Options"] == "DENY"
+        assert "default-src 'self'" in response.headers["Content-Security-Policy"]
+
 
 class TestSettingsEndpoints:
 
@@ -352,6 +377,113 @@ class TestObservabilityEndpoints:
         response = client.get("/api/claude-stats?hours=24&project=testproject")
         assert response.status_code == 200
         mock_claude_stats.assert_called_once_with(hours=24, project="testproject")
+
+    @patch("multillm.gateway.get_gemini_stats")
+    @patch("multillm.gateway.get_codex_stats")
+    @patch("multillm.gateway.get_claude_code_stats")
+    @patch("multillm.gateway.get_dashboard_stats")
+    @patch("multillm.gateway.get_sessions")
+    def test_dashboard_bundle_reuses_direct_stats_for_unified_payload(
+        self,
+        mock_sessions,
+        mock_dashboard_stats,
+        mock_claude_stats,
+        mock_codex_stats,
+        mock_gemini_stats,
+    ):
+        mock_sessions.return_value = [{"id": "sess_1"}]
+        mock_dashboard_stats.return_value = {
+            "totals": {
+                "total_input": 100,
+                "total_output": 50,
+                "total_cost": 1.25,
+                "total_requests": 2,
+            },
+            "session_count": 1,
+            "by_model": [],
+        }
+        mock_claude_stats.return_value = {
+            "available": True,
+            "totalSessions": 1,
+            "totalMessages": 2,
+            "modelUsage": {},
+            "dailyActivity": [],
+            "dailyModelTokens": [],
+        }
+        mock_codex_stats.return_value = {
+            "available": True,
+            "totalSessions": 1,
+            "totalTokens": 100,
+            "totalActualCostUSD": 0.1,
+            "totalListPriceUSD": 0.2,
+            "byModel": {},
+            "byProvider": {},
+            "daily": [],
+        }
+        mock_gemini_stats.return_value = {
+            "available": True,
+            "totalSessions": 1,
+            "totalTokens": 200,
+            "totalEstimatedCostUSD": 0.1,
+            "model": "gemini-2.5-pro",
+            "byProject": {},
+            "daily": [],
+        }
+
+        mock_codex_stats.return_value["sessions"] = [{"id": "codex-1"}, {"id": "codex-2"}]
+        mock_gemini_stats.return_value["sessions"] = [{"id": "gemini-1"}, {"id": "gemini-2"}]
+
+        response = client.get(
+            "/api/dashboard-bundle?hours=8760&project=multillm&session_limit=25&direct_session_limit=1"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["stats"]["session_count"] == 1
+        assert data["sessions"] == [{"id": "sess_1"}]
+        assert data["codexStats"]["sessions"] == [{"id": "codex-1"}]
+        assert data["geminiStats"]["sessions"] == [{"id": "gemini-1"}]
+        assert data["codexStats"]["sessionsTruncated"] is True
+        assert data["geminiStats"]["sessionsTruncated"] is True
+        assert data["unified"]["hours"] == 8760
+        assert data["performance"]["strategy"] == "bundled_single_pass"
+        assert data["performance"]["cacheTtlSeconds"] == 15
+        assert data["performance"]["directSessionLimit"] == 1
+        assert data["performance"]["longRange"] is True
+        mock_dashboard_stats.assert_called_once_with(hours=8760, project="multillm")
+        mock_sessions.assert_called_once_with(hours=8760, project="multillm", limit=25)
+        mock_claude_stats.assert_called_once_with(hours=8760, project="multillm")
+        mock_codex_stats.assert_called_once_with(hours=8760, project="multillm")
+        mock_gemini_stats.assert_called_once_with(hours=8760, project="multillm")
+
+    def test_dashboard_bundle_rejects_invalid_periods(self):
+        response = client.get("/api/dashboard-bundle?hours=-1")
+        assert response.status_code == 422
+
+    @patch("multillm.gateway.get_gemini_stats")
+    @patch("multillm.gateway.get_codex_stats")
+    @patch("multillm.gateway.get_claude_code_stats")
+    @patch("multillm.gateway.get_dashboard_stats")
+    @patch("multillm.gateway.get_sessions")
+    def test_dashboard_bundle_accepts_two_year_period(
+        self,
+        mock_sessions,
+        mock_dashboard_stats,
+        mock_claude_stats,
+        mock_codex_stats,
+        mock_gemini_stats,
+    ):
+        mock_sessions.return_value = []
+        mock_dashboard_stats.return_value = {"totals": {}, "session_count": 0, "by_model": []}
+        mock_claude_stats.return_value = {"available": False}
+        mock_codex_stats.return_value = {"available": False}
+        mock_gemini_stats.return_value = {"available": False}
+
+        response = client.get("/api/dashboard-bundle?hours=17520")
+
+        assert response.status_code == 200
+        assert response.json()["performance"]["longRange"] is True
+        mock_dashboard_stats.assert_called_once_with(hours=17520, project=None)
 
     @patch("multillm.gateway.get_gemini_stats")
     @patch("multillm.gateway.get_codex_stats")

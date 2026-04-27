@@ -583,6 +583,9 @@
       <option value="168" selected>Last 7 days</option>
       <option value="720">Last 30 days</option>
       <option value="2160">Last 90 days</option>
+      <option value="8760">Last 1 year</option>
+      <option value="17520">Last 2 years</option>
+      <option value="43800">Last 5 years</option>
     </select>
     <select id="projectFilter">
       <option value="">All projects</option>
@@ -894,7 +897,10 @@ const dashboardState = {
 let latestPayload = null;
 let liveTicker = null;
 let loadInFlight = false;
+let loadController = null;
+let loadSequence = 0;
 let lastLoadAt = 0;
+let dashboardApiKeyInitialized = false;
 
 function fmt(n) {
   if (n == null) return '0';
@@ -920,6 +926,46 @@ function fmtDuration(start, end) {
   if (s < 60) return s + 's';
   if (s < 3600) return Math.round(s / 60) + 'm';
   return (s / 3600).toFixed(1) + 'h';
+}
+
+function formatWindowLabel(hours) {
+  const value = Number(hours || getHours());
+  if (value < 24) return `last ${value}h`;
+  if (value === 8760) return 'last 1 year';
+  if (value === 17520) return 'last 2 years';
+  if (value === 43800) return 'last 5 years';
+  const days = Math.round(value / 24);
+  if (days % 365 === 0) return `last ${days / 365} years`;
+  if (days % 30 === 0) return `last ${days / 30} months`;
+  return `last ${days} days`;
+}
+
+function getDashboardApiKey() {
+  try {
+    if (!dashboardApiKeyInitialized) {
+      dashboardApiKeyInitialized = true;
+      const url = new URL(window.location.href);
+      const key = url.searchParams.get('api_key') || url.searchParams.get('token');
+      if (key) {
+        localStorage.setItem('multillm_api_key', key);
+        url.searchParams.delete('api_key');
+        url.searchParams.delete('token');
+        window.history.replaceState({}, '', url.toString());
+      }
+    }
+    return localStorage.getItem('multillm_api_key') || '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function withAuthOptions(options = {}) {
+  const headers = new Headers(options.headers || {});
+  const apiKey = getDashboardApiKey();
+  if (apiKey && !headers.has('X-API-Key')) {
+    headers.set('X-API-Key', apiKey);
+  }
+  return {...options, headers};
 }
 
 function backendClass(model) {
@@ -1267,9 +1313,38 @@ function buildOverviewHourly(payload) {
   return Object.values(aggregates).sort((a, b) => a.hour.localeCompare(b.hour) || a.backend.localeCompare(b.backend));
 }
 
-async function fetchJSON(url) {
-  const r = await fetch(url);
+async function fetchJSON(url, options = {}) {
+  const r = await fetch(url, withAuthOptions(options));
+  if (!r.ok) {
+    throw new Error(`HTTP ${r.status} while loading ${url}`);
+  }
   return r.json();
+}
+
+function optionalFetchJSON(url, fallback, options = {}) {
+  return fetchJSON(url, options).catch(error => {
+    if (error.name === 'AbortError') throw error;
+    return fallback;
+  });
+}
+
+function setCalculationState(hours) {
+  const label = formatWindowLabel(hours);
+  document.getElementById('lastUpdate').textContent = `Calculating ${label}...`;
+  document.getElementById('statsNote').textContent =
+    `Calculating costs for ${label}. Gateway usage comes from SQLite; direct Claude/Codex/Gemini costs scan local history and reuse a 15s cache.`;
+  if (!latestPayload) {
+    document.getElementById('statsGrid').innerHTML = '<div class="loading">Calculating usage and costs...</div>';
+  }
+}
+
+function renderDashboardError(error) {
+  document.getElementById('lastUpdate').textContent = 'Update failed';
+  const message = error.message || String(error);
+  const authHint = message.includes('HTTP 401')
+    ? ' Add ?api_key=YOUR_MULTILLM_API_KEY once, or enable MULTILLM_PUBLIC_DASHBOARD_API behind a trusted proxy.'
+    : '';
+  document.getElementById('statsNote').textContent = `Dashboard load failed: ${message}.${authHint}`;
 }
 
 function mergeClaudeModelsIntoByModel(byModel, claudeStats) {
@@ -1403,6 +1478,13 @@ function getHours() {
   return parseInt(document.getElementById('timeRange').value);
 }
 
+function getEffectiveRefreshSeconds() {
+  const hours = getHours();
+  if (hours >= 8760) return Math.max(dashboardState.refreshSeconds, 60);
+  if (hours >= 720) return Math.max(dashboardState.refreshSeconds, 30);
+  return dashboardState.refreshSeconds;
+}
+
 function getProject() {
   return document.getElementById('projectFilter').value;
 }
@@ -1517,17 +1599,26 @@ function getFilteredSessions(sessions) {
   });
 }
 
-function renderToolbarMeta(unified, active, filteredModels) {
+function renderToolbarMeta(unified, active, filteredModels, status) {
   const el = document.getElementById('toolbarMeta');
   const source = dashboardState.source === 'all' ? 'All sources' : sourceLabel(dashboardState.source);
   const liveClass = dashboardState.live ? 'ok' : 'warn';
   const secondsSince = lastLoadAt ? Math.max(0, Math.floor((Date.now() - lastLoadAt) / 1000)) : 0;
-  const nextSync = dashboardState.live ? Math.max(0, dashboardState.refreshSeconds - secondsSince) : 'paused';
+  const refreshSeconds = getEffectiveRefreshSeconds();
+  const nextSync = dashboardState.live ? Math.max(0, refreshSeconds - secondsSince) : 'paused';
   const nearLimit = (((unified && unified.limits && unified.limits.items) || []).filter(item => (item.percentUsed || 0) >= 70))
     .sort((a, b) => (b.percentUsed || 0) - (a.percentUsed || 0))[0];
+  const gateway = (status && status.gateway) || {};
+  const health = (status && status.health) || {};
+  const openModeClass = gateway.unsafe_open_mode ? 'critical' : (gateway.auth_enabled ? 'ok' : 'warn');
+  const authLabel = gateway.auth_enabled ? 'API key auth' : (gateway.unsafe_open_mode ? 'Open on network' : 'Open localhost');
 
   el.innerHTML = `
     <span class="pill ${liveClass}">${dashboardState.live ? 'Live' : 'Paused'}${dashboardState.live ? ` · next sync in ${nextSync}s` : ''}</span>
+    ${status ? `<span class="pill info">v${status.version || '?'}</span>` : ''}
+    ${status ? `<span class="pill ${openModeClass}">${authLabel}</span>` : ''}
+    ${status ? `<span class="pill info">${gateway.host || 'host'}:${gateway.port || 'port'}</span>` : ''}
+    ${status ? `<span class="pill ${health.healthy_backends === health.total_backends ? 'ok' : 'warn'}">${health.healthy_backends || 0}/${health.total_backends || 0} healthy</span>` : ''}
     <span class="pill info">${getSelectedMetricMeta().label} focus</span>
     <span class="pill info">${source}</span>
     ${dashboardState.query ? `<span class="pill info">Search: ${dashboardState.query}</span>` : ''}
@@ -1553,7 +1644,7 @@ function renderPulsePanel(payload, filteredBackends, filteredModels, filteredSes
     <div class="pulse-card">
       <div class="eyebrow">Live Status</div>
       <div class="headline" style="color:${dashboardState.live ? 'var(--accent2)' : 'var(--accent3)'}">${dashboardState.live ? 'Streaming updates' : 'Manual refresh'}</div>
-      <div class="detail">Last sync ${lastLoadAt ? new Date(lastLoadAt).toLocaleTimeString() : 'never'} · refresh every ${dashboardState.refreshSeconds}s · ${active.length} active sessions</div>
+      <div class="detail">Last sync ${lastLoadAt ? new Date(lastLoadAt).toLocaleTimeString() : 'never'} · refresh every ${getEffectiveRefreshSeconds()}s · ${active.length} active sessions</div>
     </div>
     <div class="pulse-card">
       <div class="eyebrow">Focus</div>
@@ -1594,9 +1685,18 @@ function renderDashboard(payload) {
   const overviewHourly = buildOverviewHourly(payload);
   const overviewDaily = buildOverviewDaily(payload, overviewHourly);
 
-  renderStats(payload.stats, payload.cacheStats, payload.otelStatus, payload.claudeStats, payload.unified);
+  renderStats(
+    payload.stats,
+    payload.cacheStats,
+    payload.otelStatus,
+    payload.claudeStats,
+    payload.unified,
+    payload.performance,
+    payload.codexStats,
+    payload.geminiStats,
+  );
   renderProviderStrip(payload.backends.backends || {}, backendUsage, (payload.unified && payload.unified.statusBySource) || {});
-  renderToolbarMeta(payload.unified, payload.active, filteredModels);
+  renderToolbarMeta(payload.unified, payload.active, filteredModels, payload.status);
   renderPulsePanel(payload, filteredBackends, filteredModels, filteredSessions);
   renderLimits(payload.unified, payload.stats);
   renderModelHeadroom(payload.unified);
@@ -1619,35 +1719,54 @@ function renderDashboard(payload) {
 }
 
 async function loadDashboard(force = false) {
-  if (loadInFlight) return;
   if (!force && document.hidden) return;
+  if (loadInFlight) {
+    if (!force) return;
+    if (loadController) loadController.abort();
+  }
 
+  const requestId = ++loadSequence;
+  const controller = new AbortController();
+  loadController = controller;
   loadInFlight = true;
+  const options = {signal: controller.signal};
   try {
     const hours = getHours();
     const projectParam = currentProjectParam();
+    setCalculationState(hours);
 
-    const [stats, sessions, backends, cacheStats, claudeStats, codexStats, geminiStats, unified, active, otelStatus] = await Promise.all([
-      fetchJSON(`${API}/api/dashboard?hours=${hours}${projectParam}`),
-      fetchJSON(`${API}/api/sessions?hours=${hours}&limit=50${projectParam}`),
-      fetchJSON(`${API}/api/backends?refresh=false`).catch(() => ({backends: {}})),
-      fetchJSON(`${API}/api/cache`).catch(() => ({})),
-      fetchJSON(`${API}/api/claude-stats?hours=${hours}${projectParam}`).catch(() => ({available: false})),
-      fetchJSON(`${API}/api/codex-stats?hours=${hours}${projectParam}`).catch(() => ({available: false})),
-      fetchJSON(`${API}/api/gemini-stats?hours=${hours}${projectParam}`).catch(() => ({available: false})),
-      fetchJSON(`${API}/api/all-llm-usage?hours=${hours}${projectParam}`).catch(() => ({})),
-      fetchJSON(`${API}/api/active-sessions`).catch(() => []),
-      fetchJSON(`${API}/api/otel`).catch(() => ({enabled: false})),
+    const [bundle, backends, cacheStats, active, otelStatus, status] = await Promise.all([
+      fetchJSON(`${API}/api/dashboard-bundle?hours=${hours}&session_limit=50${projectParam}`, options),
+      optionalFetchJSON(`${API}/api/backends?refresh=false`, {backends: {}}, options),
+      optionalFetchJSON(`${API}/api/cache`, {}, options),
+      optionalFetchJSON(`${API}/api/active-sessions`, [], options),
+      optionalFetchJSON(`${API}/api/otel`, {enabled: false}, options),
+      optionalFetchJSON(`${API}/api/status`, null, options),
     ]);
 
+    if (requestId !== loadSequence) return;
     lastLoadAt = Date.now();
-    renderDashboard({stats, sessions, backends, cacheStats, claudeStats, codexStats, geminiStats, unified, active, otelStatus});
+    const stats = bundle.stats || {};
+    const sessions = bundle.sessions || [];
+    const claudeStats = bundle.claudeStats || {available: false};
+    const codexStats = bundle.codexStats || {available: false};
+    const geminiStats = bundle.geminiStats || {available: false};
+    const unified = bundle.unified || {};
+    const performance = bundle.performance || {};
+    renderDashboard({stats, sessions, backends, cacheStats, claudeStats, codexStats, geminiStats, unified, active, otelStatus, status, performance});
+  } catch (error) {
+    if (error.name !== 'AbortError' && requestId === loadSequence) {
+      renderDashboardError(error);
+    }
   } finally {
-    loadInFlight = false;
+    if (requestId === loadSequence) {
+      loadInFlight = false;
+      loadController = null;
+    }
   }
 }
 
-function renderStats(stats, cache, otel, claudeStats, unified) {
+function renderStats(stats, cache, otel, claudeStats, unified, performance, codexStats, geminiStats) {
   const t = stats.totals || {};
   const d = stats.derived || {};
   const u = unified || {};
@@ -1739,8 +1858,18 @@ function renderStats(stats, cache, otel, claudeStats, unified) {
   `;
 
   const scope = stats.project ? `Project: ${stats.project}` : 'All projects';
+  const elapsed = performance && performance.elapsedMs != null ? ` · computed in ${Number(performance.elapsedMs).toFixed(0)}ms` : '';
+  const cacheNote = performance && performance.cacheTtlSeconds ? ` · ${performance.cacheTtlSeconds}s local cache` : '';
+  const directNotes = [];
+  if (codexStats && codexStats.sessionsTruncated) {
+    directNotes.push(`Codex sessions shown ${codexStats.sessions.length}/${codexStats.sessionCountBeforeLimit}`);
+  }
+  if (geminiStats && geminiStats.sessionsTruncated) {
+    directNotes.push(`Gemini sessions shown ${geminiStats.sessions.length}/${geminiStats.sessionCountBeforeLimit}`);
+  }
+  const directNote = directNotes.length ? ` · ${directNotes.join(' · ')}` : '';
   document.getElementById('statsNote').textContent =
-    `${scope} · Window: ${stats.hours || getHours()}h · ${Number(d.avg_requests_per_session || 0).toFixed(2)} req/session · ${fmt(d.billable_input_tokens || 0)} billable input tok · ${fmt(d.cache_read_input_tokens || 0)} cache read · ${fmt(d.cache_creation_input_tokens || 0)} cache write · $${Number(d.avg_cost_per_1k_tokens || 0).toFixed(4)} per 1K tokens`;
+    `${scope} · Window: ${formatWindowLabel(stats.hours || getHours())}${elapsed}${cacheNote}${directNote} · ${Number(d.avg_requests_per_session || 0).toFixed(2)} req/session · ${fmt(d.billable_input_tokens || 0)} billable input tok · ${fmt(d.cache_read_input_tokens || 0)} cache read · ${fmt(d.cache_creation_input_tokens || 0)} cache write · $${Number(d.avg_cost_per_1k_tokens || 0).toFixed(4)} per 1K tokens`;
 }
 
 function renderDailyChart(daily) {
@@ -2975,7 +3104,7 @@ function startLiveTicker() {
         latestPayload.geminiStats,
       ),
     ));
-    if (dashboardState.live && !document.hidden && Date.now() - lastLoadAt >= dashboardState.refreshSeconds * 1000) {
+    if (dashboardState.live && !document.hidden && Date.now() - lastLoadAt >= getEffectiveRefreshSeconds() * 1000) {
       loadDashboard();
     }
   }, 1000);

@@ -29,6 +29,18 @@ def _make_app(api_key: str = ""):
     async def dashboard():
         return {"page": "dashboard"}
 
+    @app.get("/api/dashboard")
+    async def dashboard_api():
+        return {"stats": True}
+
+    @app.get("/api/memory")
+    async def list_memory():
+        return {"memory": []}
+
+    @app.post("/api/memory")
+    async def write_memory():
+        return {"ok": True}
+
     return app
 
 
@@ -83,6 +95,21 @@ class TestAuthEnabled:
             client = TestClient(app)
             assert client.get("/health").status_code == 200
             assert client.get("/dashboard").status_code == 200
+            assert client.get("/api/dashboard").status_code == 401
+
+    def test_memory_api_requires_auth(self):
+        app = _make_app("secret123")
+        with patch("multillm.auth.API_KEY", "secret123"):
+            client = TestClient(app)
+            assert client.get("/api/memory").status_code == 401
+            assert client.post("/api/memory", json={"title": "x", "content": "y"}).status_code == 401
+            assert client.get("/api/memory", headers={"X-API-Key": "secret123"}).status_code == 200
+
+    def test_public_dashboard_api_can_be_explicitly_enabled(self):
+        app = _make_app("secret123")
+        with patch("multillm.auth.API_KEY", "secret123"), patch("multillm.auth.PUBLIC_DASHBOARD_API", True):
+            client = TestClient(app)
+            assert client.get("/api/dashboard").status_code == 200
 
 
 class TestExtractKey:

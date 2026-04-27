@@ -1,0 +1,9 @@
+[mcp_servers.multillm]
+command = "python3"
+args = ["-m", "multillm.mcp_server"]
+
+[mcp_servers.multillm.env]
+LLM_GATEWAY_URL = "http://localhost:8080"
+
+[features]
+multi_agent = true

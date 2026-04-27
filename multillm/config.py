@@ -44,7 +44,13 @@ DATA_DIR = Path(
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Gateway ──────────────────────────────────────────────────────────────────
+GATEWAY_HOST = os.getenv("GATEWAY_HOST", "127.0.0.1")
 GATEWAY_PORT = int(os.getenv("GATEWAY_PORT", "8080"))
+GATEWAY_RELOAD = os.getenv("GATEWAY_RELOAD", "false").lower() in ("true", "1", "yes")
+GATEWAY_CORS_ORIGINS = os.getenv("GATEWAY_CORS_ORIGINS", "")
+MULTILLM_ALLOW_UNAUTHENTICATED_REMOTE = (
+    os.getenv("MULTILLM_ALLOW_UNAUTHENTICATED_REMOTE", "false").lower() in ("true", "1", "yes")
+)
 
 # ── Backend URLs (local) ────────────────────────────────────────────────────
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")

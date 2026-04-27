@@ -26,12 +26,15 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
 
 from .config import (
-    GATEWAY_PORT, OLLAMA_URL, LMSTUDIO_URL,
+    DATA_DIR, GATEWAY_CORS_ORIGINS, GATEWAY_HOST, GATEWAY_PORT, GATEWAY_RELOAD,
+    MULTILLM_ALLOW_UNAUTHENTICATED_REMOTE, OLLAMA_URL, LMSTUDIO_URL,
     OPENROUTER_KEY, OPENAI_KEY, ANTHROPIC_KEY, GEMINI_KEY,
     GROQ_KEY, DEEPSEEK_KEY, MISTRAL_KEY, TOGETHER_KEY,
     XAI_KEY, FIREWORKS_KEY,
@@ -39,6 +42,14 @@ from .config import (
     AWS_BEDROCK_REGION, AWS_BEDROCK_PROFILE,
     OCA_ENDPOINT, OCA_API_VERSION,
     load_routes, detect_project,
+)
+from . import __version__
+from .cli_tools import resolve_cli_binary
+from .runtime_security import (
+    build_security_headers,
+    is_loopback_host,
+    parse_cors_origins,
+    validate_gateway_exposure,
 )
 from .converters import (
     build_openai_payload,
@@ -123,6 +134,14 @@ else:
 
 log = logging.getLogger("multillm.gateway")
 
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        for key, value in build_security_headers().items():
+            response.headers.setdefault(key, value)
+        return response
+
 # ── FastAPI app ──────────────────────────────────────────────────────────────
 ROUTES = load_routes()
 PROJECT = detect_project()
@@ -181,14 +200,15 @@ async def lifespan(application: FastAPI):
     await close_http_pools()
 
 
-app = FastAPI(title="MultiLLM Gateway", version="0.6.0", lifespan=lifespan)
+app = FastAPI(title="MultiLLM Gateway", version=__version__, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=parse_cors_origins(GATEWAY_CORS_ORIGINS, port=GATEWAY_PORT),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 app.add_middleware(AuthMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # ── Backend adapters (non-streaming) ─────────────────────────────────────────
@@ -1209,6 +1229,68 @@ async def dashboard_api(hours: int = 720, project: Optional[str] = None):
     return get_dashboard_stats(hours=hours, project=project)
 
 
+@app.get("/api/status")
+async def status_api():
+    """Operational status summary for dashboards, slash commands, and MCP clients."""
+    from .claude_stats import HISTORY_FILE, PROJECTS_DIR, STATS_FILE
+    from .codex_stats import STATE_DB
+    from .gemini_stats import PROJECTS_FILE, SESSIONS_DIR
+
+    health = all_health_status()
+    healthy_backends = sum(1 for item in health.values() if item.get("healthy"))
+    unsafe_open_mode = not auth_enabled() and not is_loopback_host(GATEWAY_HOST)
+    exposure = validate_gateway_exposure(
+        host=GATEWAY_HOST,
+        api_key="configured" if auth_enabled() else "",
+        allow_unauthenticated_remote=MULTILLM_ALLOW_UNAUTHENTICATED_REMOTE,
+    )
+
+    return {
+        "status": "ok",
+        "version": __version__,
+        "project": PROJECT,
+        "gateway": {
+            "host": GATEWAY_HOST,
+            "port": GATEWAY_PORT,
+            "reload": GATEWAY_RELOAD,
+            "dashboard_url": f"http://localhost:{GATEWAY_PORT}/dashboard",
+            "auth_enabled": auth_enabled(),
+            "unsafe_open_mode": unsafe_open_mode,
+            "exposure": exposure.to_dict(),
+            "cors_origins": parse_cors_origins(GATEWAY_CORS_ORIGINS, port=GATEWAY_PORT),
+        },
+        "runtime": {
+            "routes": len(ROUTES),
+            "adapters": len(list_adapters()),
+            "data_dir": str(DATA_DIR),
+            "log_file": str(DATA_DIR / "gateway.log"),
+        },
+        "tools": {
+            "codex_cli": bool(resolve_cli_binary("codex", env_var="CODEX_CLI_PATH")),
+            "gemini_cli": bool(resolve_cli_binary("gemini", env_var="GEMINI_CLI_PATH")),
+        },
+        "direct_clients": {
+            "claude_code": {
+                "available": STATS_FILE.exists() or HISTORY_FILE.exists() or PROJECTS_DIR.exists(),
+                "source": str(STATS_FILE.parent),
+            },
+            "codex_cli": {
+                "available": STATE_DB.exists(),
+                "source": str(STATE_DB),
+            },
+            "gemini_cli": {
+                "available": SESSIONS_DIR.exists() or PROJECTS_FILE.exists(),
+                "source": str(PROJECTS_FILE.parent),
+            },
+        },
+        "health": {
+            "healthy_backends": healthy_backends,
+            "total_backends": len(health),
+            "circuit_breakers": all_breaker_status(),
+        },
+    }
+
+
 @app.get("/api/sessions")
 async def sessions_api(hours: int = 168, project: Optional[str] = None, limit: int = 50):
     return get_sessions(hours=hours, project=project, limit=limit)
@@ -1376,24 +1458,24 @@ async def gemini_stats_api(hours: int = 168, project: Optional[str] = None):
     return get_gemini_stats(hours=hours, project=project)
 
 
-@app.get("/api/all-llm-usage")
-async def all_llm_usage_api(hours: int = 168, project: Optional[str] = None):
+def _build_all_llm_usage(
+    *,
+    hours: int,
+    project: Optional[str],
+    gw: Optional[dict] = None,
+    claude: Optional[dict] = None,
+    codex: Optional[dict] = None,
+    gemini: Optional[dict] = None,
+) -> dict:
     """Unified cross-LLM usage ledger — merges gateway, Claude Code, Codex CLI, and Gemini CLI."""
     from datetime import date as _date
 
     today_str = _date.today().isoformat()
 
-    # 1. Gateway-proxied traffic
-    gw = get_dashboard_stats(hours=hours, project=project)
-
-    # 2. Claude Code (direct, not proxied)
-    claude = get_claude_code_stats(hours=hours, project=project)
-
-    # 3. Codex CLI
-    codex = get_codex_stats(hours=hours, project=project)
-
-    # 4. Gemini CLI
-    gemini = get_gemini_stats(hours=hours, project=project)
+    gw = gw if gw is not None else get_dashboard_stats(hours=hours, project=project)
+    claude = claude if claude is not None else get_claude_code_stats(hours=hours, project=project)
+    codex = codex if codex is not None else get_codex_stats(hours=hours, project=project)
+    gemini = gemini if gemini is not None else get_gemini_stats(hours=hours, project=project)
 
     observability = build_llm_observability_summary(
         hours=hours,
@@ -1584,6 +1666,64 @@ async def all_llm_usage_api(hours: int = 168, project: Optional[str] = None):
     }
 
 
+@app.get("/api/all-llm-usage")
+async def all_llm_usage_api(hours: int = 168, project: Optional[str] = None):
+    """Unified cross-LLM usage ledger — merges gateway, Claude Code, Codex CLI, and Gemini CLI."""
+    return _build_all_llm_usage(hours=hours, project=project)
+
+
+def _limit_direct_sessions(payload: dict, *, limit: int) -> dict:
+    sessions = payload.get("sessions")
+    if isinstance(sessions, list) and len(sessions) > limit:
+        payload["sessionCountBeforeLimit"] = len(sessions)
+        payload["sessions"] = sessions[:limit]
+        payload["sessionsTruncated"] = True
+    else:
+        payload["sessionsTruncated"] = False
+    return payload
+
+
+@app.get("/api/dashboard-bundle")
+async def dashboard_bundle_api(
+    hours: int = Query(720, ge=1, le=43800),
+    project: Optional[str] = None,
+    session_limit: int = Query(50, ge=1, le=500),
+    direct_session_limit: int = Query(100, ge=1, le=1000),
+):
+    """Dashboard payload with expensive direct-client stats computed once per period."""
+    started = time.perf_counter()
+    gw = get_dashboard_stats(hours=hours, project=project)
+    sessions = get_sessions(hours=hours, project=project, limit=session_limit)
+    claude = get_claude_code_stats(hours=hours, project=project)
+    codex = _limit_direct_sessions(get_codex_stats(hours=hours, project=project), limit=direct_session_limit)
+    gemini = _limit_direct_sessions(get_gemini_stats(hours=hours, project=project), limit=direct_session_limit)
+    unified = _build_all_llm_usage(
+        hours=hours,
+        project=project,
+        gw=gw,
+        claude=claude,
+        codex=codex,
+        gemini=gemini,
+    )
+    return {
+        "stats": gw,
+        "sessions": sessions,
+        "claudeStats": claude,
+        "codexStats": codex,
+        "geminiStats": gemini,
+        "unified": unified,
+        "performance": {
+            "elapsedMs": round((time.perf_counter() - started) * 1000, 2),
+            "strategy": "bundled_single_pass",
+            "cacheTtlSeconds": 15,
+            "costCalculation": "gateway_sql_plus_cached_direct_client_scans",
+            "gatewaySessionLimit": session_limit,
+            "directSessionLimit": direct_session_limit,
+            "longRange": hours >= 8760,
+        },
+    }
+
+
 @app.get("/api/cache")
 async def cache_stats_api():
     """Get cache statistics."""
@@ -1754,8 +1894,21 @@ async def root_page():
 def main():
     import uvicorn
 
-    log.info("MultiLLM Gateway starting on port %d", GATEWAY_PORT)
+    exposure = validate_gateway_exposure(
+        host=GATEWAY_HOST,
+        api_key="configured" if auth_enabled() else "",
+        allow_unauthenticated_remote=MULTILLM_ALLOW_UNAUTHENTICATED_REMOTE,
+    )
+    if not exposure.ok:
+        raise SystemExit(exposure.message)
+
+    log.info("MultiLLM Gateway starting on %s:%d", GATEWAY_HOST, GATEWAY_PORT)
     log.info("  Project:    %s", PROJECT)
+    log.info("  Dashboard:  http://localhost:%d/dashboard", GATEWAY_PORT)
+    log.info("  Data dir:   %s", DATA_DIR)
+    log.info("  Auth:       %s", "enabled" if auth_enabled() else "disabled (localhost only recommended)")
+    log.info("  Exposure:   %s — %s", exposure.severity, exposure.message)
+    log.info("  CORS:       %s", ", ".join(parse_cors_origins(GATEWAY_CORS_ORIGINS, port=GATEWAY_PORT)))
     log.info("  Ollama:     %s", OLLAMA_URL)
     log.info("  LM Studio:  %s", LMSTUDIO_URL)
     log.info("  OpenRouter:  %s", "configured" if OPENROUTER_KEY else "not set")
@@ -1764,7 +1917,7 @@ def main():
     log.info("  OCA:        %s", OCA_ENDPOINT)
     log.info("  Gemini:     %s", "configured" if GEMINI_KEY else "not set")
     log.info("  Routes:     %d total", len(ROUTES))
-    uvicorn.run("multillm.gateway:app", host="0.0.0.0", port=GATEWAY_PORT, reload=True)
+    uvicorn.run("multillm.gateway:app", host=GATEWAY_HOST, port=GATEWAY_PORT, reload=GATEWAY_RELOAD)
 
 
 if __name__ == "__main__":

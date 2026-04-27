@@ -31,6 +31,9 @@ venv/
 # Claude Code (user-local)
 .claude/
 
+# Local agent/tool workspaces
+.serena/
+
 # IDE
 .vscode/
 .idea/

@@ -12,8 +12,11 @@ Provides read-only access to:
 import json
 import logging
 from datetime import datetime, timezone, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
+
+from .stats_cache import ttl_cache
 
 log = logging.getLogger("multillm.claude_stats")
 
@@ -151,6 +154,66 @@ def _add_usage(target: dict, usage: dict) -> None:
     target["cacheCreationInputTokens"] += int(usage.get("cacheCreationInputTokens", 0) or 0)
 
 
+@lru_cache(maxsize=4096)
+def _read_project_session_events_cached(path_str: str, mtime_ns: int, size: int, project_dir: str) -> tuple[dict, ...]:
+    del mtime_ns, size
+
+    events: list[dict] = []
+    try:
+        with open(path_str) as handle:
+            for raw_line in handle:
+                raw_line = raw_line.strip()
+                if not raw_line:
+                    continue
+                try:
+                    entry = json.loads(raw_line)
+                except json.JSONDecodeError:
+                    continue
+
+                timestamp = _parse_timestamp(entry.get("timestamp"))
+                cwd = entry.get("cwd", "") or ""
+                session_project = _resolve_project_name(cwd, project_dir)
+                session_id = entry.get("sessionId") or Path(path_str).stem
+                event = {
+                    "timestamp": timestamp,
+                    "cwd": cwd,
+                    "project": session_project,
+                    "sessionId": session_id,
+                    "entryType": entry.get("type"),
+                    "firstCommand": "",
+                    "model": "",
+                    "usage": None,
+                }
+
+                message = entry.get("message")
+                if entry.get("type") == "user":
+                    event["firstCommand"] = _extract_user_text(message)
+                elif entry.get("type") == "assistant" and isinstance(message, dict):
+                    usage_payload = message.get("usage") or {}
+                    model = str(message.get("model") or "")
+                    if model:
+                        event["model"] = model
+                        event["usage"] = {
+                            "inputTokens": int(usage_payload.get("input_tokens", 0) or 0),
+                            "outputTokens": int(usage_payload.get("output_tokens", 0) or 0),
+                            "cacheReadInputTokens": int(usage_payload.get("cache_read_input_tokens", 0) or 0),
+                            "cacheCreationInputTokens": int(usage_payload.get("cache_creation_input_tokens", 0) or 0),
+                        }
+                events.append(event)
+    except OSError:
+        return ()
+
+    return tuple(events)
+
+
+def _read_project_session_events(session_file: Path, project_dir: str) -> tuple[dict, ...]:
+    try:
+        stat = session_file.stat()
+    except OSError:
+        return ()
+    return _read_project_session_events_cached(str(session_file), stat.st_mtime_ns, stat.st_size, project_dir)
+
+
 def _load_windowed_stats(hours: Optional[int], project: Optional[str]) -> Optional[dict]:
     if not PROJECTS_DIR.exists():
         return None
@@ -172,91 +235,63 @@ def _load_windowed_stats(hours: Optional[int], project: Optional[str]) -> Option
             continue
 
         project_dir = session_file.parent.name
-        try:
-            with open(session_file) as handle:
-                for raw_line in handle:
-                    raw_line = raw_line.strip()
-                    if not raw_line:
-                        continue
-                    try:
-                        entry = json.loads(raw_line)
-                    except json.JSONDecodeError:
-                        continue
+        for event in _read_project_session_events(session_file, project_dir):
+            timestamp = event.get("timestamp")
+            if cutoff is not None and (timestamp is None or timestamp < cutoff):
+                continue
 
-                    timestamp = _parse_timestamp(entry.get("timestamp"))
-                    if cutoff is not None and (timestamp is None or timestamp < cutoff):
-                        continue
+            session_project = event.get("project", "unknown")
+            if project and session_project != project:
+                continue
 
-                    cwd = entry.get("cwd", "") or ""
-                    session_project = _resolve_project_name(cwd, project_dir)
-                    if project and session_project != project:
-                        continue
+            session_id = event.get("sessionId") or session_file.stem
+            cwd = event.get("cwd", "") or ""
+            session = sessions.setdefault(session_id, _empty_session(session_id, session_project, cwd))
+            session["_matched"] = True
 
-                    session_id = entry.get("sessionId") or session_file.stem
-                    session = sessions.setdefault(session_id, _empty_session(session_id, session_project, cwd))
-                    session["_matched"] = True
+            if timestamp is not None:
+                iso_timestamp = timestamp.isoformat()
+                if not session["timestamp"] or iso_timestamp < session["timestamp"]:
+                    session["timestamp"] = iso_timestamp
+                if not session["lastTimestamp"] or iso_timestamp > session["lastTimestamp"]:
+                    session["lastTimestamp"] = iso_timestamp
+                day = _local_day(timestamp)
+                day_activity = daily_activity.setdefault(
+                    day,
+                    {"date": day, "messageCount": 0, "sessionIds": set()},
+                )
+                day_activity["sessionIds"].add(session_id)
 
-                    if timestamp is not None:
-                        iso_timestamp = timestamp.isoformat()
-                        if not session["timestamp"] or iso_timestamp < session["timestamp"]:
-                            session["timestamp"] = iso_timestamp
-                        if not session["lastTimestamp"] or iso_timestamp > session["lastTimestamp"]:
-                            session["lastTimestamp"] = iso_timestamp
-                        day = _local_day(timestamp)
-                        day_activity = daily_activity.setdefault(
-                            day,
-                            {"date": day, "messageCount": 0, "sessionIds": set()},
-                        )
-                        day_activity["sessionIds"].add(session_id)
+            if event.get("entryType") == "user":
+                session["commandCount"] += 1
+                if not session["firstCommand"]:
+                    session["firstCommand"] = event.get("firstCommand", "")
+                continue
 
-                    entry_type = entry.get("type")
-                    message = entry.get("message")
+            model = event.get("model", "")
+            usage = event.get("usage")
+            if not model or not isinstance(usage, dict) or timestamp is None:
+                continue
 
-                    if entry_type == "user":
-                        session["commandCount"] += 1
-                        if not session["firstCommand"]:
-                            session["firstCommand"] = _extract_user_text(message)
-                        continue
+            session["messageCount"] += 1
+            _add_usage(session, usage)
+            session["estimatedCostUSD"] += _estimate_cost(model, usage)
+            session["models_used"].add(model)
 
-                    if entry_type != "assistant" or not isinstance(message, dict):
-                        continue
+            aggregate = model_usage.setdefault(model, _normalize_usage({}))
+            _add_usage(aggregate, usage)
 
-                    usage_payload = message.get("usage") or {}
-                    model = str(message.get("model") or "")
-                    if not model:
-                        continue
-
-                    usage = {
-                        "inputTokens": int(usage_payload.get("input_tokens", 0) or 0),
-                        "outputTokens": int(usage_payload.get("output_tokens", 0) or 0),
-                        "cacheReadInputTokens": int(usage_payload.get("cache_read_input_tokens", 0) or 0),
-                        "cacheCreationInputTokens": int(usage_payload.get("cache_creation_input_tokens", 0) or 0),
-                    }
-
-                    if timestamp is None:
-                        continue
-
-                    session["messageCount"] += 1
-                    _add_usage(session, usage)
-                    session["estimatedCostUSD"] += _estimate_cost(model, usage)
-                    session["models_used"].add(model)
-
-                    aggregate = model_usage.setdefault(model, _normalize_usage({}))
-                    _add_usage(aggregate, usage)
-
-                    day = _local_day(timestamp)
-                    token_total = (
-                        usage["inputTokens"]
-                        + usage["outputTokens"]
-                        + usage["cacheReadInputTokens"]
-                        + usage["cacheCreationInputTokens"]
-                    )
-                    daily_tokens.setdefault(day, {})
-                    daily_tokens[day][model] = daily_tokens[day].get(model, 0) + token_total
-                    daily_activity.setdefault(day, {"date": day, "messageCount": 0, "sessionIds": set()})
-                    daily_activity[day]["messageCount"] += 1
-        except OSError:
-            continue
+            day = _local_day(timestamp)
+            token_total = (
+                usage["inputTokens"]
+                + usage["outputTokens"]
+                + usage["cacheReadInputTokens"]
+                + usage["cacheCreationInputTokens"]
+            )
+            daily_tokens.setdefault(day, {})
+            daily_tokens[day][model] = daily_tokens[day].get(model, 0) + token_total
+            daily_activity.setdefault(day, {"date": day, "messageCount": 0, "sessionIds": set()})
+            daily_activity[day]["messageCount"] += 1
 
     filtered_sessions = []
     for session in sessions.values():
@@ -323,6 +358,7 @@ def _build_latest_day_summary(daily: list[dict], daily_model: list[dict]) -> tup
     return latest_tokens, latest_date, latest_activity
 
 
+@ttl_cache(seconds=15.0, maxsize=128)
 def get_claude_code_stats(hours: Optional[int] = None, project: Optional[str] = None) -> dict:
     """Get comprehensive Claude Code usage stats."""
     stats = _load_stats()

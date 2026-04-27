@@ -1,4 +1,12 @@
 {
-  "_comment": "MCP server kept for non-Claude LLM clients (Codex CLI, etc.). Claude Code uses direct HTTP via slash commands.",
-  "mcpServers": {}
+  "_comment": "Project-local MCP server for clients that read .mcp.json. Claude Code also has slash commands; Codex CLI has .codex/config.toml.",
+  "mcpServers": {
+    "multillm": {
+      "command": "python3",
+      "args": ["-m", "multillm.mcp_server"],
+      "env": {
+        "LLM_GATEWAY_URL": "http://localhost:8080"
+      }
+    }
+  }
 }
