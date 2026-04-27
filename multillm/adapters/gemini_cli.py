@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from .base import BaseAdapter
+from ..cli_tools import resolve_cli_binary
 from ..converters import extract_text_from_anthropic, make_anthropic_response
 
 
@@ -29,7 +30,12 @@ class GeminiCLIAdapter(BaseAdapter):
             elif default_model:
                 model_flag = ["-m", default_model]
 
-        gemini_bin = os.getenv("GEMINI_CLI_PATH", "gemini")
+        gemini_bin = resolve_cli_binary("gemini", env_var="GEMINI_CLI_PATH")
+        if not gemini_bin:
+            raise HTTPException(
+                status_code=500,
+                detail="Gemini CLI not found. Install: npm i -g @google/gemini-cli",
+            )
 
         # Per-request approval mode override via metadata, else env var, else yolo
         metadata = body.get("metadata", {})

@@ -21,9 +21,11 @@
         "commands/llm-ask.md",
         "commands/llm-council.md",
         "commands/llm-discover.md",
+        "commands/llm-doctor.md",
         "commands/llm-memory.md",
         "commands/llm-review.md",
         "commands/llm-settings.md",
+        "commands/llm-status.md",
         "commands/llm-usage.md"
     ],
     "skills": [

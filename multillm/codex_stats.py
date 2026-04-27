@@ -16,6 +16,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from .stats_cache import ttl_cache
+
 log = logging.getLogger("multillm.codex_stats")
 
 CODEX_DIR = Path.home() / ".codex"
@@ -240,6 +242,7 @@ def _connect_readonly() -> Optional[sqlite3.Connection]:
         return None
 
 
+@ttl_cache(seconds=15.0, maxsize=128)
 def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) -> dict:
     """Get comprehensive Codex CLI usage stats."""
     conn = _connect_readonly()

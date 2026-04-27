@@ -14,6 +14,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
+from .stats_cache import ttl_cache
+
 log = logging.getLogger("multillm.gemini_stats")
 
 GEMINI_DIR = Path.home() / ".gemini"
@@ -90,6 +92,7 @@ def _estimate_cost(input_tokens: int, output_tokens: int, cached_tokens: int) ->
     ) / 1_000_000
 
 
+@ttl_cache(seconds=15.0, maxsize=128)
 def get_gemini_stats(hours: Optional[int] = None, project: Optional[str] = None) -> dict:
     """Get comprehensive Gemini CLI usage stats."""
     if not SESSIONS_DIR.exists():

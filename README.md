@@ -31,7 +31,11 @@ pip install -e .
 python -m multillm.gateway
 ```
 
-The gateway auto-starts when Claude Code launches (via session hooks). No need to run it manually after install.
+The gateway binds to `127.0.0.1:8080` by default and auto-starts when Claude Code launches via session hooks. No need to run it manually after install.
+
+Use `GATEWAY_HOST=0.0.0.0` only when you also set `MULTILLM_API_KEY`.
+When `MULTILLM_API_KEY` is set, `/api/*`, `/v1/*`, memory, settings, and route mutation endpoints require `X-API-Key` or `Authorization: Bearer`.
+If you deliberately want dashboard JSON APIs public behind another trusted layer, set `MULTILLM_PUBLIC_DASHBOARD_API=true`.
 
 Launcher scripts are also installed into `~/.local/bin` when possible:
 
@@ -64,8 +68,10 @@ That's it. Claude Code now routes through MultiLLM. Use any model:
 | `/llm-ask <model> <prompt>` | Send a prompt to any backend |
 | `/llm-council <prompt>` | Query 3+ models in parallel, get synthesis |
 | `/llm-review` | Second opinion from another LLM |
+| `/llm-status` | Gateway health, auth mode, CLI readiness, direct-client visibility |
 | `/llm-usage` | Token usage, costs, sessions |
 | `/llm-discover` | Find available models across all backends |
+| `/llm-doctor` | Production-readiness checks for gateway, auth, tools, and configured backends |
 | `/llm-memory <query>` | Search/store cross-LLM shared memory |
 | `/llm-settings` | View/update gateway config |
 | `/llm-dashboard` | Open the real-time web dashboard |
@@ -111,11 +117,28 @@ Open `http://localhost:8080/dashboard` for real-time stats:
 - Direct-client status for Claude Code, Codex CLI, and Gemini CLI
 - Plan/usage limit tracking for Claude, Gemini CLI, and Codex CLI external providers
 - Remaining tokens by direct-client model for the selected window
-- Hourly windows (`1h`, `6h`, `12h`, `24h`) plus longer rollups
+- Hourly windows (`1h`, `6h`, `12h`, `24h`) plus long-range rollups through 1, 2, and 5 years
 - Derived metrics such as tokens/request, cost/request, requests/hour
 - Active and historical sessions
 - Claude Code stats integration
 - Project-scoped filtering across the whole panel, not just sessions
+
+The dashboard also shows runtime status from `/api/status`: gateway version, auth mode, bind host, healthy backend count, direct-client availability, and local Codex/Gemini CLI readiness.
+Long-range views use `/api/dashboard-bundle` so gateway stats, direct Claude Code stats, Codex CLI stats, Gemini CLI stats, and unified costs are calculated in one server pass instead of being recomputed by separate requests.
+Period changes cancel stale in-flight dashboard loads and show calculation timing, cache TTL, and direct-client session truncation in the stats note. Cold multi-year cost windows can still take longer because local Claude/Codex/Gemini history files must be scanned; repeated windows are served from a short local cache.
+When `MULTILLM_API_KEY` is enabled, open the dashboard once with `http://localhost:8080/dashboard?api_key=YOUR_KEY`; the key is stored in browser localStorage and sent as `X-API-Key` for future dashboard API calls.
+
+From Claude Code, run:
+
+```text
+/llm-status
+```
+
+For a production-readiness check from any shell, run:
+
+```bash
+multillm-doctor --strict
+```
 
 ## Backends
 
@@ -207,7 +230,26 @@ For MCP-compatible clients (Cline, Codex CLI), add to `~/.claude/.mcp.json`:
 }
 ```
 
-Exposes 20 tools: `llm_ask_model`, `llm_council`, `llm_memory_store`, `llm_memory_search`, `llm_usage`, etc.
+Exposes 20 tools: `llm_ask_model`, `llm_council`, `llm_memory_store`, `llm_memory_search`, `llm_usage`, etc. `llm_usage` accepts windows up to `43800` hours so Codex and other MCP clients can request 1-year, 2-year, and 5-year usage summaries.
+
+The repository also ships `.codex/config.toml` so Codex CLI can discover the same MultiLLM MCP server when started from this project. That gives Codex access to `llm_status`, `llm_usage`, `llm_ask_model`, `llm_council`, and the shared memory tools.
+
+## Codex Plugin Compatibility
+
+For Claude Code users who want Codex as a reviewer or delegated worker, install OpenAI's Codex plugin:
+
+```bash
+/plugin marketplace add openai/codex-plugin-cc
+/plugin install codex@openai-codex
+/reload-plugins
+/codex:setup
+```
+
+MultiLLM complements that plugin rather than replacing it:
+
+- `codex-plugin-cc` gives Claude Code `/codex:*` commands for Codex review, rescue, status, result, and cancel flows.
+- MultiLLM gives Claude Code and Codex shared visibility across Claude Code, Codex CLI, Gemini CLI, gateway-routed models, memory, routes, costs, and backend health.
+- The `codex/...` routes still let MultiLLM invoke Codex CLI as one backend in councils or model comparisons.
 
 ## Multi-Device Setup
 

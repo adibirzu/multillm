@@ -11,6 +11,7 @@ Tools:
 
   Usage Tracking:
     - llm_usage             Token usage dashboard
+    - llm_status            Gateway health, auth, direct-client visibility
 
   Shared Memory:
     - llm_memory_store      Store shared memory
@@ -131,7 +132,7 @@ class ContextShareInput(BaseModel):
 class UsageInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     project: Optional[str] = Field(default=None, description="Filter by project")
-    hours: int = Field(default=24, ge=1, le=720, description="Lookback window in hours")
+    hours: int = Field(default=24, ge=1, le=43800, description="Lookback window in hours, up to 5 years")
 
 
 class SettingsInput(BaseModel):
@@ -252,6 +253,46 @@ async def llm_list_models() -> str:
         return "\n".join(lines)
     except Exception as e:
         return f"Could not fetch routes: {e}"
+
+
+@mcp.tool(name="llm_status", annotations={"title": "Show MultiLLM gateway status", "readOnlyHint": True, "idempotentHint": True})
+async def llm_status() -> str:
+    """Show gateway runtime status, auth mode, backend health, and direct-client visibility."""
+    try:
+        client = _get_gateway_client()
+        r = await client.get(f"{GATEWAY_URL}/api/status")
+        r.raise_for_status()
+        data = r.json()
+        gateway = data.get("gateway", {})
+        runtime = data.get("runtime", {})
+        health = data.get("health", {})
+        clients = data.get("direct_clients", {})
+        tools = data.get("tools", {})
+        lines = [
+            "# MultiLLM Status",
+            "",
+            f"- Version: {data.get('version', '?')}",
+            f"- Project: {data.get('project', '?')}",
+            f"- Gateway: {gateway.get('host', '?')}:{gateway.get('port', '?')}",
+            f"- Dashboard: {gateway.get('dashboard_url', GATEWAY_URL + '/dashboard')}",
+            f"- Auth: {'enabled' if gateway.get('auth_enabled') else 'disabled'}",
+            f"- Routes/adapters: {runtime.get('routes', 0)} routes, {runtime.get('adapters', 0)} adapters",
+            f"- Backend health: {health.get('healthy_backends', 0)}/{health.get('total_backends', 0)} healthy",
+            f"- Codex CLI installed: {'yes' if tools.get('codex_cli') else 'no'}",
+            f"- Gemini CLI installed: {'yes' if tools.get('gemini_cli') else 'no'}",
+            "",
+            "## Direct Clients",
+        ]
+        for name, info in clients.items():
+            state = "available" if info.get("available") else f"unavailable ({info.get('error') or 'no data'})"
+            lines.append(f"- {name}: {state}")
+        if gateway.get("unsafe_open_mode"):
+            lines.extend(["", "WARNING: Gateway is unauthenticated and bound to a non-localhost interface."])
+        return "\n".join(lines)
+    except httpx.ConnectError:
+        return f"Cannot reach gateway at {GATEWAY_URL}. Is it running?"
+    except Exception as e:
+        return f"Status check failed: {e}"
 
 
 @mcp.tool(name="llm_discover_models", annotations={"title": "Discover models from backends", "readOnlyHint": True})

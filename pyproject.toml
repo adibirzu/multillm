@@ -8,6 +8,7 @@ version = "0.6.2"
 description = "Multi-LLM gateway, orchestrator, and tracker for Claude Code"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
@@ -40,9 +41,13 @@ test = [
 multillm-gateway = "multillm.gateway:main"
 multillm-mcp = "multillm.mcp_server:main"
 multillm-oca-login = "multillm.oca_login:main"
+multillm-doctor = "multillm.doctor:main"
 
 [tool.setuptools.packages.find]
 include = ["multillm*"]
+
+[tool.setuptools.package-data]
+multillm = ["static/*.html"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from .base import BaseAdapter
+from ..cli_tools import resolve_cli_binary
 from ..converters import extract_text_from_anthropic, make_anthropic_response
 
 CODEX_CONFIG_FILE = Path.home() / ".codex" / "config.toml"
@@ -95,8 +96,12 @@ def _resolve_codex_exec_target(selector: str) -> tuple[list[str], str]:
 
 
 async def _run_codex_exec(prompt: str, sandbox: str, exec_target: list[str]) -> tuple[int, str, str]:
+    codex_bin = resolve_cli_binary("codex", env_var="CODEX_CLI_PATH")
+    if not codex_bin:
+        raise FileNotFoundError("codex")
+
     proc = await asyncio.create_subprocess_exec(
-        "codex", "exec", "--full-auto", "-s", sandbox, *exec_target, "-",
+        codex_bin, "exec", "--full-auto", "-s", sandbox, *exec_target, "-",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
