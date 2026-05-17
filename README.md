@@ -1,350 +1,178 @@
 # MultiLLM Gateway
 
-> Route Claude Code to **16 LLM backends** through a single local gateway.
-> Token tracking, hourly usage dashboard, shared memory, slash commands — all running on your machine.
+> Open-source multi-tenant LLM gateway. Route one API to 16+ backends, ship `docker compose up`, own your data.
+
+[![CI](https://github.com/${OWNER}/multillm/actions/workflows/ci.yml/badge.svg)](https://github.com/${OWNER}/multillm/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/multillm.svg)](https://pypi.org/project/multillm/)
+[![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
+[![Image size](https://img.shields.io/docker/image-size/${OWNER}/multillm/latest)](https://github.com/${OWNER}/multillm/pkgs/container/multillm)
+
+## Why MultiLLM
+
+- **Self-hostable in one command.** `docker compose up` brings up the whole gateway. No vendor account, no per-seat pricing, no telemetry that leaves your network.
+- **Multi-tenant from day one.** API key issuance, per-tenant budgets, and quota tracking are built in (Phase 2b lands the full auth surface; the wizard provisions the first admin today).
+- **Built for multi-LLM workflows.** Cross-LLM shared memory (FTS5), council mode for parallel queries, side-by-side compare, LLM-as-judge for ranking answers — first-class capabilities, not bolt-ons.
+
+## Quickstart (5 minutes)
+
+The shortest path from `git clone` to a working `/v1/messages` request, using a local Ollama backend.
+
+**Prerequisites:** Docker (with `docker compose`) and Ollama already running locally (`ollama serve` and `ollama pull llama3.2`).
+
+1. **Clone**
+
+   ```bash
+   git clone https://github.com/${OWNER}/multillm.git
+   cd multillm
+   ```
+
+2. **Configure**
+
+   ```bash
+   cp .env.example .env
+   ```
+
+3. **Start the gateway**
+
+   ```bash
+   docker compose up -d
+   ```
+
+4. **Open the setup wizard**
+
+   ```bash
+   open http://localhost:8080/setup
+   ```
+
+5. **Walk through the wizard.** Create the admin account. On the backends pane, paste `http://host.docker.internal:11434` as `OLLAMA_URL` and skip the other backends. Finish.
+
+6. **Send your first request**
+
+   ```bash
+   curl -X POST http://localhost:8080/v1/messages \
+     -H 'Content-Type: application/json' \
+     -d '{"model":"ollama/llama3.2","messages":[{"role":"user","content":"Say hi"}]}'
+   ```
+
+   You should get back an Anthropic-format response containing the model's reply.
+
+> If you don't have Ollama installed, follow the same flow with any cloud backend by pasting its API key in the `/setup` wizard's backends pane.
+
+## Architecture
 
 ```
-Claude Code ──→ MultiLLM Gateway :8080 ──→ Ollama, OpenAI, Gemini, Groq, DeepSeek,
-                                           Mistral, OpenRouter, Together, xAI,
-                                           Fireworks, Anthropic, Azure, Bedrock,
-                                           LM Studio, Codex CLI, OCA
+Claude Code / OpenAI SDK / curl
+            │
+            ▼
+   ┌────────────────────┐
+   │  MultiLLM :8080    │  FastAPI + httpx (HTTP/2 pooling)
+   │  ─ routing         │
+   │  ─ streaming (SSE) │
+   │  ─ tracking        │
+   │  ─ resilience      │
+   │  ─ shared memory   │
+   └────────┬───────────┘
+            │
+   ┌────────┴───────────┐
+   │  16 backends       │
+   │  Ollama / LM Studio│
+   │  OpenAI / Anthropic│
+   │  Gemini / Groq …   │
+   └────────────────────┘
 ```
 
-## Install (one command)
-
-```bash
-curl -sSL https://raw.githubusercontent.com/adibirzu/multillm/main/install.sh | bash
-```
-
-Or manually:
-
-```bash
-git clone https://github.com/adibirzu/multillm.git
-cd multillm
-pip install -e .
-./install.sh   # registers Claude Code hooks
-```
-
-## Start
-
-```bash
-python -m multillm.gateway
-```
-
-The gateway binds to `127.0.0.1:8080` by default and auto-starts when Claude Code launches via session hooks. No need to run it manually after install.
-
-Use `GATEWAY_HOST=0.0.0.0` only when you also set `MULTILLM_API_KEY`.
-When `MULTILLM_API_KEY` is set, `/api/*`, `/v1/*`, memory, settings, and route mutation endpoints require `X-API-Key` or `Authorization: Bearer`.
-If you deliberately want dashboard JSON APIs public behind another trusted layer, set `MULTILLM_PUBLIC_DASHBOARD_API=true`.
-
-Launcher scripts are also installed into `~/.local/bin` when possible:
-
-```bash
-claude-multillm
-codex-multillm
-```
-
-These wrappers start the client with MultiLLM-oriented defaults so usage is more likely to be captured OOTB.
-
-## Connect Claude Code
-
-```bash
-export ANTHROPIC_BASE_URL=http://localhost:8080
-claude
-```
-
-That's it. Claude Code now routes through MultiLLM. Use any model:
-
-```
-> /llm-ask ollama/llama3 explain this function
-> /llm-ask gemini/flash summarize this file
-> /llm-ask openai/gpt-4o review this PR
-```
-
-## Slash Commands
-
-| Command | What it does |
-|---------|-------------|
-| `/llm-ask <model> <prompt>` | Send a prompt to any backend |
-| `/llm-council <prompt>` | Query 3+ models in parallel, get synthesis |
-| `/llm-review` | Second opinion from another LLM |
-| `/llm-status` | Gateway health, auth mode, CLI readiness, direct-client visibility |
-| `/llm-usage` | Token usage, costs, sessions |
-| `/llm-discover` | Find available models across all backends |
-| `/llm-doctor` | Production-readiness checks for gateway, auth, tools, and configured backends |
-| `/llm-memory <query>` | Search/store cross-LLM shared memory |
-| `/llm-settings` | View/update gateway config |
-| `/llm-dashboard` | Open the real-time web dashboard |
-
-## OOTB Routing
-
-For usage to appear in the dashboard, the client must either:
-
-- send requests through the MultiLLM gateway, or
-- expose local stats files that MultiLLM can read directly
-
-Claude Code is covered both ways:
-
-- direct Claude stats are read from `~/.claude/`
-- gateway-routed Claude requests are tracked live
-
-Codex, OCA, GPT-5.4, and other models appear live when they are used through MultiLLM routes such as `codex/...`, `oca/...`, `openai/...`, or `openrouter/...`.
-
-If you want this behavior by default, use the installed launcher scripts or set your client base URL / MCP config to MultiLLM.
-
-## Add API Keys
-
-Only configure the backends you use. Ollama works with zero config.
-
-```bash
-# Edit ~/.local/share/multillm/.env (or wherever you cloned it)
-# Uncomment and fill in what you have:
-
-OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=...
-GROQ_API_KEY=gsk_...
-DEEPSEEK_API_KEY=sk-...
-OPENROUTER_API_KEY=sk-or-...
-# See .env.example for all 16 backends
-```
-
-## Dashboard
-
-Open `http://localhost:8080/dashboard` for real-time stats:
-
-- Provider status (online/offline) with live request counts
-- Token usage and costs by backend and model
-- Direct-client status for Claude Code, Codex CLI, and Gemini CLI
-- Plan/usage limit tracking for Claude, Gemini CLI, and Codex CLI external providers
-- Remaining tokens by direct-client model for the selected window
-- Hourly windows (`1h`, `6h`, `12h`, `24h`) plus long-range rollups through 1, 2, and 5 years
-- Derived metrics such as tokens/request, cost/request, requests/hour
-- Active and historical sessions
-- Claude Code stats integration
-- Project-scoped filtering across the whole panel, not just sessions
-
-The dashboard also shows runtime status from `/api/status`: gateway version, auth mode, bind host, healthy backend count, direct-client availability, and local Codex/Gemini CLI readiness.
-Long-range views use `/api/dashboard-bundle` so gateway stats, direct Claude Code stats, Codex CLI stats, Gemini CLI stats, and unified costs are calculated in one server pass instead of being recomputed by separate requests.
-Period changes cancel stale in-flight dashboard loads and show calculation timing, cache TTL, and direct-client session truncation in the stats note. Cold multi-year cost windows can still take longer because local Claude/Codex/Gemini history files must be scanned; repeated windows are served from a short local cache.
-When `MULTILLM_API_KEY` is enabled, open the dashboard once with `http://localhost:8080/dashboard?api_key=YOUR_KEY`; the key is stored in browser localStorage and sent as `X-API-Key` for future dashboard API calls.
-
-From Claude Code, run:
-
-```text
-/llm-status
-```
-
-For a production-readiness check from any shell, run:
-
-```bash
-multillm-doctor --strict
-```
+Data lives in `MULTILLM_HOME` (defaults to `~/.multillm/` or the compose-mounted `./.multillm/`): SQLite tracking, FTS5 shared memory, automatic pre-migration backups. For production deployment recipes (Docker Compose, systemd, Kubernetes) see [docs/operations/deployment.md](docs/operations/deployment.md).
 
 ## Backends
 
-### Local (free, no API key)
+| Backend       | Type       | Auth mode      | Streaming |
+| ------------- | ---------- | -------------- | --------- |
+| Ollama        | Local      | —              | ✓ (SSE)   |
+| LM Studio     | Local      | —              | ✓ (SSE)   |
+| Codex CLI     | Local      | Local CLI      | ✓         |
+| Gemini CLI    | Local      | Local CLI      | ✓         |
+| OpenAI        | Cloud      | API key        | ✓ (SSE)   |
+| Anthropic     | Cloud      | API key        | ✓ (SSE)   |
+| Gemini        | Cloud      | API key        | ✓ (SSE)   |
+| OpenRouter    | Cloud      | API key        | ✓ (SSE)   |
+| Groq          | Cloud      | API key        | ✓ (SSE)   |
+| DeepSeek      | Cloud      | API key        | ✓ (SSE)   |
+| Mistral       | Cloud      | API key        | ✓ (SSE)   |
+| Together      | Cloud      | API key        | ✓ (SSE)   |
+| xAI (Grok)    | Cloud      | API key        | ✓ (SSE)   |
+| Fireworks     | Cloud      | API key        | ✓ (SSE)   |
+| Azure OpenAI  | Cloud      | API key        | ✓ (SSE)   |
+| AWS Bedrock   | Cloud      | Cloud IAM      | ✓ (SSE)   |
+| OCA           | Enterprise | OAuth (PKCE)   | ✓ (SSE)   |
 
-| Backend | Setup |
-|---------|-------|
-| **Ollama** | `ollama serve` — Llama 3, Qwen, Mistral, CodeLlama, etc. |
-| **LM Studio** | Enable Local Server — any GGUF model |
-| **Codex CLI** | `npm i -g @openai/codex` |
+## Plugin / Slash Commands
 
-### Cloud (API key required)
+| Command                       | What it does                                       |
+| ----------------------------- | -------------------------------------------------- |
+| `/llm-ask <model> <prompt>`   | Send a prompt to any backend                       |
+| `/llm-council <prompt>`       | Query 3+ models in parallel, get synthesis        |
+| `/llm-review`                 | Get a second opinion from another LLM             |
+| `/llm-status`                 | Gateway health, auth, CLI readiness                |
+| `/llm-usage`                  | Token usage, costs, sessions                       |
+| `/llm-discover`               | Find available models across all backends          |
+| `/llm-doctor`                 | Production-readiness checks                        |
+| `/llm-memory <query>`         | Search/store cross-LLM shared memory               |
+| `/llm-settings`               | View/update gateway config                         |
+| `/llm-dashboard`              | Open the real-time web dashboard                   |
 
-| Backend | Env var | Models |
-|---------|---------|--------|
-| **OpenAI** | `OPENAI_API_KEY` | GPT-4o, o1, GPT-4o-mini |
-| **Anthropic** | `ANTHROPIC_REAL_KEY` | Claude Sonnet, Haiku |
-| **Gemini** | `GEMINI_API_KEY` | Flash, Pro |
-| **OpenRouter** | `OPENROUTER_API_KEY` | 200+ models |
-| **Groq** | `GROQ_API_KEY` | Llama 3.3, Mixtral (free tier) |
-| **DeepSeek** | `DEEPSEEK_API_KEY` | Chat, Reasoner |
-| **Mistral** | `MISTRAL_API_KEY` | Large, Small, Codestral |
-| **Together** | `TOGETHER_API_KEY` | Llama 3.3, Qwen 2.5 |
-| **xAI** | `XAI_API_KEY` | Grok 3 |
-| **Fireworks** | `FIREWORKS_API_KEY` | Llama 3.3, Qwen 2.5 |
-| **Azure OpenAI** | `AZURE_OPENAI_API_KEY` | GPT-4o (enterprise) |
-| **AWS Bedrock** | AWS credentials | Claude, Llama (enterprise) |
-| **OCA** | OAuth (auto) | GPT-5.x, Grok, Llama 4 |
+See `commands/*.md` for the full plugin command reference.
 
-### OCA Auth
+## Configuration
 
-MultiLLM uses the shared OCA token cache at `~/.oca/token.json`.
+The full inventory of environment variables — every `os.getenv()` lookup in the codebase — lives in [`.env.example`](.env.example). CI verifies this stays in sync. Copy it to `.env`, edit, restart.
 
-Set these before starting the gateway:
+The wizard at `/setup` covers the common path (admin user, backend keys, observability). For everything else, the .env file is the source of truth.
 
-```bash
-export OCA_ENDPOINT=https://...
-export OCA_IDCS_URL=https://...
-export OCA_CLIENT_ID=...
-```
+## Operations
 
-If you already have the `oci-coordinator` variables, MultiLLM now accepts those aliases too:
+- [Deployment recipes](docs/operations/deployment.md) — Docker Compose, systemd, Kubernetes
+- [Backup & restore](docs/operations/backup-restore.md) — SQLite snapshots and recovery
+- [Upgrades](docs/operations/upgrade.md) — version migration procedure
+- [Troubleshooting](docs/operations/troubleshooting.md) — common failures and fixes
+- [Release runbook](docs/operations/release.md) — for maintainers
 
-```bash
-export OCA_IDCS_OAUTH_URL=https://...
-export OCA_IDCS_CLIENT_ID=...
-```
+## Dashboard
 
-Then authenticate once:
-
-```bash
-multillm-oca-login
-```
-
-That writes `~/.oca/token.json`, which both the gateway and other OCA-aware tools can reuse.
-
-## Model Aliases
-
-```bash
-ollama/llama3          ollama/qwen3-30b       ollama/mistral
-openai/gpt-4o          openai/o1              openai/gpt-4o-mini
-gemini/flash           gemini/pro
-groq/llama-3.3-70b     deepseek/chat          deepseek/reasoner
-oca/gpt5               codex/cli              openrouter/claude-sonnet
-```
-
-Add custom aliases in `$MULTILLM_HOME/routes.json` or `~/.multillm/routes.json`:
-
-```json
-{
-  "fast": { "backend": "groq", "model": "llama-3.3-70b-versatile" },
-  "cheap": { "backend": "deepseek", "model": "deepseek-chat" }
-}
-```
-
-## MCP Server (optional)
-
-For MCP-compatible clients (Cline, Codex CLI), add to `~/.claude/.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "multillm": {
-      "command": "python",
-      "args": ["-m", "multillm.mcp_server"],
-      "env": { "LLM_GATEWAY_URL": "http://localhost:8080" }
-    }
-  }
-}
-```
-
-Exposes 20 tools: `llm_ask_model`, `llm_council`, `llm_memory_store`, `llm_memory_search`, `llm_usage`, etc. `llm_usage` accepts windows up to `43800` hours so Codex and other MCP clients can request 1-year, 2-year, and 5-year usage summaries.
-
-The repository also ships `.codex/config.toml` so Codex CLI can discover the same MultiLLM MCP server when started from this project. That gives Codex access to `llm_status`, `llm_usage`, `llm_ask_model`, `llm_council`, and the shared memory tools.
-
-## Codex Plugin Compatibility
-
-For Claude Code users who want Codex as a reviewer or delegated worker, install OpenAI's Codex plugin:
-
-```bash
-/plugin marketplace add openai/codex-plugin-cc
-/plugin install codex@openai-codex
-/reload-plugins
-/codex:setup
-```
-
-MultiLLM complements that plugin rather than replacing it:
-
-- `codex-plugin-cc` gives Claude Code `/codex:*` commands for Codex review, rescue, status, result, and cancel flows.
-- MultiLLM gives Claude Code and Codex shared visibility across Claude Code, Codex CLI, Gemini CLI, gateway-routed models, memory, routes, costs, and backend health.
-- The `codex/...` routes still let MultiLLM invoke Codex CLI as one backend in councils or model comparisons.
-
-## Multi-Device Setup
-
-To consolidate usage, memory, routes, PID files, and logs across devices, point every machine at the same synced directory before starting the gateway:
-
-```bash
-export MULTILLM_HOME="$HOME/Library/Mobile Documents/com~apple~CloudDocs/.multillm"
-```
-
-You can also use `MULTILLM_DATA_DIR`, but `MULTILLM_HOME` is now the preferred top-level variable.
-
-## Features
-
-| Feature | Details |
-|---------|---------|
-| **SSE Streaming** | Full streaming with tool_use passthrough to all backends |
-| **Auto-Discovery** | Finds models from all configured backends on startup |
-| **Fallback Chain** | Cloud fails → auto-fallback to local Ollama models |
-| **Shared Memory** | Cross-LLM memory with FTS5 full-text search |
-| **Work Orchestration** | Built-in council, second-opinion, and context-sharing agents |
-| **Circuit Breaker** | 5 failures → open, 60s recovery → half-open probe |
-| **Usage Tracking** | Per-project token/cost tracking in SQLite |
-| **HTTP/2 Pooling** | Persistent connection pools per backend |
-| **API Key Auth** | Optional `MULTILLM_API_KEY` for all proxy endpoints |
-| **OpenTelemetry** | Optional distributed tracing (OCI APM supported) |
-| **Semantic Cache** | Optional Redis-based cache for repeated queries |
+Open `http://localhost:8080/dashboard` once setup is complete. Real-time usage, per-backend latency and error rates, cost rollups, active sessions, and a side-by-side compare for evaluating answers across multiple backends.
 
 ## API
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/v1/messages` | Anthropic Messages API proxy |
-| GET | `/health` | Health check |
-| GET | `/dashboard` | Web dashboard |
-| GET | `/api/dashboard` | Stats JSON |
-| GET | `/api/sessions` | Session list |
-| GET | `/api/backends` | Backend discovery |
-| GET/POST | `/api/memory` | Shared memory |
-| GET | `/api/memory/search?q=...` | FTS5 memory search |
-| GET/PUT | `/settings` | Gateway settings |
-
-Usage limit defaults for the dashboard live in `/settings` under `usage_limits`:
-
-```json
-{
-  "usage_limits": {
-    "claude_opus": 35000000,
-    "claude_sonnet": 70000000,
-    "claude_haiku": 140000000,
-    "gemini_cli": 14000000,
-    "codex_cli_external": 70000000
-  }
-}
-```
-
-This lets you tune the dashboard percentages to match your actual plan or team policy without editing code.
+| Method     | Endpoint                    | Description                              |
+| ---------- | --------------------------- | ---------------------------------------- |
+| POST       | `/v1/messages`              | Anthropic Messages API proxy             |
+| GET        | `/health`                   | Liveness check                           |
+| GET        | `/api/health`               | Per-backend health + breaker state       |
+| GET        | `/api/dashboard`            | Stats JSON                               |
+| GET        | `/api/sessions`             | Session list                             |
+| GET        | `/api/backends`             | Backend discovery                        |
+| GET / POST | `/api/memory`               | Shared memory (cross-LLM RAG)            |
+| GET        | `/api/memory/search?q=...`  | FTS5 memory search                       |
+| GET / PUT  | `/settings`                 | Gateway settings                         |
 
 ## Testing
 
 ```bash
 pip install -e ".[test]"
 pytest tests/ -q
-# 209 tests
 ```
 
-## Uninstall
+Coverage gate is 80% (enforced in CI).
 
-```bash
-# Remove hooks from ~/.claude/hooks.json (delete the MultiLLM SessionStart entry)
-pip uninstall multillm
-rm -rf ~/.multillm                    # usage data
-rm -rf ~/.local/share/multillm        # source (if installed via curl)
-```
+## Contributing
 
-## Architecture
+Pull requests welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, code-style expectations, and the pre-commit hooks you'll want installed locally. Security-sensitive reports go through [SECURITY.md](SECURITY.md), not the public issue tracker.
 
-```
-multillm/
-├── gateway.py      # FastAPI proxy — routing, streaming, fallback
-├── adapters/       # 16 backend adapters (Ollama, OpenAI, Gemini, etc.)
-├── config.py       # Env-based config, route loading
-├── converters.py   # Anthropic ↔ OpenAI format conversion
-├── streaming.py    # SSE streaming for all backends
-├── tracking.py     # SQLite token/cost tracking + OpenTelemetry
-├── memory.py       # SQLite + FTS5 shared memory
-├── discovery.py    # Auto-discover models from backends
-├── mcp_server.py   # FastMCP server (20 tools)
-├── health.py       # Background health probes + circuit breakers
-├── resilience.py   # Retry with exponential backoff
-└── static/
-    └── dashboard.html
-```
+This project is Apache 2.0 licensed — the patent grant is intentional and protects contributors and downstream users.
 
-Data is stored in `MULTILLM_HOME` if set, otherwise `~/.multillm/` (SQLite DBs, PID file, logs).
+## Status & roadmap
+
+Phase 1 (open-source readiness) is in progress. Phases 2–10 cover multi-tenant auth, dashboard polish, observability v2, semantic caching, eval harness, docs site, and the plugin SDK. The public roadmap lives on the GitHub Projects board.
 
 ## License
 
-MIT
+Apache 2.0 — see [LICENSE](LICENSE).
