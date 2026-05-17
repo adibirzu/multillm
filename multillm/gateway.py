@@ -75,6 +75,9 @@ from .adapters import list_adapters
 from .adapters.codex_cli import CodexCLIAdapter
 from .adapters.gemini_cli import GeminiCLIAdapter
 from .adapters.setup import register_all_adapters
+from .setup.middleware import SetupRedirectMiddleware
+from .setup.routes import mount_static as mount_setup_static
+from .setup.routes import router as setup_router
 from .tracking import (
     record_usage, get_usage_summary, get_project_summary,
     get_sessions, get_session_detail, get_dashboard_stats, get_active_sessions,
@@ -212,6 +215,12 @@ app.add_middleware(
 )
 app.add_middleware(AuthMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+# SetupRedirectMiddleware is added LAST so it wraps the outermost layer
+# of the Starlette middleware stack (last-added = first-evaluated). This
+# ensures the wizard is reachable before AuthMiddleware can demand a key.
+app.add_middleware(SetupRedirectMiddleware)
+app.include_router(setup_router, prefix="/setup")
+mount_setup_static(app)
 
 
 # ── Backend adapters (non-streaming) ─────────────────────────────────────────

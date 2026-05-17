@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>MultiLLM — First-run setup</title>
+  <link rel="stylesheet" href="/setup/static/wizard.css" />
+</head>
+<body data-state="{{ current_state }}">
+  <header class="hero">
+    <h1>MultiLLM Gateway</h1>
+    <p class="lede">First-run setup — four panes, then you're live.</p>
+    <ol class="stepper" aria-label="Setup progress">
+      <li data-step="1">Admin</li>
+      <li data-step="2">Backends</li>
+      <li data-step="3">Local probe</li>
+      <li data-step="4">Observability</li>
+    </ol>
+  </header>
+
+  <main>
+    <section data-pane="1" class="pane pane--active" aria-labelledby="pane-1-h">
+      <h2 id="pane-1-h">Create admin account</h2>
+      <p>You're the first operator. This account gates the dashboard and the gateway's auth surface in later phases.</p>
+      <form id="form-admin" autocomplete="off">
+        <label>
+          Email
+          <input type="email" name="email" required autocomplete="off" />
+        </label>
+        <label>
+          Password
+          <input type="password" name="password" minlength="{{ min_password_len }}" required autocomplete="new-password" />
+          <small>At least {{ min_password_len }} characters.</small>
+        </label>
+        <button type="submit">Create admin →</button>
+        <p class="status" data-status="admin"></p>
+      </form>
+    </section>
+
+    <section data-pane="2" class="pane" aria-labelledby="pane-2-h">
+      <h2 id="pane-2-h">Backend API keys</h2>
+      <p>Every field is optional. You can paste a key now or add it later from the dashboard.</p>
+      <form id="form-backends" autocomplete="off">
+        <label>OpenAI <input type="password" name="openai" autocomplete="off" /></label>
+        <label>Anthropic <input type="password" name="anthropic" autocomplete="off" /></label>
+        <label>Google Gemini <input type="password" name="gemini" autocomplete="off" /></label>
+        <label>OpenRouter <input type="password" name="openrouter" autocomplete="off" /></label>
+        <label>Groq <input type="password" name="groq" autocomplete="off" /></label>
+        <label>DeepSeek <input type="password" name="deepseek" autocomplete="off" /></label>
+        <button type="submit">Save backends →</button>
+        <p class="status" data-status="backends"></p>
+      </form>
+    </section>
+
+    <section data-pane="3" class="pane" aria-labelledby="pane-3-h">
+      <h2 id="pane-3-h">Local backend probe</h2>
+      <p>We check for Ollama, LM Studio, Codex CLI, and Gemini CLI on this host.</p>
+      <div id="probe-results" class="probe-grid" aria-live="polite">Probing...</div>
+      <button type="button" id="probe-rerun">Re-run probe</button>
+      <button type="button" id="probe-continue">Continue →</button>
+      <p class="status" data-status="local_probe"></p>
+    </section>
+
+    <section data-pane="4" class="pane" aria-labelledby="pane-4-h">
+      <h2 id="pane-4-h">Observability</h2>
+      <p>Opt in to Prometheus metrics and OpenTelemetry traces. Both default to off.</p>
+      <form id="form-observability" autocomplete="off">
+        <label><input type="checkbox" name="prometheus_enabled" /> Enable Prometheus metrics at <code>/metrics</code></label>
+        <label>OTel collector endpoint <input type="url" name="otel_endpoint" placeholder="http://otel-collector:4318" /></label>
+        <button type="submit">Finish setup →</button>
+        <p class="status" data-status="observability"></p>
+      </form>
+    </section>
+
+    <section data-pane="5" class="pane" aria-labelledby="pane-5-h">
+      <h2 id="pane-5-h">All set</h2>
+      <p>Setup complete. Head to the dashboard.</p>
+      <a class="cta" href="/dashboard">Open dashboard →</a>
+    </section>
+  </main>
+
+  <footer>
+    <p><small>To re-run setup later: <code>multillm reset --confirm</code></small></p>
+  </footer>
+
+  <script src="/setup/static/wizard.js" defer></script>
+</body>
+</html>

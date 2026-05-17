@@ -53,10 +53,11 @@ def migrated_db(isolated_home: Path) -> Path:
 
 def _build_app() -> FastAPI:
     from multillm.setup.middleware import SetupRedirectMiddleware
-    from multillm.setup.routes import router as setup_router
+    from multillm.setup.routes import mount_static, router as setup_router
 
     app = FastAPI()
     app.include_router(setup_router, prefix="/setup")
+    mount_static(app)
 
     @app.get("/")
     def root():
