@@ -1,0 +1,136 @@
+# MultiLLM Gateway — main CI workflow.
+#
+# All third-party actions in the `scan` job are pinned by full commit SHA
+# per OSS-13. Bump via the documented procedure in CONTRIBUTING.md.
+#
+# Placeholder pins (PIN_*_SHA) are resolved by Plan 9 Task 1 in a single
+# pass before public push. CI will fail to load the workflow if these are
+# left unresolved at merge time — by design.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Single baseline of permissions: read-only for repo content, plus
+# security-events for any future CodeQL fan-in. CodeQL is a separate
+# workflow; the permission here is harmless and simplifies review.
+permissions:
+  contents: read
+  pull-requests: read
+  security-events: write
+
+# Cancel superseded runs on the same ref (D-18 cost discipline).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------
+  # pytest — Python matrix 3.11 + 3.12 (D-18). Coverage gate at 80%.
+  # ---------------------------------------------------------------------
+  pytest:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package + test extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Run pytest with coverage
+        run: |
+          pytest \
+            --cov=multillm \
+            --cov-fail-under=80 \
+            --cov-report=xml \
+            --cov-report=term \
+            -v
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------
+  # lint — ruff format-check + ruff check (block) + mypy (warn-only, D-17).
+  # ---------------------------------------------------------------------
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package + dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: ruff format --check
+        run: ruff format --check multillm tests
+
+      - name: ruff check
+        run: ruff check multillm tests
+
+      # mypy is warn-only in Phase 1 (D-17). Re-tightened to block-on-fail
+      # at P1 closeout.
+      - name: mypy (warn-only per D-17)
+        continue-on-error: true
+        run: mypy multillm --ignore-missing-imports
+
+  # ---------------------------------------------------------------------
+  # scan — gitleaks (full history) + trufflehog (verified-only).
+  # Third-party actions in this job are pinned by 40-char SHA per OSS-13.
+  # ---------------------------------------------------------------------
+  scan:
+    name: scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for gitleaks)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # gitleaks-action v2.3.9 — pinned per OSS-13.
+      # action v2.3.9
+      # pinned per OSS-13
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@PIN_GITLEAKS_SHA
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+      # trufflesecurity/trufflehog v3.85.x — pinned per OSS-13.
+      # action v3.85.0
+      # pinned per OSS-13
+      - name: trufflehog (verified secrets only)
+        uses: trufflesecurity/trufflehog@PIN_TRUFFLEHOG_SHA
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --results=verified --only-verified
