@@ -1,0 +1,74 @@
+# Match .gitignore intent plus build-context hygiene. The Docker build context
+# must NEVER include secrets (.env), planning artefacts, dev caches, local DBs,
+# or local virtualenvs.
+
+# Version control + GitHub plumbing
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# Planning artefacts (private)
+.planning/
+
+# Tests + local dev tooling
+tests/
+docs/
+.pre-commit-config.yaml
+.gitleaks.toml
+.coveragerc
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.tox/
+
+# Virtual envs / Python caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Build artefacts
+dist/
+build/
+
+# Local databases / runtime data
+*.db
+*.db-journal
+*.log
+htmlcov/
+.coverage
+coverage.xml
+.multillm/
+.orphaned_at
+
+# IDE / OS junk
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Secrets — explicitly excluded. The allow-line for .env.example is at the
+# bottom so it survives the `.env*` glob above it.
+.env
+.env.*
+*.pem
+*.key
+*.wallet
+.oca/
+.aws/
+.azure/
+.claude/
+.codex/
+.serena/
+secrets/
+credentials/
+
+# Allow the example through so operators can copy it inside the image if
+# desired. The Dockerfile does not currently embed it but this keeps the option
+# open without exposing real secrets.
+!.env.example
