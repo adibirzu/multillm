@@ -1,0 +1,174 @@
+# MultiLLM Gateway — Container build + signing (GHCR + cosign keyless).
+#
+# Cosign signatures are uploaded to the Sigstore Rekor transparency log.
+# Any user can verify a pulled image came from THIS workflow on THIS repo:
+#
+#   cosign verify \
+#     ghcr.io/<OWNER>/multillm:<TAG> \
+#     --certificate-identity-regexp 'https://github.com/<OWNER>/multillm/\.github/workflows/build-image\.yml@.+' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+#
+# See docs/operations/release.md for the full verification procedure.
+#
+# Trust contract (D-09 / OSS-24):
+#   - No long-lived signing-key material or key-password secret anywhere
+#     (the historical static-key cosign workflow is entirely replaced).
+#   - Cosign signs keyless: the runner's GitHub OIDC token mints a
+#     short-lived Fulcio certificate; signature + cert + Rekor log entry
+#     are pushed to the registry alongside the image.
+#   - GITHUB_TOKEN (used for GHCR login) is scoped to this workflow run
+#     and expires when the run finishes — not a long-lived credential.
+#
+# All third-party actions are pinned by full 40-char commit SHA per OSS-13.
+# Placeholder pins (PIN_*_SHA) are resolved by Plan 9 Task 1.
+
+name: build-image
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag_ref:
+        description: 'Tag to build (dry-run; image is built but signing requires a real tag push).'
+        required: false
+        default: ''
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-sign:
+    name: build-and-sign
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # packages: write — GHCR push for ${{ github.repository_owner }} namespace.
+      packages: write
+      # id-token: write — cosign keyless signing via Sigstore Fulcio OIDC.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # docker/setup-qemu-action v3.x — pinned per OSS-13.
+      # action v3.2.0
+      # pinned per OSS-13
+      #
+      # Enables linux/arm64 cross-build under emulation. Cheap to keep on
+      # for tag releases; CI fast-path can drop this if pull-time builds
+      # ever land here.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@PIN_QEMU_SHA
+
+      # docker/setup-buildx-action v3.x — pinned per OSS-13.
+      # action v3.7.1
+      # pinned per OSS-13
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@PIN_BUILDX_SHA
+
+      # docker/login-action v3.x — pinned per OSS-13.
+      # action v3.3.0
+      # pinned per OSS-13
+      #
+      # GITHUB_TOKEN has packages:write from the job-level permissions
+      # block above; no PAT required.
+      - name: Log in to GHCR
+        uses: docker/login-action@PIN_LOGIN_SHA
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # docker/metadata-action v5.x — pinned per OSS-13.
+      # action v5.5.1
+      # pinned per OSS-13
+      #
+      # Tag scheme per D-09:
+      #   :v1.0.0-rc.1   ← always (full tag ref)
+      #   :1             ← major version, both rc and stable
+      #   :rc            ← only on -rc.* tags (rc "rolling" pointer)
+      #   :latest        ← only on stable (NOT on -rc.* — D-09 says latest
+      #                    tracks rc until v1.0.0 stable; that flip is a
+      #                    one-line edit on the stable-release commit)
+      - name: Extract image metadata (tags, labels)
+        id: metadata
+        uses: docker/metadata-action@PIN_METADATA_SHA
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{major}}
+            type=raw,value=rc,enable=${{ contains(github.ref, '-rc.') }}
+            type=raw,value=latest,enable=${{ !contains(github.ref, '-rc.') }}
+          labels: |
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=multillm
+            org.opencontainers.image.description=Open-source multi-tenant LLM gateway
+
+      # docker/build-push-action v6.x — pinned per OSS-13.
+      # action v6.10.0
+      # pinned per OSS-13
+      #
+      # provenance: true emits SLSA build provenance; sbom: true attaches
+      # an SPDX SBOM. Both ride along on the image manifest.
+      - name: Build + push (multi-arch)
+        id: buildpush
+        uses: docker/build-push-action@PIN_BUILDPUSH_SHA
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: true
+          sbom: true
+
+      # sigstore/cosign-installer v3.x — pinned per OSS-13.
+      # action v3.7.0 (cosign v2.4.x)
+      # pinned per OSS-13
+      - name: Install cosign
+        uses: sigstore/cosign-installer@PIN_COSIGN_SHA
+
+      # Sign by digest (immutable) rather than tag (mutable).
+      # --yes accepts the keyless flow without an interactive prompt.
+      # COSIGN_EXPERIMENTAL is not needed on cosign v2+ — keyless is GA.
+      - name: Sign image with cosign (keyless via OIDC)
+        env:
+          DIGEST: ${{ steps.buildpush.outputs.digest }}
+          TAGS: ${{ steps.metadata.outputs.tags }}
+        run: |
+          set -euo pipefail
+          # Sign each tag against the SAME immutable digest. cosign attaches
+          # the signature in the registry next to the image; pulling any of
+          # the tags resolves to the same signed manifest.
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "Signing ${tag%:*}@${DIGEST}"
+            cosign sign --yes "${tag%:*}@${DIGEST}"
+          done <<< "${TAGS}"
+
+      # Self-verification — proves the signature was issued for THIS
+      # workflow file on THIS repo, not a typo-squatted namespace.
+      # Anyone can replicate this check at pull time.
+      - name: Verify cosign signature (workflow identity)
+        env:
+          DIGEST: ${{ steps.buildpush.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign verify \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}" \
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}/\.github/workflows/build-image\.yml@.+" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
