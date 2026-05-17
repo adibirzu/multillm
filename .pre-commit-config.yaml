@@ -1,0 +1,63 @@
+# Pre-commit configuration for MultiLLM Gateway.
+#
+# Hook ordering (per Phase 1 plan, RESEARCH PITFALLS §High):
+#   1. gitleaks                  — security, fail-fast, BLOCK-ON-FAIL (D-17)
+#   2. trailing-whitespace, EOF  — style, fast, block-on-fail (cheap to fix)
+#   3. ruff-format, ruff         — warn-only in Phase 1 (D-17), tightened at P1 closeout
+#   4. mypy                      — warn-only in Phase 1 (D-17), tightened at P1 closeout
+#
+# Install both `pre-commit` and `pre-push` stages so `git commit --no-verify`
+# is still caught at push time (T-01-02-02 mitigation).
+#
+# After cloning: `pip install -e ".[dev]" && pre-commit install`
+
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  # 1. Secret scanning — block-on-fail per D-17 (no exceptions).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+        name: gitleaks (block-on-fail per D-17)
+        stages: [pre-commit, pre-push]
+        args: ["--config=.gitleaks.toml"]
+
+  # 2. Generic hygiene — fast, block-on-fail (trivial to fix locally).
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+
+  # 3. Ruff (format + lint) — WARN-ONLY in Phase 1 (D-17).
+  #    verbose: true surfaces findings; fail_fast: false prevents blocking.
+  #    P1 closeout commit flips these to block-on-fail.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff-format
+        name: ruff-format (warn-only in P1 per D-17)
+        verbose: true
+        fail_fast: false
+      - id: ruff
+        name: ruff (warn-only in P1 per D-17)
+        args: ["--fix"]
+        verbose: true
+        fail_fast: false
+
+  # 4. mypy — WARN-ONLY in Phase 1 (D-17), tightened at P1 closeout.
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        name: mypy (warn-only in P1 per D-17)
+        additional_dependencies: [pydantic, types-requests]
+        args: ["--ignore-missing-imports", "--follow-imports=silent"]
+        verbose: true
+        fail_fast: false

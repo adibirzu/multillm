@@ -1,0 +1,69 @@
+# Gitleaks configuration for MultiLLM Gateway.
+#
+# Strategy:
+#   - Extend the default ruleset (covers ~150 well-known credential patterns).
+#   - Add project-specific rules for OCI tenancy IDs and OCI APM data keys,
+#     since Plan 8's filter-repo step scrubs these from history; pre-commit
+#     must catch any NEW occurrences (T-01-02-05 mitigation).
+#   - Allowlist a narrow set of directories where fixture / example tokens
+#     legitimately appear, plus a few well-known placeholder strings.
+#
+# Reference: https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Project-specific rules — patterns the filter-repo step removes from history.
+# Pre-commit catches any NEW occurrences before they enter the working tree.
+# ---------------------------------------------------------------------------
+
+[[rules]]
+id = "oci-tenancy-id"
+description = "Oracle Cloud Infrastructure tenancy OCID"
+regex = '''ocid1\.tenancy\.[a-z0-9.]+'''
+tags = ["oci", "tenancy", "pii"]
+
+[[rules]]
+id = "oci-apm-data-key"
+description = "Oracle APM data key (long-lived bearer token)"
+# 32+ uppercase alphanumerics is the empirical shape of the OCI APM data key.
+# Tight enough to avoid hitting random hashes; the keyword anchor below scopes
+# further to lines that actually look like APM credentials.
+regex = '''(?i)(apm[_-]?data[_-]?key|data[_-]?key)["'\s:=]+[A-Z0-9]{32,}'''
+tags = ["oci", "apm", "credential"]
+
+[[rules]]
+id = "oci-internal-ip"
+description = "OCI internal/control-plane IP (130.61.x.x range observed in history)"
+regex = '''\b130\.61\.\d{1,3}\.\d{1,3}\b'''
+tags = ["oci", "ip", "pii"]
+
+# ---------------------------------------------------------------------------
+# Allowlist — narrowly scoped to fixture, planning, and operations docs that
+# legitimately contain placeholder/example secrets. Do NOT allowlist source
+# directories under multillm/ or arbitrary code paths.
+# ---------------------------------------------------------------------------
+
+[allowlist]
+description = "Fixtures, planning docs, and obvious placeholders"
+
+paths = [
+    '''^tests/fixtures/''',
+    '''^tests/data/''',
+    '''^\.planning/''',
+    '''^docs/operations/''',
+    # Pre-commit and gitleaks configs reference patterns by name — never scan
+    # ourselves to avoid recursive false positives.
+    '''^\.gitleaks\.toml$''',
+    '''^\.pre-commit-config\.yaml$''',
+]
+
+regexes = [
+    '''your-api-key-here''',
+    '''xxx-replace-me''',
+    '''mllm_test_dummy''',
+    '''sk-test-[A-Za-z0-9]+''',
+    '''REPLACE_ME''',
+    '''<your-.*>''',
+]
