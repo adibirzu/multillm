@@ -21,6 +21,9 @@ dependencies = [
     "opentelemetry-sdk>=1.25.0",
     "opentelemetry-instrumentation-fastapi>=0.46b0",
     "opentelemetry-exporter-otlp>=1.25.0",
+    "alembic>=1.18",
+    "sqlalchemy>=2.0",
+    "click>=8.1",
 ]
 
 [project.optional-dependencies]
