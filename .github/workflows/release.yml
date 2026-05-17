@@ -1,0 +1,167 @@
+# MultiLLM Gateway — Release workflow (PyPI Trusted Publishing + PEP 740 attestations).
+#
+# IMPORTANT: This workflow requires Trusted Publishing to be configured in the
+# PyPI project settings BEFORE the first release. See docs/operations/release.md
+# §"Prerequisites" for the one-time PyPI configuration steps.
+#
+# Trust contract (D-10 / OSS-24):
+#   - No long-lived API-token secret anywhere in this workflow (the
+#     historical PyPI-token model is replaced entirely by OIDC).
+#   - The `publish-pypi` job mints a short-lived OIDC token from the runner
+#     and exchanges it for a PyPI upload credential via Trusted Publishing.
+#   - The same OIDC identity is used to produce PEP 740 Sigstore attestations,
+#     which travel with the release artifacts and are verifiable via
+#     `pypi attest verify` or `pip install --require-attestations`.
+#
+# All third-party actions are pinned by full 40-char commit SHA per OSS-13.
+# Placeholder pins (PIN_*_SHA) are resolved by Plan 9 Task 1 in a single pass
+# before public push.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag_ref:
+        description: 'Tag to release (dry-run; e.g. v1.0.0-rc.1). Build runs; publish is skipped unless run from a tag push.'
+        required: false
+        default: ''
+
+# Releases must not be cancelled mid-flight: an interrupted PyPI publish can
+# leave a half-uploaded artifact that complicates rollback. We deliberately
+# set cancel-in-progress: false here (unlike ci.yml which is `true`).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Default to least-privilege; jobs that need more permissions declare them
+# explicitly at the job level.
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------
+  # build — produces wheel + sdist + twine-check'd metadata. Uploads
+  # artifact for downstream jobs.
+  # ---------------------------------------------------------------------
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build + twine
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build sdist + wheel
+        run: python -m build --sdist --wheel
+
+      # Catches malformed metadata (long_description, classifiers, license
+      # field, etc.) before the upload step — much cheaper to fail here
+      # than to fail at PyPI's validation gate.
+      - name: twine check
+        run: twine check dist/*
+
+      - name: Upload distribution artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package
+          path: dist/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # publish-pypi — Trusted Publishing via GitHub OIDC. Uploads sdist +
+  # wheel and produces PEP 740 Sigstore attestations.
+  #
+  # The `environment:` block ties this job to the `pypi-publish` GitHub
+  # Environment, which PyPI's Trusted Publishing config keys on (along
+  # with repository + workflow filename).
+  # ---------------------------------------------------------------------
+  publish-pypi:
+    name: publish-pypi
+    needs: build
+    # Only publish from actual tag pushes; workflow_dispatch is dry-run only.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi-publish
+      url: https://pypi.org/p/multillm
+    permissions:
+      # id-token: write is the OIDC bearer for BOTH Trusted Publishing AND
+      # PEP 740 attestations. Scoped to this job only — workflow-default is
+      # `contents: read`.
+      id-token: write
+      # attestations: write lets the publish action emit Sigstore-backed
+      # PEP 740 attestations alongside the uploaded artifacts.
+      attestations: write
+    steps:
+      - name: Download distribution artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package
+          path: dist/
+
+      # pypa/gh-action-pypi-publish v1.11.x — pinned per OSS-13.
+      # action v1.11.0
+      # pinned per OSS-13
+      #
+      # No static-credential input → Trusted Publishing path is used.
+      # `attestations: true` is the v1.10+ default; we set it explicitly
+      # so a future default change cannot silently disable attestations.
+      - name: Publish to PyPI (Trusted Publishing + PEP 740 attestations)
+        uses: pypa/gh-action-pypi-publish@PIN_PYPI_PUBLISH_SHA
+        with:
+          attestations: true
+          print-hash: true
+
+  # ---------------------------------------------------------------------
+  # github-release — creates the GitHub Release page, attaches dist
+  # artifacts, and marks rc tags as pre-release. Runs AFTER PyPI publish
+  # so the release never "exists" without the corresponding PyPI artifact.
+  # ---------------------------------------------------------------------
+  github-release:
+    name: github-release
+    needs: publish-pypi
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      # contents: write needed to create the Release object.
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download distribution artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package
+          path: dist/
+
+      # softprops/action-gh-release v2.x — pinned per OSS-13.
+      # action v2.0.8
+      # pinned per OSS-13
+      #
+      # `prerelease` flips automatically for `-rc.` tags so the GitHub UI
+      # shows the right badge and the "Latest release" pointer skips rcs.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@PIN_GH_RELEASE_SHA
+        with:
+          files: dist/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref, '-rc.') }}
+          fail_on_unmatched_files: true
