@@ -1,0 +1,38 @@
+# MultiLLM Gateway — dependency review on PR.
+#
+# Fails the PR on any high-severity CVE in a newly added/upgraded dep.
+# Also denies GPL-3.0 / AGPL-3.0 outbound licenses (incompatible with
+# the project's Apache 2.0 license per D-01).
+#
+# Third-party actions pinned by 40-char SHA per OSS-13. PIN_DEPREVIEW_SHA
+# is resolved by Plan 9 Task 1.
+
+name: dependency-review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write  # required by comment-summary-in-pr
+
+jobs:
+  dependency-review:
+    name: dependency-review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # actions/dependency-review-action v4 — pinned per OSS-13.
+      # action v4
+      # pinned per OSS-13
+      - name: Dependency Review
+        uses: actions/dependency-review-action@PIN_DEPREVIEW_SHA
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: always
+          # GPL-3.0 / AGPL-3.0 are incompatible with Apache 2.0 outbound
+          # licensing (D-01). Block at PR time rather than discovering
+          # the conflict at release time.
+          deny-licenses: GPL-3.0, AGPL-3.0

@@ -1,0 +1,73 @@
+# Dependabot configuration for MultiLLM Gateway.
+#
+# Two ecosystems:
+#   1. pip            — application + dev/test Python dependencies
+#   2. github-actions — pinned third-party actions (rotates the OSS-13 SHAs)
+#
+# Reviewers/assignees are intentionally empty (D-16: repo identity is not
+# yet locked; populate before public push).
+
+version: 2
+
+updates:
+  # ---------------------------------------------------------------------
+  # Python deps — grouped into production and dev cohorts so security
+  # bumps for runtime libs don't queue behind dev-tool churn.
+  # ---------------------------------------------------------------------
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    reviewers: []
+    assignees: []
+    labels:
+      - dependencies
+      - python
+    groups:
+      production:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "pytest*"
+          - "ruff*"
+          - "mypy*"
+          - "pre-commit*"
+          - "respx*"
+          - "types-*"
+      dev:
+        applies-to: version-updates
+        patterns:
+          - "pytest*"
+          - "ruff*"
+          - "mypy*"
+          - "pre-commit*"
+          - "respx*"
+          - "types-*"
+
+  # ---------------------------------------------------------------------
+  # GitHub Actions — rotates the OSS-13 SHA pins. Reviewer compares
+  # against upstream release notes before merge (T-01-02-01 mitigation).
+  # ---------------------------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    reviewers: []
+    assignees: []
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
