@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Tests for streaming event conversion and SSE formatting."""
 import json
 import pytest

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """
 Gemini CLI stats integration — reads token usage and session history
 from Gemini CLI's local session files (~/.gemini/tmp/*/chats/).

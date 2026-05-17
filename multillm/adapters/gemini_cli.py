@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Gemini CLI backend adapter (subprocess-based)."""
 
 import asyncio

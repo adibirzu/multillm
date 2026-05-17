@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Tests for local stats caching."""
 
 from multillm.stats_cache import ttl_cache

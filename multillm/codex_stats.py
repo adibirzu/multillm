@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """
 Codex CLI stats integration — reads token usage, costs, and session history
 from Codex CLI's internal SQLite database (~/.codex/) and rollout JSONL files.

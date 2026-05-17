@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Tests for the semantic caching module."""
 import json
 from unittest.mock import MagicMock, patch

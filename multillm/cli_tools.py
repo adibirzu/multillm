@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Helpers for finding local CLI tools from hook-launched gateway processes."""
 
 from __future__ import annotations

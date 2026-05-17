@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Tests for adaptive routing scoring — calculate_backend_score and weighted selection."""
 
 import random

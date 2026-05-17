@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """
 Shared httpx client pool — one persistent AsyncClient per backend.
 

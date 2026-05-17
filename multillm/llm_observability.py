@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Cross-LLM observability helpers for dashboard and API summaries."""
 
 from __future__ import annotations

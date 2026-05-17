@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """
 Claude Code stats integration — reads token usage, costs, and session history
 from Claude Code's internal stats files (~/.claude/).

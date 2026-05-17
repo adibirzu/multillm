@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Generic adapter for OpenAI-compatible cloud backends.
 
 Handles: Groq, DeepSeek, Mistral, Together, xAI, Fireworks.

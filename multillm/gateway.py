@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """
 MultiLLM Gateway — Anthropic-compatible proxy with streaming and tool support.
 

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Tests for the gateway HTTP endpoints."""
 from unittest.mock import AsyncMock, patch
 

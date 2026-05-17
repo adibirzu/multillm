@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Production readiness checks for MultiLLM installations."""
 
 from __future__ import annotations

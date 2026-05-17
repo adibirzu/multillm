@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Runtime safety helpers for production gateway operation."""
 
 from __future__ import annotations

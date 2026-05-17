@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Tests for the production readiness doctor."""
 
 from multillm.doctor import assess_doctor_report, collect_doctor_report, format_doctor_report

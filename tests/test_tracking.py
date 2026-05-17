@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Tests for the tracking module."""
 import pytest
 from multillm.tracking import record_usage, get_usage_summary, get_project_summary

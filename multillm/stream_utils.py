@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 MultiLLM contributors
+
 """Streaming token counter for SSE responses.
 
 Wraps an async generator to count output tokens from SSE chunks in real-time,
