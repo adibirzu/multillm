@@ -28,6 +28,16 @@ dependencies = [
     "jinja2>=3.1",
 ]
 
+# ${OWNER}/${REPO} placeholders resolve at first-publish time per D-16.
+# Default OWNER is `adibirzu`; flip to the org owner if/when repo ownership
+# transfers. PyPI surfaces these as the project's sidebar links.
+[project.urls]
+Homepage      = "https://github.com/${OWNER}/${REPO}"
+Repository    = "https://github.com/${OWNER}/${REPO}"
+Documentation = "https://github.com/${OWNER}/${REPO}#readme"
+Issues        = "https://github.com/${OWNER}/${REPO}/issues"
+Changelog     = "https://github.com/${OWNER}/${REPO}/releases"
+
 [project.optional-dependencies]
 langfuse = [
     "langfuse>=2.0.0",

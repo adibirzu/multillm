@@ -1,0 +1,203 @@
+# MultiLLM Gateway — Homebrew tap updater.
+#
+# Fires AFTER a successful `Release` workflow run on a tag push. Patches
+# Formula/multillm.rb with the new version + sdist SHA256, then either
+# pushes directly to the tap repo or opens a PR (default: PR mode so a
+# human reviews before users start brewing the new release).
+#
+# D-11: tap repo defaults to ${{ github.repository_owner }}/homebrew-multillm.
+# Override at runtime via the `tap_repo` workflow_dispatch input.
+#
+# Trust contract (D-11 / OSS-24):
+#   - HOMEBREW_TAP_TOKEN is the ONE long-lived secret in the release
+#     pipeline. It is a fine-grained PAT scoped to a single repo
+#     (the tap) with contents:write + pull-requests:write. Rotate
+#     quarterly or on contributor turnover (procedure in
+#     docs/operations/release.md §"Secret rotation").
+#   - The PAT cannot push to multillm itself, cannot publish to PyPI,
+#     and cannot sign images. Blast radius is bounded to the tap.
+#
+# All third-party actions are pinned by full 40-char commit SHA per OSS-13.
+# Placeholder pins (PIN_*_SHA) are resolved by Plan 9 Task 1.
+
+name: homebrew
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish to tap (e.g. 1.0.0-rc.1). Required for manual re-runs.'
+        required: true
+      tap_repo:
+        description: 'Tap repo (owner/name). Defaults to <owner>/homebrew-multillm.'
+        required: false
+        default: ''
+
+concurrency:
+  group: homebrew-${{ github.event.workflow_run.head_branch || github.event.inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  update-formula:
+    name: update-formula
+    runs-on: ubuntu-latest
+    # Only run for:
+    #   - workflow_run: a successful Release run on a tag ref (head_branch
+    #     is the tag name for tag-triggered upstream workflows)
+    #   - workflow_dispatch: manual operator run
+    if: |
+      (github.event_name == 'workflow_run'
+        && github.event.workflow_run.conclusion == 'success'
+        && startsWith(github.event.workflow_run.head_branch, 'v'))
+      || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            # head_branch on a tag-triggered upstream workflow is the tag
+            # name (e.g. v1.0.0-rc.1). Strip the leading "v".
+            VERSION="${{ github.event.workflow_run.head_branch }}"
+            VERSION="${VERSION#v}"
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "Could not resolve version" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${VERSION}"
+
+      - name: Resolve tap repo
+        id: tap
+        env:
+          INPUT_TAP: ${{ github.event.inputs.tap_repo }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TAP}" ]; then
+            TAP="${INPUT_TAP}"
+          else
+            TAP="${{ github.repository_owner }}/homebrew-multillm"
+          fi
+          echo "tap=${TAP}" >> "$GITHUB_OUTPUT"
+          echo "Tap repo: ${TAP}"
+
+      # PyPI artifact replication is async. Poll the sdist URL (max 5 min)
+      # before trying to fetch it for sha256 computation. This protects
+      # against races where the PyPI publish job finished but CDN
+      # propagation has not yet completed.
+      - name: Wait for PyPI sdist availability
+        id: wait
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          URL="https://files.pythonhosted.org/packages/source/m/multillm/multillm-${VERSION}.tar.gz"
+          echo "Polling ${URL}"
+          for i in $(seq 1 60); do
+            if curl -fsSI -o /dev/null "${URL}"; then
+              echo "sdist available after ${i} attempts"
+              echo "url=${URL}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for ${URL} after 5 minutes" >&2
+          exit 1
+
+      - name: Compute sdist SHA256
+        id: sha
+        env:
+          URL: ${{ steps.wait.outputs.url }}
+        run: |
+          set -euo pipefail
+          SHA=$(curl -fsSL "${URL}" | sha256sum | awk '{print $1}')
+          echo "sha256=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "sha256: ${SHA}"
+
+      - name: Patch Formula/multillm.rb
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          import os
+          import pathlib
+
+          version = os.environ["VERSION"]
+          sha256 = os.environ["SHA256"]
+          src = pathlib.Path("Formula/multillm.rb")
+          text = src.read_text()
+          text = text.replace("VERSION_PLACEHOLDER", version)
+          text = text.replace("SHA256_PLACEHOLDER", sha256)
+          # ${OWNER}/${REPO} resolution: use the source repo (multillm), not
+          # the tap repo. Homebrew "homepage" should point at the project.
+          owner_repo = os.environ.get("GITHUB_REPOSITORY", "adibirzu/multillm")
+          text = text.replace("${OWNER}/${REPO}", owner_repo)
+          src.write_text(text)
+          print(f"Patched Formula/multillm.rb: version={version} sha256={sha256[:16]}...")
+          PY
+
+      - name: Checkout tap repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.tap.outputs.tap }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap-repo
+
+      - name: Copy patched formula into tap repo
+        run: |
+          set -euo pipefail
+          mkdir -p tap-repo/Formula
+          cp Formula/multillm.rb tap-repo/Formula/multillm.rb
+          cd tap-repo
+          git config user.name  "multillm-release-bot"
+          git config user.email "multillm-release-bot@users.noreply.github.com"
+
+      # peter-evans/create-pull-request v7.x — pinned per OSS-13.
+      # action v7.0.5
+      # pinned per OSS-13
+      #
+      # PR mode (auto-merge OFF) by default. Operator merges the PR after
+      # `brew install` smoke-tests the new formula. Switch to direct push
+      # only if the tap repo disables branch protection.
+      - name: Open PR on tap repo
+        uses: peter-evans/create-pull-request@PIN_CPR_SHA
+        with:
+          path: tap-repo
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          branch: release/multillm-${{ steps.ver.outputs.version }}
+          base: main
+          title: "multillm ${{ steps.ver.outputs.version }}"
+          commit-message: |
+            multillm ${{ steps.ver.outputs.version }}
+
+            Auto-generated by multillm/.github/workflows/homebrew.yml
+            from upstream release ${{ steps.ver.outputs.version }}.
+          body: |
+            Automated formula update for multillm `${{ steps.ver.outputs.version }}`.
+
+            - Source: https://github.com/${{ github.repository }}/releases/tag/v${{ steps.ver.outputs.version }}
+            - PyPI sdist sha256: `${{ steps.sha.outputs.sha256 }}`
+
+            Smoke-test before merging:
+            ```
+            brew tap ${{ steps.tap.outputs.tap }}
+            brew install --HEAD multillm
+            multillm --help
+            ```
+          delete-branch: true
