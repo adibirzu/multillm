@@ -176,5 +176,48 @@ def serve() -> None:
     gateway_main()
 
 
+@app.command(
+    name="reset",
+    help=(
+        "Reset the first-run wizard. Requires --confirm because this "
+        "deletes the admin user and re-enables /setup."
+    ),
+)
+@click.option(
+    "--confirm",
+    is_flag=True,
+    default=False,
+    help="Required: confirm that you want to wipe the admin user and "
+    "re-enable the /setup wizard.",
+)
+def reset_cmd(confirm: bool) -> None:
+    """Wipe the wizard state and admin user so the next start hits /setup."""
+    if not confirm:
+        click.echo(
+            "Refusing to reset without --confirm. This will delete the "
+            "admin user and re-enable the /setup wizard.",
+            err=True,
+        )
+        sys.exit(1)
+
+    import sqlite3
+
+    from multillm.migrations.runner import db_path
+    from multillm.setup.state import reset_setup
+
+    path = db_path()
+    if not path.exists():
+        click.echo(f"No database at {path} — nothing to reset.")
+        return
+
+    conn = sqlite3.connect(path)
+    try:
+        reset_setup(conn)
+    finally:
+        conn.close()
+
+    click.echo("Setup reset. Restart the gateway to re-enter the wizard.")
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

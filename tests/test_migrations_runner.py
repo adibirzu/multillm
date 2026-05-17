@@ -48,37 +48,41 @@ def _column_names(db_path: Path, table: str) -> list[str]:
         conn.close()
 
 
-def test_dry_run_lists_smoke_migration_on_fresh_db(bootstrapped_db: Path) -> None:
-    """Test 1: dry-run returns the smoke revision ID on a brand-new DB."""
+_HEAD_REVISION = "0002_setup_state"
+
+
+def test_dry_run_lists_pending_migrations_on_fresh_db(bootstrapped_db: Path) -> None:
+    """Test 1: dry-run returns every revision up to head on a brand-new DB."""
     from multillm.migrations.runner import migrate_dry_run
 
     pending = migrate_dry_run()
 
-    assert pending == ["0001_smoke_test"]
+    assert pending == ["0001_smoke_test", "0002_setup_state"]
 
 
-def test_migrate_up_runs_smoke_and_writes_one_backup(
+def test_migrate_up_runs_to_head_and_writes_one_backup(
     bootstrapped_db: Path, isolated_home: Path
 ) -> None:
-    """Test 2: up runs the smoke migration, adds the column, writes a backup."""
+    """Test 2: up runs the migration chain, adds the column, writes a backup."""
     from multillm.migrations.runner import migrate_up
 
     new_rev = migrate_up()
 
-    assert new_rev == "0001_smoke_test"
+    assert new_rev == _HEAD_REVISION
     assert "_smoke_test_column" in _column_names(bootstrapped_db, "system")
 
     backups = list((isolated_home / "backups").iterdir())
     assert len(backups) == 1
-    assert backups[0].name.startswith("pre-0001_smoke_test-")
+    # Backup name is prefixed with the resolved head revision.
+    assert backups[0].name.startswith(f"pre-{_HEAD_REVISION}-")
 
 
 def test_current_revision_after_up(bootstrapped_db: Path) -> None:
-    """Test 3: current_revision matches the smoke revision after up."""
+    """Test 3: current_revision matches head after up."""
     from multillm.migrations.runner import current_revision, migrate_up
 
     migrate_up()
-    assert current_revision() == "0001_smoke_test"
+    assert current_revision() == _HEAD_REVISION
 
 
 def test_migrate_down_reverses_smoke_cleanly(bootstrapped_db: Path) -> None:
@@ -104,8 +108,8 @@ def test_migrate_up_is_idempotent(bootstrapped_db: Path, isolated_home: Path) ->
 
     second = migrate_up()
 
-    assert first == second == "0001_smoke_test"
-    assert current_revision() == "0001_smoke_test"
+    assert first == second == _HEAD_REVISION
+    assert current_revision() == _HEAD_REVISION
 
     backups_after_second = sorted((isolated_home / "backups").iterdir())
     assert backups_after_second == backups_after_first, (
