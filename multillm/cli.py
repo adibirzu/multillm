@@ -20,7 +20,10 @@ Exit codes follow the plan contract:
 
 from __future__ import annotations
 
+import functools
 import sys
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 import click
 from alembic.util.exc import CommandError
@@ -34,10 +37,31 @@ from multillm.migrations.runner import (
 
 __all__ = ["app", "migrate"]
 
+_F = TypeVar("_F", bound=Callable[..., Any])
+
 
 def _emit_error(message: str, exit_code: int) -> None:
     click.echo(message, err=True)
     sys.exit(exit_code)
+
+
+def _handle_migration_errors(func: _F) -> _F:
+    """Map runner exceptions to the CLI's exit-code contract.
+
+    - ``alembic.util.exc.CommandError`` -> exit 1 with 'alembic error:' prefix
+    - ``FileNotFoundError`` -> exit 2 with 'database not found:' prefix
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)
+        except CommandError as exc:
+            _emit_error(f"alembic error: {exc}", exit_code=1)
+        except FileNotFoundError as exc:
+            _emit_error(f"database not found: {exc}", exit_code=2)
+
+    return wrapper  # type: ignore[return-value]
 
 
 @click.group(
@@ -70,22 +94,26 @@ def migrate(ctx: click.Context, dry_run: bool) -> None:
                 "cannot be combined with a subcommand.",
                 exit_code=1,
             )
-        try:
-            pending = migrate_dry_run()
-        except CommandError as exc:
-            _emit_error(f"alembic error: {exc}", exit_code=1)
-        except FileNotFoundError as exc:
-            _emit_error(f"database not found: {exc}", exit_code=2)
-        if not pending:
-            click.echo("No pending migrations.")
-        else:
-            click.echo("Pending migrations:")
-            for rev in pending:
-                click.echo(f"  - {rev}")
+        _dry_run_dispatch()
         sys.exit(0)
 
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
+
+
+@_handle_migration_errors
+def _dry_run_dispatch() -> None:
+    pending = migrate_dry_run()
+    if not pending:
+        click.echo("No pending migrations.")
+        return
+    click.echo("Pending migrations:")
+    for rev in pending:
+        click.echo(f"  - {rev}")
+
+
+def _format_revision(rev: str | None) -> str:
+    return rev if rev is not None else "<base>"
 
 
 @migrate.command(name="up", help="Backup the DB and upgrade to TARGET (default: head).")
@@ -95,23 +123,17 @@ def migrate(ctx: click.Context, dry_run: bool) -> None:
     show_default=True,
     help="Alembic target revision (default: head).",
 )
+@_handle_migration_errors
 def migrate_up_cmd(target: str) -> None:
     """Run ``migrate_up`` and report the backup file + new revision."""
-    from multillm.migrations.runner import alembic_config, db_path
     from multillm.migrations.backup import BACKUP_DIR
 
-    pre_existing = set()
+    pre_existing: set[str] = set()
     if BACKUP_DIR.exists():
         pre_existing = {p.name for p in BACKUP_DIR.iterdir()}
 
-    try:
-        new_rev = migrate_up(target=target)
-    except CommandError as exc:
-        _emit_error(f"alembic error: {exc}", exit_code=1)
-    except FileNotFoundError as exc:
-        _emit_error(f"database not found: {exc}", exit_code=2)
+    new_rev = migrate_up(target=target)
 
-    # Surface the new backup file (if any was written this invocation).
     if BACKUP_DIR.exists():
         new_files = sorted(
             (p for p in BACKUP_DIR.iterdir() if p.name not in pre_existing),
@@ -120,13 +142,7 @@ def migrate_up_cmd(target: str) -> None:
         for backup in new_files:
             click.echo(f"Backup written: {backup}")
 
-    if new_rev is None:
-        click.echo("Migrated to: <base>")
-    else:
-        click.echo(f"Migrated to: {new_rev}")
-    # Suppress unused-import warnings: alembic_config / db_path are reached
-    # transitively by migrate_up and exposed here for future expansion.
-    _ = (alembic_config, db_path)
+    click.echo(f"Migrated to: {_format_revision(new_rev)}")
 
 
 @migrate.command(name="down", help="Downgrade to TARGET (e.g. 'base' or a revision ID).")
@@ -135,19 +151,11 @@ def migrate_up_cmd(target: str) -> None:
     required=True,
     help="Alembic target revision (e.g. 'base' or a specific revision id).",
 )
+@_handle_migration_errors
 def migrate_down_cmd(target: str) -> None:
     """Run ``migrate_down`` and report the new revision."""
-    try:
-        new_rev = migrate_down(target=target)
-    except CommandError as exc:
-        _emit_error(f"alembic error: {exc}", exit_code=1)
-    except FileNotFoundError as exc:
-        _emit_error(f"database not found: {exc}", exit_code=2)
-
-    if new_rev is None:
-        click.echo("Migrated to: <base>")
-    else:
-        click.echo(f"Migrated to: {new_rev}")
+    new_rev = migrate_down(target=target)
+    click.echo(f"Migrated to: {_format_revision(new_rev)}")
 
 
 @migrate.command(name="status", help="Print the alembic revision currently stamped.")
