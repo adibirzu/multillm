@@ -17,7 +17,6 @@ Usage:
 """
 
 import asyncio
-import json
 import logging
 import os
 import random
@@ -41,10 +40,7 @@ from .config import (
     OPENROUTER_KEY, OPENAI_KEY, ANTHROPIC_KEY, GEMINI_KEY,
     GROQ_KEY, DEEPSEEK_KEY, MISTRAL_KEY, TOGETHER_KEY,
     XAI_KEY, FIREWORKS_KEY,
-    AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_VERSION,
-    AWS_BEDROCK_REGION, AWS_BEDROCK_PROFILE,
-    OCA_ENDPOINT, OCA_API_VERSION,
-    load_routes, detect_project,
+    AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AWS_BEDROCK_REGION, OCA_ENDPOINT, load_routes, detect_project,
 )
 from . import __version__
 from .cli_tools import resolve_cli_binary
@@ -55,26 +51,16 @@ from .runtime_security import (
     validate_gateway_exposure,
 )
 from .converters import (
-    build_openai_payload,
-    build_ollama_payload,
-    openai_response_to_anthropic,
-    make_anthropic_response,
     extract_text_from_anthropic,
     count_tokens,
 )
 from .oca_auth import OCA_LOGIN_HINT, get_oca_bearer_token
-from .streaming import (
-    stream_openai_compat,
-    stream_ollama,
-    stream_anthropic_passthrough,
-    stream_oca,
-    stream_gemini,
-)
 from .stream_utils import StreamTokenCounter
 from .adapters import get_adapter, list_adapters
-from .adapters.codex_cli import CodexCLIAdapter
-from .adapters.gemini_cli import GeminiCLIAdapter
-from .adapters.setup import register_all_adapters
+# Plan 02a-02 Task 20: setup.py:register_all_adapters() retired —
+# adapters are now discovered exclusively via entry_points (Plan 02a-01
+# Task 1). The first call to get_adapter()/list_adapters() triggers
+# discovery automatically.
 from .setup.middleware import SetupRedirectMiddleware
 from .setup.routes import mount_static as mount_setup_static
 from .setup.routes import router as setup_router
@@ -93,7 +79,7 @@ from .caching import cache_search, cache_store, get_cache_stats, LANGCACHE_ENABL
 from .claude_stats import get_claude_code_stats
 from .codex_stats import get_codex_stats
 from .gemini_stats import get_gemini_stats
-from .http_pool import get_client, close_all as close_http_pools
+from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
 from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker, calculate_backend_score
 from .rate_limit import (
@@ -189,7 +175,6 @@ async def _run_discovery():
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    register_all_adapters()
     init_otel(application)
     init_langfuse()
     log.info("Loaded %d static routes, %d adapters for project '%s'",
@@ -223,261 +208,11 @@ app.include_router(setup_router, prefix="/setup")
 mount_setup_static(app)
 
 
-# ── Backend adapters (non-streaming) ─────────────────────────────────────────
-
-async def _call_openai_compat(
-    base_url: str,
-    api_key: str,
-    payload: dict,
-    extra_headers: Optional[dict] = None,
-    backend: str = "openai",
-) -> dict:
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-        **(extra_headers or {}),
-    }
-    client = get_client(backend)
-    r = await client.post(f"{base_url}/v1/chat/completions", json=payload, headers=headers)
-    r.raise_for_status()
-    return r.json()
-
-
-async def _call_ollama(model: str, body: dict) -> dict:
-    payload = build_ollama_payload(body, model)
-    payload["stream"] = False
-
-    client = get_client("ollama")
-    r = await client.post(f"{OLLAMA_URL}/api/chat", json=payload)
-    r.raise_for_status()
-    data = r.json()
-
-    # Ollama non-streaming response format
-    message = data.get("message", {})
-    content_blocks: list[dict] = []
-
-    text = message.get("content", "")
-    if text:
-        content_blocks.append({"type": "text", "text": text})
-
-    # Tool calls from Ollama
-    tool_calls = message.get("tool_calls", [])
-    for tc in tool_calls:
-        func = tc.get("function", {})
-        content_blocks.append({
-            "type": "tool_use",
-            "id": f"toolu_{uuid.uuid4().hex[:24]}",
-            "name": func.get("name", ""),
-            "input": func.get("arguments", {}),
-        })
-
-    stop_reason = "tool_use" if tool_calls else "end_turn"
-    if not content_blocks:
-        content_blocks.append({"type": "text", "text": ""})
-
-    return make_anthropic_response(
-        text="",
-        model=model,
-        input_tokens=data.get("prompt_eval_count", 0),
-        output_tokens=data.get("eval_count", 0),
-        stop_reason=stop_reason,
-        content_blocks=content_blocks,
-    )
-
-
-async def _call_anthropic_real(body: dict) -> dict:
-    headers = {
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
-    body_copy = {**body, "stream": False}
-    client = get_client("anthropic")
-    r = await client.post("https://api.anthropic.com/v1/messages", json=body_copy, headers=headers)
-    r.raise_for_status()
-    return r.json()
-
-
-async def _call_oca(model: str, body: dict) -> dict:
-    if not OCA_ENDPOINT:
-        raise HTTPException(status_code=500, detail="OCA_ENDPOINT not configured")
-    token = await get_oca_bearer_token()
-    if not token:
-        raise HTTPException(
-            status_code=401,
-            detail=f"OCA not authenticated. {OCA_LOGIN_HINT}",
-        )
-
-    # OCA uses LiteLLM routing — model names include the oca/ prefix
-    payload = build_openai_payload(body, model)
-    payload["stream"] = False
-    # OCA: only send model + messages (strip everything else)
-    payload = {"model": payload["model"], "messages": payload["messages"]}
-    log.info("OCA request payload=%s", json.dumps(payload, default=str)[:1000])
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}",
-        "client": "multillm-gateway",
-        "client-version": "0.6.0",
-    }
-
-    url = f"{OCA_ENDPOINT}/{OCA_API_VERSION}/app/litellm/chat/completions"
-    client = get_client("oca")
-    r = await client.post(url, json=payload, headers=headers)
-    log.info("OCA response status=%d content_type=%s body_len=%d", r.status_code, r.headers.get("content-type", ""), len(r.content))
-    if r.status_code != 200:
-        log.error("OCA error %d: %s", r.status_code, r.text[:500])
-    r.raise_for_status()
-    # OCA may return SSE stream even when stream=false — handle both
-    ct = r.headers.get("content-type", "")
-    if "text/event-stream" in ct or r.text.startswith("data:"):
-        text_parts = []
-        for line in r.text.splitlines():
-            if line.startswith("data:"):
-                chunk_str = line[5:].strip()
-                if chunk_str == "[DONE]":
-                    continue
-                try:
-                    chunk = json.loads(chunk_str)
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    if "content" in delta:
-                        text_parts.append(delta["content"])
-                except json.JSONDecodeError:
-                    continue
-        data = {
-            "id": "oca-response",
-            "model": model,
-            "choices": [{"message": {"role": "assistant", "content": "".join(text_parts)}}],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-        }
-    else:
-        data = r.json()
-
-    return openai_response_to_anthropic(data, model if model.startswith("oca/") else f"oca/{model}")
-
-
-async def _call_gemini(model: str, body: dict) -> dict:
-    try:
-        from google import genai
-    except ImportError:
-        raise HTTPException(status_code=500, detail="google-genai package not installed")
-
-    if not GEMINI_KEY:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY or GOOGLE_API_KEY not set")
-
-    client = genai.Client(api_key=GEMINI_KEY)
-    prompt = extract_text_from_anthropic(body)
-
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                max_output_tokens=body.get("max_tokens", 4096),
-                temperature=body.get("temperature", 0.7),
-            ),
-        )
-        text = response.text or ""
-        input_tokens = getattr(response.usage_metadata, "prompt_token_count", 0) or 0
-        output_tokens = getattr(response.usage_metadata, "candidates_token_count", 0) or 0
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Gemini error: {e}")
-
-    return make_anthropic_response(text, model, input_tokens, output_tokens)
-
-
-async def _call_codex_cli(body: dict, model_alias: str = "codex/cli") -> dict:
-    route_model = body.get("_route_model", "")
-    return await CodexCLIAdapter().send(body, route_model, model_alias)
-
-
-async def _call_gemini_cli(body: dict, model_alias: str = "gemini-cli/default") -> dict:
-    route_model = body.get("_route_model", "")
-    return await GeminiCLIAdapter().send(body, route_model, model_alias)
-
-
-# ── Cline-compatible backend adapters ────────────────────────────────────────
-
-# OpenAI-compatible endpoints (Groq, DeepSeek, Mistral, Together, xAI, Fireworks)
-OPENAI_COMPAT_BACKENDS = {
-    "groq":       {"url": "https://api.groq.com/openai",     "key_fn": lambda: GROQ_KEY},
-    "deepseek":   {"url": "https://api.deepseek.com",        "key_fn": lambda: DEEPSEEK_KEY},
-    "mistral":    {"url": "https://api.mistral.ai",          "key_fn": lambda: MISTRAL_KEY},
-    "together":   {"url": "https://api.together.xyz",        "key_fn": lambda: TOGETHER_KEY},
-    "xai":        {"url": "https://api.x.ai",                "key_fn": lambda: XAI_KEY},
-    "fireworks":  {"url": "https://api.fireworks.ai/inference", "key_fn": lambda: FIREWORKS_KEY},
-}
-
-
-async def _call_openai_compat_backend(backend: str, model: str, body: dict) -> dict:
-    """Generic adapter for any OpenAI-compatible backend (Groq, DeepSeek, etc.)."""
-    cfg = OPENAI_COMPAT_BACKENDS.get(backend)
-    if not cfg:
-        raise HTTPException(status_code=500, detail=f"Unknown OpenAI-compat backend: {backend}")
-    key = cfg["key_fn"]()
-    if not key:
-        raise HTTPException(status_code=500, detail=f"{backend.upper()}_API_KEY not set")
-    payload = build_openai_payload(body, model)
-    payload["stream"] = False
-    oai = await _call_openai_compat(cfg["url"], key, payload, backend=backend)
-    return openai_response_to_anthropic(oai, f"{backend}/{model.split('/')[-1]}")
-
-
-async def _call_azure_openai(model: str, body: dict) -> dict:
-    """Azure OpenAI adapter — uses deployment-based URL pattern."""
-    if not AZURE_OPENAI_KEY or not AZURE_OPENAI_ENDPOINT:
-        raise HTTPException(status_code=500, detail="AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT required")
-    payload = build_openai_payload(body, model)
-    payload["stream"] = False
-    # Azure uses deployment name as model, URL pattern differs
-    url = f"{AZURE_OPENAI_ENDPOINT}/openai/deployments/{model}/chat/completions?api-version={AZURE_OPENAI_API_VERSION}"
-    headers = {"Content-Type": "application/json", "api-key": AZURE_OPENAI_KEY}
-    client = get_client("azure_openai")
-    r = await client.post(url, json=payload, headers=headers)
-    r.raise_for_status()
-    return openai_response_to_anthropic(r.json(), f"azure/{model}")
-
-
-async def _call_bedrock(model: str, body: dict) -> dict:
-    """AWS Bedrock adapter — uses boto3 bedrock-runtime client."""
-    try:
-        import boto3
-    except ImportError:
-        raise HTTPException(status_code=500, detail="boto3 not installed. Run: pip install boto3")
-
-    prompt = extract_text_from_anthropic(body)
-    max_tokens = body.get("max_tokens", 4096)
-
-    session_kwargs = {"region_name": AWS_BEDROCK_REGION}
-    if AWS_BEDROCK_PROFILE:
-        session_kwargs["profile_name"] = AWS_BEDROCK_PROFILE
-    session = boto3.Session(**session_kwargs)
-    bedrock = session.client("bedrock-runtime")
-
-    # Use the Converse API for broad model support
-    messages = [{"role": "user", "content": [{"text": prompt}]}]
-    system_text = body.get("system")
-    system_param = [{"text": system_text}] if system_text else []
-
-    try:
-        kwargs = {
-            "modelId": model,
-            "messages": messages,
-            "inferenceConfig": {"maxTokens": max_tokens, "temperature": body.get("temperature", 0.7)},
-        }
-        if system_param:
-            kwargs["system"] = system_param
-        response = bedrock.converse(**kwargs)
-        text = response["output"]["message"]["content"][0]["text"]
-        usage = response.get("usage", {})
-        return make_anthropic_response(
-            text=text, model=f"bedrock/{model.split('.')[-1]}",
-            input_tokens=usage.get("inputTokens", 0),
-            output_tokens=usage.get("outputTokens", 0),
-        )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Bedrock error: {e}")
+# Plan 02a-02 Task 20: the 10 inline _call_<backend> functions and the
+# OpenAI-compat dispatch dict that lived between this comment and
+# the fallback-logic block have been retired. Backend dispatch is now
+# entirely registry-based via _dispatch_with_resilience() and
+# _dispatch_streaming_with_resilience() (see helpers above route_streaming).
 
 
 # ── Fallback logic ──────────────────────────────────────────────────────────

@@ -220,7 +220,7 @@ class TestMessagesEndpoint:
         assert response.status_code == 200
         assert response.json()["content"][0]["text"] == "Hi from Claude"
 
-    @patch("multillm.gateway.CodexCLIAdapter.send", new_callable=AsyncMock)
+    @patch("multillm.adapters.codex_cli.CodexCLIAdapter.send", new_callable=AsyncMock)
     def test_codex_cli_route_uses_adapter_resolution(self, mock_send):
         mock_send.return_value = make_anthropic_response("OK", "codex/gpt-5-4", 4, 1)
 
@@ -236,7 +236,7 @@ class TestMessagesEndpoint:
         assert args[1] == "codex:gpt-5-4"
         assert args[2] == "codex/gpt-5-4"
 
-    @patch("multillm.gateway.GeminiCLIAdapter.send", new_callable=AsyncMock)
+    @patch("multillm.adapters.gemini_cli.GeminiCLIAdapter.send", new_callable=AsyncMock)
     def test_gemini_cli_route_uses_adapter_resolution(self, mock_send):
         mock_send.return_value = make_anthropic_response("OK", "gemini-cli/default", 4, 1)
 
