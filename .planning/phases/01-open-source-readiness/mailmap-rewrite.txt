@@ -1,0 +1,9 @@
+# filter-repo --mailmap input — rewrites the author/committer signature on
+# every commit. Format follows git-shortlog mailmap conventions:
+#   <new-name> <new-email> <old-email>
+#
+# Without this, `adibirzu@gmail.com` remains baked into every commit's
+# Author: header — invisible to --replace-text, visible to anyone who
+# clones and runs `git log`.
+
+MultiLLM contributors <contact@example.invalid> <adibirzu@gmail.com>

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: milestone
 current_phase: 1 — Open-Source Readiness
-current_plan: 01-04 (Containerization & env-var inventory) — complete
-status: Plan 01-04 shipped; ready for plan 01-05
-last_updated: "2026-05-17T17:29:24Z"
+current_plan: 01-08 (History rewrite via filter-repo) — complete; origin/main cleaned
+status: Phase 1 plans 1-8 shipped; only 01-09 (rc.1 publication) remains
+last_updated: "2026-05-18T09:30:00Z"
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 9
-  completed_plans: 4
-  percent: 44
+  completed_plans: 8
+  percent: 89
 ---
 
 # MultiLLM v1.0 — Project State
@@ -36,9 +36,9 @@ progress:
 ## Current Position
 
 - **Current phase:** 1 — Open-Source Readiness
-- **Current plan:** 01-04 — Containerization & env-var inventory (shipped)
-- **Status:** Plan 01-04 shipped; ready for plan 01-05
-- **Progress:** Phase 0/11 complete; Phase 1 plans 4/7 shipped
+- **Current plan:** 01-08 — History rewrite via `git filter-repo` (shipped; `origin/main` cleaned, `38d4807 → 98768cd`, author email rewritten, gitleaks+trufflehog both report 0 against fresh clone)
+- **Status:** Phase 1 plans 01-01 through 01-08 shipped. Only 01-09 (v1.0.0-rc.1 publication) remains. Outstanding: PAT needs `workflow` scope to push the phase branch.
+- **Progress:** Phase 0/11 complete; Phase 1 plans 8/9 shipped
 
 ```
 [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% (0/11 phases)
