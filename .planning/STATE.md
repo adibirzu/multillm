@@ -37,11 +37,11 @@ progress:
 
 ## Current Position
 
-- **Current phase:** 2a — Adapter Hot-Path Refactor (COMPLETE — both waves shipped)
-- **Current plan:** 02a-02 (Bulk migration, 20/20 tasks shipped) — ARCH-01/02/03/05/06 closed; Phase 2a's full ARCH-01..ARCH-07 set delivered
-- **Status:** Phase 2a complete. 26 atomic commits across two plans (6 + 20). 351→378 tests (+27 net, zero regressions). Coverage 62.53%→64.84% (+2.31pp). gateway.py 1936→1587 lines (-349, -18%). All inline `_call_<backend>` retired, `OPENAI_COMPAT_BACKENDS` dict gone, `setup.py` deleted, registry dispatch is the only path. `route_request` and `route_streaming` are exactly 3 AST statements each (mechanically enforced).
-- **Progress:** 2/11 phases complete; ready for Phase 2b (Auth & Multi-Tenancy)
-- **Next action:** `/gsd-discuss-phase 2b` to scope Auth & Multi-Tenancy, or `/gsd-plan-phase 2b` if discussion can be skipped
+- **Current phase:** 2b — Auth & Multi-Tenancy (local-first slice; planned, ready to execute)
+- **Current plan:** 02b-01 (Schema + Protocols + SQLi, 6 tasks) + 02b-02 (API keys + budgets + auto-upgrade, 8 tasks). Combined: 14 atomic commits planned.
+- **Status:** Phase 2b scope explicitly reduced from 21 reqs to 11 (local-first). CONTEXT committed at `b27bc6a`, plans at `5016e9f`. Plan-check PASS with 2 advisory concerns (executor heads-up at dispatch: stress-test connection model, BudgetMiddleware body double-read). 378 tests baseline; +6 expected from 02b-01, +30 expected from 02b-02 → ~414 final.
+- **Progress:** 2/11 phases complete; Phase 2b discussed + planned + checked
+- **Next action:** `/gsd-execute-phase 2b --wave 1 --interactive` to walk Plan 02b-01 (schema + repos + SQLi hardening)
 
 ```
 [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% (0/11 phases)
