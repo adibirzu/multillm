@@ -9,12 +9,16 @@ will wire concrete implementations in tracking.py / memory.py / sessions.py
 and replace the literal `"default"` arguments with real tenant context.
 """
 
+from .memory import MemoryRepoSqlite
 from .repo import MemoryRepo, SessionRepo, TrackingRepo
+from .sessions import SessionRepoSqlite
 from .tracking import TrackingRepoSqlite
 
 __all__ = [
     "MemoryRepo",
+    "MemoryRepoSqlite",
     "SessionRepo",
+    "SessionRepoSqlite",
     "TrackingRepo",
     "TrackingRepoSqlite",
 ]

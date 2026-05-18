@@ -87,6 +87,22 @@ def _init_memory_db(conn: sqlite3.Connection) -> None:
             updated_at REAL NOT NULL
         );
     """)
+    # Plan 02b-01 Task 3: backfill tenant_id onto pre-existing rows.
+    # memory.py owns memory.db (separate from multillm.db) — see the same
+    # rationale as tracking.py's tenant_id backfill block.
+    for table in ("memories", "shared_context"):
+        try:
+            conn.execute(f"SELECT tenant_id FROM {table} LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
+            )
+            conn.execute(
+                f"UPDATE {table} SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''"
+            )
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{table}_tenant ON {table}(tenant_id)"
+            )
 
 
 @contextmanager
@@ -117,10 +133,10 @@ def store_memory(
     with _get_memory_db() as conn:
         conn.execute(
             """INSERT INTO memories
-               (id, created_at, updated_at, project, source_llm, category, title, content, metadata)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, created_at, updated_at, project, source_llm, category, title, content, metadata, tenant_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (mem_id, now, now, project, source_llm, category, title, content,
-             json.dumps(metadata or {})),
+             json.dumps(metadata or {}), "default"),  # Plan 02b-01 Task 3: D-2b-03
         )
     return mem_id
 
