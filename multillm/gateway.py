@@ -714,10 +714,10 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "gemini_cli":
-        # Gemini CLI doesn't support streaming — fall back to non-streaming
-        body["_route_model"] = real_model
-        result = await _call_gemini_cli(body, model_alias)
-        return JSONResponse(result)
+        adapter = get_adapter("gemini_cli")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="gemini_cli adapter not registered")
+        return await adapter.stream(body, real_model, model_alias)
 
     elif backend in OPENAI_COMPAT_BACKENDS:
         adapter = get_adapter(backend)
@@ -788,8 +788,10 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
             raise HTTPException(status_code=500, detail="codex_cli adapter not registered")
         return await adapter.send(body, real_model, model_alias)
     elif backend == "gemini_cli":
-        body["_route_model"] = real_model
-        return await _call_gemini_cli(body, model_alias)
+        adapter = get_adapter("gemini_cli")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="gemini_cli adapter not registered")
+        return await adapter.send(body, real_model, model_alias)
     elif backend in OPENAI_COMPAT_BACKENDS:
         adapter = get_adapter(backend)
         if adapter is None:
