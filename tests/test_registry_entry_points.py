@@ -21,6 +21,14 @@ def setup_function(_func) -> None:
     reset_for_tests()
 
 
+def test_discovery_finds_ollama() -> None:
+    """ollama is declared in pyproject.toml [project.entry-points."multillm.backends"]."""
+    reset_for_tests()
+    adapter = get_adapter("ollama")
+    assert adapter is not None, "expected ollama adapter to be discovered via entry_points"
+    assert adapter.name == "ollama"
+
+
 def test_register_adapter_shim() -> None:
     """register_adapter() must insert directly into the cache (backward-compat shim)."""
     stub = _StubAdapter()

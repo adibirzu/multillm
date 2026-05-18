@@ -65,6 +65,35 @@ multillm-mcp = "multillm.mcp_server:main"
 multillm-oca-login = "multillm.oca_login:main"
 multillm-doctor = "multillm.doctor:main"
 
+# Editable reinstall (pip install -e . --no-deps) required after editing this table.
+# Plan 02a-01 wires the registry to discover backends via this entry-point group.
+# Phase 9 plugin SDK extends the same group — third-party packages declare here
+# and the registry picks them up automatically.
+[project.entry-points."multillm.backends"]
+anthropic    = "multillm.adapters.anthropic:AnthropicAdapter"
+azure_openai = "multillm.adapters.azure_openai:AzureOpenAIAdapter"
+bedrock      = "multillm.adapters.bedrock:BedrockAdapter"
+codex_cli    = "multillm.adapters.codex_cli:CodexCLIAdapter"
+gemini       = "multillm.adapters.gemini:GeminiAdapter"
+gemini_cli   = "multillm.adapters.gemini_cli:GeminiCLIAdapter"
+lmstudio     = "multillm.adapters.lmstudio:LMStudioAdapter"
+oca          = "multillm.adapters.oca:OCAAdapter"
+ollama       = "multillm.adapters.ollama:OllamaAdapter"
+openai       = "multillm.adapters.openai:OpenAIAdapter"
+openrouter   = "multillm.adapters.openrouter:OpenRouterAdapter"
+# Note: `openai_compat` is a shared helper module (call_openai_compat function),
+# not a backend with its own adapter class. Backends that use the OpenAI-compatible
+# protocol register through the cloud_openai_compat factories (groq/deepseek/...)
+# below or through dedicated classes (openai, openrouter, lmstudio).
+# cloud_openai_compat family — each entry maps to a factory in cloud_openai_compat.py
+# (factories land in Task 3; registry logs and skips broken entries before then)
+groq         = "multillm.adapters.cloud_openai_compat:make_groq"
+deepseek     = "multillm.adapters.cloud_openai_compat:make_deepseek"
+mistral      = "multillm.adapters.cloud_openai_compat:make_mistral"
+together     = "multillm.adapters.cloud_openai_compat:make_together"
+xai          = "multillm.adapters.cloud_openai_compat:make_xai"
+fireworks    = "multillm.adapters.cloud_openai_compat:make_fireworks"
+
 [tool.setuptools.packages.find]
 include = ["multillm*"]
 
