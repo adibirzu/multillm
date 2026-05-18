@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "multillm-gateway"
+name = "multillm"
 version = "1.0.0rc1"
 description = "Multi-LLM gateway, orchestrator, and tracker for Claude Code"
 readme = "README.md"

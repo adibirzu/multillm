@@ -55,7 +55,7 @@ sudo chown multillm:multillm /var/lib/multillm
 # pipx is recommended (venv-isolated). The `pipx install` route assumes a
 # published release on PyPI (see docs/operations/release.md).
 sudo apt install pipx
-sudo -u multillm pipx install multillm-gateway
+sudo -u multillm pipx install multillm
 
 sudo cp /path/to/multillm/.env.example /etc/multillm/.env
 sudo chmod 640 /etc/multillm/.env
