@@ -59,7 +59,7 @@ def test_cli_up_emits_backup_and_revision_lines(
     assert result.exit_code == 0, result.output
     assert "Backup written:" in result.output
     # head advances as migrations are added; assert on the chain rather than a specific id.
-    assert "Migrated to: 0002_setup_state" in result.output
+    assert "Migrated to: 0003_auth_tenancy" in result.output
 
     backups = list((isolated_home / "backups").iterdir())
     assert len(backups) == 1
@@ -99,7 +99,7 @@ def test_cli_status_reports_revision(bootstrapped_db: Path) -> None:
 
     after = runner.invoke(app, ["migrate", "status"])
     assert after.exit_code == 0, after.output
-    assert "0002_setup_state" in after.output
+    assert "0003_auth_tenancy" in after.output
 
 
 def test_cli_help_lists_subcommands(bootstrapped_db: Path) -> None:

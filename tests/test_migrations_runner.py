@@ -48,7 +48,7 @@ def _column_names(db_path: Path, table: str) -> list[str]:
         conn.close()
 
 
-_HEAD_REVISION = "0002_setup_state"
+_HEAD_REVISION = "0003_auth_tenancy"
 
 
 def test_dry_run_lists_pending_migrations_on_fresh_db(bootstrapped_db: Path) -> None:
@@ -57,7 +57,7 @@ def test_dry_run_lists_pending_migrations_on_fresh_db(bootstrapped_db: Path) -> 
 
     pending = migrate_dry_run()
 
-    assert pending == ["0001_smoke_test", "0002_setup_state"]
+    assert pending == ["0001_smoke_test", "0002_setup_state", "0003_auth_tenancy"]
 
 
 def test_migrate_up_runs_to_head_and_writes_one_backup(
