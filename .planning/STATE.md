@@ -37,11 +37,11 @@ progress:
 
 ## Current Position
 
-- **Current phase:** 1 — Open-Source Readiness (closed at 8/9, 01-09 deferred)
-- **Current plan:** 01-09 — Release publication (**DEFERRED to operator discretion**; pivoted to local-first focus)
-- **Status:** Phase 1 done as a milestone. The local-use core (Docker bring-up, setup wizard, migrations, scrubbed history, CI/supply-chain hardening, env inventory, ops runbooks) is fully shipped. Public publication (PyPI / GHCR / Homebrew) is deferred — operator triggers when desired.
-- **Progress:** 1/11 phases complete; Phase 1 plans 8/9 shipped, 1/9 deferred
-- **Next action:** `/gsd-plan-phase 2a` — decompose Phase 2a (Adapter Hot-Path Refactor) into plans
+- **Current phase:** 2a — Adapter Hot-Path Refactor (planned, ready to execute)
+- **Current plan:** 02a-01 (Foundation, 6 tasks) + 02a-02 (Bulk migration, 20 tasks); both committed at `87300a9`
+- **Status:** Plans authored, plan-check verdict PASS after H1+H2 revision. 25 atomic commits planned across 2 waves. ARCH-01..ARCH-07 fully covered. Ready for execute-phase.
+- **Progress:** 1/11 phases complete; Phase 2a discussed + planned + checked
+- **Next action:** `/gsd-execute-phase 2a --interactive` (recommended — checkpoint per backend) or `/gsd-execute-phase 2a` (autonomous, parallel waves)
 
 ```
 [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% (0/11 phases)
