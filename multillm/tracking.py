@@ -106,6 +106,23 @@ def _init_db(conn: sqlite3.Connection) -> None:
             conn.execute(f"SELECT {column} FROM {table} LIMIT 1")
         except sqlite3.OperationalError:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} INTEGER DEFAULT 0")
+    # Plan 02b-01 Task 2: backfill tenant_id onto pre-existing rows.
+    # tracking.py owns its own usage.db (separate from multillm.db), so the
+    # 0003_auth_tenancy alembic migration's backfill cannot reach this table.
+    # The ALTER TABLE pattern above handles that.
+    for table in ("usage", "sessions"):
+        try:
+            conn.execute(f"SELECT tenant_id FROM {table} LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
+            )
+            conn.execute(
+                f"UPDATE {table} SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''"
+            )
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{table}_tenant ON {table}(tenant_id)"
+            )
 
 
 @contextmanager
@@ -139,9 +156,9 @@ def _get_or_create_session(conn: sqlite3.Connection, project: str, now: float) -
     # Create new session
     session_id = f"sess_{uuid.uuid4().hex[:12]}"
     conn.execute(
-        """INSERT INTO sessions (id, started_at, last_active_at, project)
-           VALUES (?, ?, ?, ?)""",
-        (session_id, now, now, project),
+        """INSERT INTO sessions (id, started_at, last_active_at, project, tenant_id)
+           VALUES (?, ?, ?, ?, ?)""",
+        (session_id, now, now, project, "default"),  # Plan 02b-01 Task 2: D-2b-03
     )
     _sessions[project] = (session_id, now)
     log.info("New session started: %s (project=%s)", session_id, project)
@@ -230,8 +247,8 @@ def record_usage(
                (id, timestamp, project, model_alias, backend, real_model,
                 input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
                 latency_ms, cost_estimate_usd,
-                status, error_message, session_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                status, error_message, session_id, tenant_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 usage_id,
                 now,
@@ -248,6 +265,7 @@ def record_usage(
                 status,
                 error_message,
                 session_id,
+                "default",  # Plan 02b-01 Task 2: single-tenant world; D-2b-03
             ),
         )
         _update_session(

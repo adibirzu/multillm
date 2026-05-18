@@ -10,5 +10,11 @@ and replace the literal `"default"` arguments with real tenant context.
 """
 
 from .repo import MemoryRepo, SessionRepo, TrackingRepo
+from .tracking import TrackingRepoSqlite
 
-__all__ = ["MemoryRepo", "SessionRepo", "TrackingRepo"]
+__all__ = [
+    "MemoryRepo",
+    "SessionRepo",
+    "TrackingRepo",
+    "TrackingRepoSqlite",
+]
