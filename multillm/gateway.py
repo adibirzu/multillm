@@ -726,11 +726,10 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "azure_openai":
-        if not AZURE_OPENAI_KEY or not AZURE_OPENAI_ENDPOINT:
-            raise HTTPException(status_code=500, detail="AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT required")
-        # Azure uses different URL pattern — fall back to non-streaming for now
-        result = await _call_azure_openai(real_model, body)
-        return JSONResponse(result)
+        adapter = get_adapter("azure_openai")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="azure_openai adapter not registered")
+        return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "bedrock":
         # Bedrock uses boto3, no HTTP streaming — fall back to non-streaming
@@ -794,7 +793,10 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
             raise HTTPException(status_code=500, detail=f"{backend} adapter not registered")
         return await adapter.send(body, real_model, model_alias)
     elif backend == "azure_openai":
-        return await _call_azure_openai(real_model, body)
+        adapter = get_adapter("azure_openai")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="azure_openai adapter not registered")
+        return await adapter.send(body, real_model, model_alias)
     elif backend == "bedrock":
         return await _call_bedrock(real_model, body)
 
