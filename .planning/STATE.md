@@ -37,11 +37,11 @@ progress:
 
 ## Current Position
 
-- **Current phase:** 2a — Adapter Hot-Path Refactor (planned, ready to execute)
-- **Current plan:** 02a-01 (Foundation, 6 tasks) + 02a-02 (Bulk migration, 20 tasks); both committed at `87300a9`
-- **Status:** Plans authored, plan-check verdict PASS after H1+H2 revision. 25 atomic commits planned across 2 waves. ARCH-01..ARCH-07 fully covered. Ready for execute-phase.
-- **Progress:** 1/11 phases complete; Phase 2a discussed + planned + checked
-- **Next action:** `/gsd-execute-phase 2a --interactive` (recommended — checkpoint per backend) or `/gsd-execute-phase 2a` (autonomous, parallel waves)
+- **Current phase:** 2a — Adapter Hot-Path Refactor (wave 1 shipped, wave 2 ready)
+- **Current plan:** 02a-01 (Foundation, 6/6 tasks shipped) — ARCH-04 + ARCH-07 closed; 02a-02 (Bulk migration, 20 tasks) ready for execute
+- **Status:** Plan 02a-01 complete at `c776d55`. 7 atomic commits on origin/main (f1c67bb..87d9edf + SUMMARY c776d55). 351→359 tests (8 added by 02a-01). Coverage baseline 62.53% captured. ollama proof backend dispatches through registry; other 11 backends still on inline path (intentional dual-path coexistence).
+- **Progress:** 1/11 phases complete; Phase 2a at 6/26 atomic commits (Plan 02a-01 done, Plan 02a-02 pending)
+- **Next action:** `/gsd-execute-phase 2a --wave 2 --interactive` to walk the bulk migration tasks one at a time
 
 ```
 [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% (0/11 phases)
