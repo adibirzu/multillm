@@ -3,15 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: milestone
 current_phase: 1 — Open-Source Readiness
-current_plan: 01-08 (History rewrite via filter-repo) — complete; origin/main cleaned
-status: Phase 1 plans 1-8 shipped; only 01-09 (rc.1 publication) remains
-last_updated: "2026-05-18T09:30:00Z"
+current_phase: 1 — Open-Source Readiness (closing, 01-09 deferred)
+current_plan: 01-09 (Release publication) — DEFERRED to operator discretion
+status: Phase 1 closed at 8/9 plans. Next focus: Phase 2a (Adapter Hot-Path Refactor).
+last_updated: "2026-05-18T10:30:00Z"
 progress:
   total_phases: 11
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 9
   completed_plans: 8
-  percent: 89
+  deferred_plans: 1
+  percent: 9
 ---
 
 # MultiLLM v1.0 — Project State
@@ -35,10 +37,11 @@ progress:
 
 ## Current Position
 
-- **Current phase:** 1 — Open-Source Readiness
-- **Current plan:** 01-08 — History rewrite via `git filter-repo` (shipped; `origin/main` cleaned, `38d4807 → 98768cd`, author email rewritten, gitleaks+trufflehog both report 0 against fresh clone)
-- **Status:** Phase 1 plans 01-01 through 01-08 shipped. Only 01-09 (v1.0.0-rc.1 publication) remains. Outstanding: PAT needs `workflow` scope to push the phase branch.
-- **Progress:** Phase 0/11 complete; Phase 1 plans 8/9 shipped
+- **Current phase:** 1 — Open-Source Readiness (closed at 8/9, 01-09 deferred)
+- **Current plan:** 01-09 — Release publication (**DEFERRED to operator discretion**; pivoted to local-first focus)
+- **Status:** Phase 1 done as a milestone. The local-use core (Docker bring-up, setup wizard, migrations, scrubbed history, CI/supply-chain hardening, env inventory, ops runbooks) is fully shipped. Public publication (PyPI / GHCR / Homebrew) is deferred — operator triggers when desired.
+- **Progress:** 1/11 phases complete; Phase 1 plans 8/9 shipped, 1/9 deferred
+- **Next action:** `/gsd-plan-phase 2a` — decompose Phase 2a (Adapter Hot-Path Refactor) into plans
 
 ```
 [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% (0/11 phases)

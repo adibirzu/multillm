@@ -27,7 +27,7 @@ Coarse — each phase describes 1–3 concrete plans. Detailed task decompositio
 
 ## Phases
 
-- [ ] **Phase 1: Open-Source Readiness** — Public-safe repo, supply-chain hardened, one-command bring-up, migration framework scaffolded
+- [x] **Phase 1: Open-Source Readiness** — Public-safe repo, supply-chain hardened, one-command bring-up, migration framework scaffolded (closed 2026-05-18; publish step 01-09 deferred to operator discretion)
 - [ ] **Phase 2a: Adapter Hot-Path Refactor** — Strangler-fig refactor of gateway.py into BaseAdapter dispatch; tenant-shape repo Protocol; zero behavior change
 - [ ] **Phase 2b: Auth & Multi-Tenancy** — User accounts, API keys, per-tenant budgets, row-level isolation, default-tenant migration
 - [ ] **Phase 3: Dashboard v2 Capability Showcase** — SvelteKit SPA with live capability tiles, playground, compare/cost widgets, tenant-scoped WebSocket feed
@@ -192,7 +192,7 @@ Coarse — each phase describes 1–3 concrete plans. Detailed task decompositio
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Open-Source Readiness | 3/9 | In Progress|  |
+| 1. Open-Source Readiness | 8/9 (1 deferred) | Closed (local-first); 01-09 publication deferred to operator discretion | 2026-05-18 |
 | 2a. Adapter Hot-Path Refactor | 0/TBD | Not started | - |
 | 2b. Auth & Multi-Tenancy | 0/TBD | Not started | - |
 | 3. Dashboard v2 Capability Showcase | 0/TBD | Not started | - |
