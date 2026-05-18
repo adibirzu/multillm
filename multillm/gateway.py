@@ -702,9 +702,10 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         return await stream_oca(OCA_ENDPOINT, OCA_API_VERSION, token, body, real_model, model_alias)
 
     elif backend == "gemini":
-        if not GEMINI_KEY:
-            raise HTTPException(status_code=500, detail="GEMINI_API_KEY not set")
-        return await stream_gemini(GEMINI_KEY, body, real_model, model_alias)
+        adapter = get_adapter("gemini")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="gemini adapter not registered")
+        return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "codex_cli":
         # Codex CLI doesn't support streaming — fall back to non-streaming
@@ -774,7 +775,10 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
     elif backend == "oca":
         return await _call_oca(real_model, body)
     elif backend == "gemini":
-        return await _call_gemini(real_model, body)
+        adapter = get_adapter("gemini")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="gemini adapter not registered")
+        return await adapter.send(body, real_model, model_alias)
     elif backend == "codex_cli":
         body["_route_model"] = real_model
         return await _call_codex_cli(body, model_alias)
