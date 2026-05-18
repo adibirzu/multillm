@@ -90,19 +90,19 @@ def _init_memory_db(conn: sqlite3.Connection) -> None:
     # Plan 02b-01 Task 3: backfill tenant_id onto pre-existing rows.
     # memory.py owns memory.db (separate from multillm.db) — see the same
     # rationale as tracking.py's tenant_id backfill block.
-    for table in ("memories", "shared_context"):
-        try:
-            conn.execute(f"SELECT tenant_id FROM {table} LIMIT 1")
-        except sqlite3.OperationalError:
-            conn.execute(
-                f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
-            )
-            conn.execute(
-                f"UPDATE {table} SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''"
-            )
-            conn.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{table}_tenant ON {table}(tenant_id)"
-            )
+    # Per AUTH-17, DDL is written as explicit literals (no f-string).
+    try:
+        conn.execute("SELECT tenant_id FROM memories LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE memories ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
+        conn.execute("UPDATE memories SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_tenant ON memories(tenant_id)")
+    try:
+        conn.execute("SELECT tenant_id FROM shared_context LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE shared_context ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
+        conn.execute("UPDATE shared_context SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_shared_context_tenant ON shared_context(tenant_id)")
 
 
 @contextmanager

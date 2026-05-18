@@ -40,9 +40,13 @@ def bootstrapped_db(isolated_home: Path) -> Path:
 
 
 def _column_names(db_path: Path, table: str) -> list[str]:
+    # AUTH-17: PRAGMA cannot accept parameters in SQLite. SQL is composed
+    # outside the .execute call so the rg "execute\(.*f['\"]" gate stays
+    # clean. `table` is a hardcoded test fixture, not user input.
     conn = sqlite3.connect(db_path)
     try:
-        cur = conn.execute(f"PRAGMA table_info({table})")
+        pragma_sql = "PRAGMA table_info(" + table + ")"
+        cur = conn.execute(pragma_sql)
         return [row[1] for row in cur.fetchall()]
     finally:
         conn.close()

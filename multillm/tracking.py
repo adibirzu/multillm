@@ -96,33 +96,42 @@ def _init_db(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE usage ADD COLUMN session_id TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_session ON usage(session_id)")
-    for table, column in (
-        ("usage", "cache_read_input_tokens"),
-        ("usage", "cache_creation_input_tokens"),
-        ("sessions", "total_cache_read_input_tokens"),
-        ("sessions", "total_cache_creation_input_tokens"),
-    ):
-        try:
-            conn.execute(f"SELECT {column} FROM {table} LIMIT 1")
-        except sqlite3.OperationalError:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} INTEGER DEFAULT 0")
+    # AUTH-17: identifier-level ALTER TABLE statements written as literals
+    # (no string interpolation into the SQL passed to .execute) so the
+    # rg "execute\(.*f['\"]" gate stays clean.
+    try:
+        conn.execute("SELECT cache_read_input_tokens FROM usage LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE usage ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0")
+    try:
+        conn.execute("SELECT cache_creation_input_tokens FROM usage LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE usage ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0")
+    try:
+        conn.execute("SELECT total_cache_read_input_tokens FROM sessions LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE sessions ADD COLUMN total_cache_read_input_tokens INTEGER DEFAULT 0")
+    try:
+        conn.execute("SELECT total_cache_creation_input_tokens FROM sessions LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE sessions ADD COLUMN total_cache_creation_input_tokens INTEGER DEFAULT 0")
     # Plan 02b-01 Task 2: backfill tenant_id onto pre-existing rows.
     # tracking.py owns its own usage.db (separate from multillm.db), so the
     # 0003_auth_tenancy alembic migration's backfill cannot reach this table.
-    # The ALTER TABLE pattern above handles that.
-    for table in ("usage", "sessions"):
-        try:
-            conn.execute(f"SELECT tenant_id FROM {table} LIMIT 1")
-        except sqlite3.OperationalError:
-            conn.execute(
-                f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
-            )
-            conn.execute(
-                f"UPDATE {table} SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''"
-            )
-            conn.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{table}_tenant ON {table}(tenant_id)"
-            )
+    # Per AUTH-17, all DDL is written as explicit literals (no f-string
+    # interpolation into .execute()).
+    try:
+        conn.execute("SELECT tenant_id FROM usage LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE usage ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
+        conn.execute("UPDATE usage SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_tenant ON usage(tenant_id)")
+    try:
+        conn.execute("SELECT tenant_id FROM sessions LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE sessions ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
+        conn.execute("UPDATE sessions SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_tenant ON sessions(tenant_id)")
 
 
 @contextmanager
