@@ -732,9 +732,10 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "bedrock":
-        # Bedrock uses boto3, no HTTP streaming — fall back to non-streaming
-        result = await _call_bedrock(real_model, body)
-        return JSONResponse(result)
+        adapter = get_adapter("bedrock")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="bedrock adapter not registered")
+        return await adapter.stream(body, real_model, model_alias)
 
     raise HTTPException(status_code=500, detail=f"Streaming not supported for backend: {backend}")
 
@@ -798,7 +799,10 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
             raise HTTPException(status_code=500, detail="azure_openai adapter not registered")
         return await adapter.send(body, real_model, model_alias)
     elif backend == "bedrock":
-        return await _call_bedrock(real_model, body)
+        adapter = get_adapter("bedrock")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="bedrock adapter not registered")
+        return await adapter.send(body, real_model, model_alias)
 
     raise HTTPException(status_code=500, detail=f"Unknown backend: {backend}")
 
