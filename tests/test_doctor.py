@@ -29,7 +29,7 @@ def test_assess_doctor_report_flags_unsafe_remote_gateway():
 
 def test_format_doctor_report_keeps_secret_values_hidden():
     report = {
-        "version": "0.6.2",
+        "version": "1.0.0rc1",
         "configuration": {
             "host": "127.0.0.1",
             "port": 8080,

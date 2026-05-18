@@ -4,7 +4,7 @@
 # Also denies GPL-3.0 / AGPL-3.0 outbound licenses (incompatible with
 # the project's Apache 2.0 license per D-01).
 #
-# Third-party actions pinned by 40-char SHA per OSS-13. PIN_DEPREVIEW_SHA
+# Third-party actions pinned by 40-char SHA per OSS-13. 4901385134134e04cec5fbe5ddfe3b2c5bd5d976
 # is resolved by Plan 9 Task 1.
 
 name: dependency-review
@@ -28,7 +28,7 @@ jobs:
       # action v4
       # pinned per OSS-13
       - name: Dependency Review
-        uses: actions/dependency-review-action@PIN_DEPREVIEW_SHA
+        uses: actions/dependency-review-action@4901385134134e04cec5fbe5ddfe3b2c5bd5d976
         with:
           fail-on-severity: high
           comment-summary-in-pr: always

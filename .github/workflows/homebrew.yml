@@ -105,7 +105,7 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          URL="https://files.pythonhosted.org/packages/source/m/multillm/multillm-${VERSION}.tar.gz"
+          URL="https://files.pythonhosted.org/packages/source/m/multillm-gateway/multillm_gateway-${VERSION}.tar.gz"
           echo "Polling ${URL}"
           for i in $(seq 1 60); do
             if curl -fsSI -o /dev/null "${URL}"; then
@@ -176,7 +176,7 @@ jobs:
       # `brew install` smoke-tests the new formula. Switch to direct push
       # only if the tap repo disables branch protection.
       - name: Open PR on tap repo
-        uses: peter-evans/create-pull-request@PIN_CPR_SHA
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c
         with:
           path: tap-repo
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}

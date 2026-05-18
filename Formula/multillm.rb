@@ -18,7 +18,7 @@ class Multillm < Formula
 
   desc "Open-source multi-tenant LLM gateway"
   homepage "https://github.com/${OWNER}/${REPO}"
-  url "https://files.pythonhosted.org/packages/source/m/multillm/multillm-VERSION_PLACEHOLDER.tar.gz"
+  url "https://files.pythonhosted.org/packages/source/m/multillm-gateway/multillm_gateway-VERSION_PLACEHOLDER.tar.gz"
   sha256 "SHA256_PLACEHOLDER"
   license "Apache-2.0"
 

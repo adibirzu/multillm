@@ -137,12 +137,12 @@ Run all three checks before announcing the release.
 
 ```bash
 # Download and inspect the artifacts:
-pip download multillm==1.0.0rc1 --no-deps -d /tmp/multillm-verify
+pip download multillm-gateway==1.0.0rc1 --no-deps -d /tmp/multillm-verify
 ls /tmp/multillm-verify
 
 # List PEP 740 Sigstore attestations attached to the artifact:
 python -m pip install pypi-attestations
-pypi-attestations inspect /tmp/multillm-verify/multillm-1.0.0rc1.tar.gz
+pypi-attestations inspect /tmp/multillm-verify/multillm_gateway-1.0.0rc1.tar.gz
 
 # OR, with the official `pypi attest` plugin once available on the
 # end-user machine:
@@ -194,9 +194,9 @@ via the PyPI wheel as the source of truth (D-11).
 
 PyPI does **not** support deletion of a released version. Use the *yank*
 mechanism, which leaves the artifact downloadable for pinned installs but
-hides it from `pip install multillm` (resolves to the next-newest version):
+hides it from `pip install multillm-gateway` (resolves to the next-newest version):
 
-1. https://pypi.org/project/multillm/ → *Manage → Releases →
+1. https://pypi.org/project/multillm-gateway/ → *Manage → Releases →
    ${VERSION} → Options → Yank*.
 2. Provide a reason (free-text). Yanks are reversible.
 

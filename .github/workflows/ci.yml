@@ -120,7 +120,7 @@ jobs:
       # action v2.3.9
       # pinned per OSS-13
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@PIN_GITLEAKS_SHA
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc
         env:
           GITLEAKS_CONFIG: .gitleaks.toml
 
@@ -128,7 +128,7 @@ jobs:
       # action v3.85.0
       # pinned per OSS-13
       - name: trufflehog (verified secrets only)
-        uses: trufflesecurity/trufflehog@PIN_TRUFFLEHOG_SHA
+        uses: trufflesecurity/trufflehog@fda044631b344997a4556f52aadbd7c8275d0802
         with:
           path: ./
           base: ${{ github.event.repository.default_branch }}

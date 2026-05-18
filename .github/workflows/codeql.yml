@@ -7,7 +7,7 @@
 #     thundering-herd with other Monday-morning scheduled jobs)
 #
 # All github/codeql-action steps are pinned by 40-char commit SHA per
-# OSS-13. PIN_CODEQL_SHA placeholders are resolved by Plan 9 Task 1.
+# OSS-13. 78ed0c7291d93e40c51b085850dc669a4c3ab73b placeholders are resolved by Plan 9 Task 1.
 
 name: codeql
 
@@ -43,18 +43,18 @@ jobs:
       # action v3
       # pinned per OSS-13
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@PIN_CODEQL_SHA
+        uses: github/codeql-action/init@78ed0c7291d93e40c51b085850dc669a4c3ab73b
         with:
           languages: ${{ matrix.language }}
 
       # action v3
       # pinned per OSS-13
       - name: Autobuild
-        uses: github/codeql-action/autobuild@PIN_CODEQL_SHA
+        uses: github/codeql-action/autobuild@78ed0c7291d93e40c51b085850dc669a4c3ab73b
 
       # action v3
       # pinned per OSS-13
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@PIN_CODEQL_SHA
+        uses: github/codeql-action/analyze@78ed0c7291d93e40c51b085850dc669a4c3ab73b
         with:
           category: "/language:${{ matrix.language }}"

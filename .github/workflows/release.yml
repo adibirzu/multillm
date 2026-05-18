@@ -124,7 +124,7 @@ jobs:
       # `attestations: true` is the v1.10+ default; we set it explicitly
       # so a future default change cannot silently disable attestations.
       - name: Publish to PyPI (Trusted Publishing + PEP 740 attestations)
-        uses: pypa/gh-action-pypi-publish@PIN_PYPI_PUBLISH_SHA
+        uses: pypa/gh-action-pypi-publish@ac9137700382092e954a82f6661e939778fc9e6c
         with:
           attestations: true
           print-hash: true
@@ -159,7 +159,7 @@ jobs:
       # `prerelease` flips automatically for `-rc.` tags so the GitHub UI
       # shows the right badge and the "Latest release" pointer skips rcs.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@PIN_GH_RELEASE_SHA
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: dist/*
           generate_release_notes: true
