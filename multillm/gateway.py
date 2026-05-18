@@ -718,11 +718,10 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         return JSONResponse(result)
 
     elif backend in OPENAI_COMPAT_BACKENDS:
-        cfg = OPENAI_COMPAT_BACKENDS[backend]
-        key = cfg["key_fn"]()
-        if not key:
-            raise HTTPException(status_code=500, detail=f"{backend.upper()}_API_KEY not set")
-        return await stream_openai_compat(cfg["url"], key, body, real_model, model_alias, backend=backend)
+        adapter = get_adapter(backend)
+        if adapter is None:
+            raise HTTPException(status_code=500, detail=f"{backend} adapter not registered")
+        return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "azure_openai":
         if not AZURE_OPENAI_KEY or not AZURE_OPENAI_ENDPOINT:
@@ -781,7 +780,10 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
         body["_route_model"] = real_model
         return await _call_gemini_cli(body, model_alias)
     elif backend in OPENAI_COMPAT_BACKENDS:
-        return await _call_openai_compat_backend(backend, real_model, body)
+        adapter = get_adapter(backend)
+        if adapter is None:
+            raise HTTPException(status_code=500, detail=f"{backend} adapter not registered")
+        return await adapter.send(body, real_model, model_alias)
     elif backend == "azure_openai":
         return await _call_azure_openai(real_model, body)
     elif backend == "bedrock":
