@@ -37,11 +37,11 @@ progress:
 
 ## Current Position
 
-- **Current phase:** 2a — Adapter Hot-Path Refactor (wave 1 shipped, wave 2 ready)
-- **Current plan:** 02a-01 (Foundation, 6/6 tasks shipped) — ARCH-04 + ARCH-07 closed; 02a-02 (Bulk migration, 20 tasks) ready for execute
-- **Status:** Plan 02a-01 complete at `c776d55`. 7 atomic commits on origin/main (f1c67bb..87d9edf + SUMMARY c776d55). 351→359 tests (8 added by 02a-01). Coverage baseline 62.53% captured. ollama proof backend dispatches through registry; other 11 backends still on inline path (intentional dual-path coexistence).
-- **Progress:** 1/11 phases complete; Phase 2a at 6/26 atomic commits (Plan 02a-01 done, Plan 02a-02 pending)
-- **Next action:** `/gsd-execute-phase 2a --wave 2 --interactive` to walk the bulk migration tasks one at a time
+- **Current phase:** 2a — Adapter Hot-Path Refactor (COMPLETE — both waves shipped)
+- **Current plan:** 02a-02 (Bulk migration, 20/20 tasks shipped) — ARCH-01/02/03/05/06 closed; Phase 2a's full ARCH-01..ARCH-07 set delivered
+- **Status:** Phase 2a complete. 26 atomic commits across two plans (6 + 20). 351→378 tests (+27 net, zero regressions). Coverage 62.53%→64.84% (+2.31pp). gateway.py 1936→1587 lines (-349, -18%). All inline `_call_<backend>` retired, `OPENAI_COMPAT_BACKENDS` dict gone, `setup.py` deleted, registry dispatch is the only path. `route_request` and `route_streaming` are exactly 3 AST statements each (mechanically enforced).
+- **Progress:** 2/11 phases complete; ready for Phase 2b (Auth & Multi-Tenancy)
+- **Next action:** `/gsd-discuss-phase 2b` to scope Auth & Multi-Tenancy, or `/gsd-plan-phase 2b` if discussion can be skipped
 
 ```
 [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% (0/11 phases)
