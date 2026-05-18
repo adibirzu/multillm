@@ -672,7 +672,10 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "lmstudio":
-        return await stream_openai_compat(LMSTUDIO_URL, "", body, real_model, model_alias, backend="lmstudio")
+        adapter = get_adapter("lmstudio")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="lmstudio adapter not registered")
+        return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "openrouter":
         if not OPENROUTER_KEY:
@@ -751,10 +754,10 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
             raise HTTPException(status_code=500, detail="ollama adapter not registered")
         return await adapter.send(body, real_model, model_alias)
     elif backend == "lmstudio":
-        payload = build_openai_payload(body, real_model)
-        payload["stream"] = False
-        oai = await _call_openai_compat(LMSTUDIO_URL, "", payload, backend="lmstudio")
-        return openai_response_to_anthropic(oai, model_alias)
+        adapter = get_adapter("lmstudio")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="lmstudio adapter not registered")
+        return await adapter.send(body, real_model, model_alias)
     elif backend == "openrouter":
         if not OPENROUTER_KEY:
             raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not set")
