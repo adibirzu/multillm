@@ -651,93 +651,79 @@ async def _check_ollama_available() -> bool:
         return False
 
 
-# ── Streaming routing ──────────────────────────────────────────────────────
+# ── Dispatch helpers (Plan 02a-02 Task 18) ─────────────────────────────────
+#
+# Extracted so route_request and route_streaming can have literal ≤ 3 AST
+# top-level statements per ROADMAP success criterion #1 (AST-enforced gate
+# in tests/test_route_function_shape.py).
 
-async def route_streaming(body: dict, route: dict, model_alias: str):
-    """Route a streaming request to the appropriate backend."""
-    backend = route.get("backend", "")
-    real_model = route.get("model", "")
 
-    # Health gate — let caller's fallback handler catch this
+def _resolve_route(
+    body: dict,
+    model_alias: Optional[str],
+    route: Optional[dict],
+) -> tuple[str, dict]:
+    """Resolve (model_alias, route) for a request, including the claude-* fallback.
+
+    Returns the resolved tuple. Raises HTTPException 400 for unknown aliases.
+    """
+    requested_alias = body.get("model", "ollama/llama3")
+    if route is None or model_alias is None:
+        model_alias, route = _select_route(requested_alias)
+    if route is None:
+        if requested_alias.startswith("claude-"):
+            log.info(
+                "Routing requested=%s selected=%s backend=anthropic (claude-* fallback)",
+                requested_alias, requested_alias,
+            )
+            return requested_alias, {"backend": "anthropic", "model": body.get("model", "")}
+        raise HTTPException(status_code=400, detail=f"Unknown model alias: {requested_alias}")
+    log.info(
+        "Routing requested=%s selected=%s backend=%s model=%s",
+        requested_alias, model_alias, route["backend"], route["model"],
+    )
+    return model_alias, route
+
+
+async def _check_health(backend: str) -> None:
+    """Raise BackendUnavailableError if the backend's health gate is failing."""
     if not is_backend_healthy(backend):
         raise BackendUnavailableError(f"Backend '{backend}' is unhealthy")
 
-    if backend == "ollama":
-        # Plan 02a-01 Task 5: ollama is the proof backend for the adapter
-        # registry dispatch path. Other 11 backends remain on the inline
-        # _call_<backend> path until Plan 02a-02 migrates them.
-        adapter = get_adapter("ollama")
-        if adapter is None:
-            raise HTTPException(status_code=500, detail="ollama adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
 
-    elif backend == "lmstudio":
-        adapter = get_adapter("lmstudio")
-        if adapter is None:
-            raise HTTPException(status_code=500, detail="lmstudio adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
+async def _dispatch_with_resilience(
+    backend: str, body: dict, model: str, model_alias: str
+) -> dict:
+    """Resolve the adapter and call send(), wrapping in retry+breaker except for subprocess CLIs."""
+    adapter = get_adapter(backend)
+    if adapter is None:
+        raise HTTPException(status_code=500, detail=f"Unknown backend: {backend}")
+    if backend in ("codex_cli", "gemini_cli"):
+        return await adapter.send(body, model, model_alias)
+    return await with_retry(
+        lambda: adapter.send(body, model, model_alias),
+        backend=backend,
+        max_retries=2,
+    )
 
-    elif backend == "openrouter":
-        adapter = get_adapter("openrouter")
-        if adapter is None:
-            raise HTTPException(status_code=500, detail="openrouter adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
 
-    elif backend == "openai":
-        adapter = get_adapter("openai")
-        if adapter is None:
-            raise HTTPException(status_code=500, detail="openai adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
+async def _dispatch_streaming_with_resilience(
+    backend: str, body: dict, model: str, model_alias: str
+):
+    """Resolve the adapter and call stream()."""
+    adapter = get_adapter(backend)
+    if adapter is None:
+        raise HTTPException(status_code=500, detail=f"Streaming not supported for backend: {backend}")
+    return await adapter.stream(body, model, model_alias)
 
-    elif backend == "anthropic":
-        adapter = get_adapter("anthropic")
-        if adapter is None:
-            raise HTTPException(status_code=500, detail="anthropic adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
 
-    elif backend == "oca":
-        adapter = get_adapter("oca")
-        if adapter is None:
-            raise HTTPException(status_code=500, detail="oca adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
+# ── Streaming routing ──────────────────────────────────────────────────────
 
-    elif backend == "gemini":
-        adapter = get_adapter("gemini")
-        if adapter is None:
-            raise HTTPException(status_code=500, detail="gemini adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
-
-    elif backend == "codex_cli":
-        adapter = get_adapter("codex_cli")
-        if adapter is None:
-            raise HTTPException(status_code=500, detail="codex_cli adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
-
-    elif backend == "gemini_cli":
-        adapter = get_adapter("gemini_cli")
-        if adapter is None:
-            raise HTTPException(status_code=500, detail="gemini_cli adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
-
-    elif backend in OPENAI_COMPAT_BACKENDS:
-        adapter = get_adapter(backend)
-        if adapter is None:
-            raise HTTPException(status_code=500, detail=f"{backend} adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
-
-    elif backend == "azure_openai":
-        adapter = get_adapter("azure_openai")
-        if adapter is None:
-            raise HTTPException(status_code=500, detail="azure_openai adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
-
-    elif backend == "bedrock":
-        adapter = get_adapter("bedrock")
-        if adapter is None:
-            raise HTTPException(status_code=500, detail="bedrock adapter not registered")
-        return await adapter.stream(body, real_model, model_alias)
-
-    raise HTTPException(status_code=500, detail=f"Streaming not supported for backend: {backend}")
+async def route_streaming(body: dict, route: dict, model_alias: str):
+    """Route a streaming request to the appropriate backend (Plan 02a-02 SC#1: ≤3 statements)."""
+    backend, real_model = route.get("backend", ""), route.get("model", "")
+    await _check_health(backend)
+    return await _dispatch_streaming_with_resilience(backend, body, real_model, model_alias)
 
 
 # ── Non-streaming routing ──────────────────────────────────────────────────
@@ -812,41 +798,10 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
 
 
 async def route_request(body: dict, model_alias: Optional[str] = None, route: Optional[dict] = None) -> dict:
-    requested_alias = body.get("model", "ollama/llama3")
-    if route is None or model_alias is None:
-        model_alias, route = _select_route(requested_alias)
-
-    if route is None:
-        if requested_alias.startswith("claude-"):
-            adapter = get_adapter("anthropic")
-            if adapter is None:
-                raise HTTPException(status_code=500, detail="anthropic adapter not registered")
-            return await adapter.send(body, body.get("model", ""), requested_alias)
-        raise HTTPException(status_code=400, detail=f"Unknown model alias: {requested_alias}")
-
-    backend = route["backend"]
-    real_model = route["model"]
-    log.info(
-        "Routing requested=%s selected=%s backend=%s model=%s",
-        requested_alias,
-        model_alias,
-        backend,
-        real_model,
-    )
-
-    # Skip unhealthy backends early — raise so fallback handler catches it
-    if not is_backend_healthy(backend):
-        raise BackendUnavailableError(f"Backend '{backend}' is unhealthy")
-
-    # Wrap in retry + circuit breaker (skip for CLI-based backends — subprocess-based)
-    if backend in ("codex_cli", "gemini_cli"):
-        return await _route_single_request(body, backend, real_model, model_alias)
-
-    return await with_retry(
-        lambda: _route_single_request(body, backend, real_model, model_alias),
-        backend=backend,
-        max_retries=2,
-    )
+    """Route a non-streaming request to the appropriate backend (Plan 02a-02 SC#1: ≤3 statements)."""
+    model_alias, route = _resolve_route(body, model_alias, route)
+    await _check_health(route["backend"])
+    return await _dispatch_with_resilience(route["backend"], body, route["model"], model_alias)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
