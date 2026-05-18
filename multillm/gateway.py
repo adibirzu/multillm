@@ -687,9 +687,10 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         )
 
     elif backend == "openai":
-        if not OPENAI_KEY:
-            raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
-        return await stream_openai_compat("https://api.openai.com", OPENAI_KEY, body, real_model, model_alias, backend="openai")
+        adapter = get_adapter("openai")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="openai adapter not registered")
+        return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "anthropic":
         if not ANTHROPIC_KEY:
@@ -770,12 +771,10 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
         )
         return openai_response_to_anthropic(oai, model_alias)
     elif backend == "openai":
-        if not OPENAI_KEY:
-            raise HTTPException(status_code=500, detail="OPENAI_API_KEY not set")
-        payload = build_openai_payload(body, real_model)
-        payload["stream"] = False
-        oai = await _call_openai_compat("https://api.openai.com", OPENAI_KEY, payload)
-        return openai_response_to_anthropic(oai, model_alias)
+        adapter = get_adapter("openai")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="openai adapter not registered")
+        return await adapter.send(body, real_model, model_alias)
     elif backend == "anthropic":
         if not ANTHROPIC_KEY:
             raise HTTPException(status_code=500, detail="ANTHROPIC_REAL_KEY not set")
