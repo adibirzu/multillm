@@ -690,9 +690,10 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "anthropic":
-        if not ANTHROPIC_KEY:
-            raise HTTPException(status_code=500, detail="ANTHROPIC_REAL_KEY not set")
-        return await stream_anthropic_passthrough(ANTHROPIC_KEY, {**body, "model": real_model})
+        adapter = get_adapter("anthropic")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="anthropic adapter not registered")
+        return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "oca":
         token = await get_oca_bearer_token()
@@ -766,9 +767,10 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
             raise HTTPException(status_code=500, detail="openai adapter not registered")
         return await adapter.send(body, real_model, model_alias)
     elif backend == "anthropic":
-        if not ANTHROPIC_KEY:
-            raise HTTPException(status_code=500, detail="ANTHROPIC_REAL_KEY not set")
-        return await _call_anthropic_real({**body, "model": real_model})
+        adapter = get_adapter("anthropic")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="anthropic adapter not registered")
+        return await adapter.send(body, real_model, model_alias)
     elif backend == "oca":
         return await _call_oca(real_model, body)
     elif backend == "gemini":
@@ -799,7 +801,10 @@ async def route_request(body: dict, model_alias: Optional[str] = None, route: Op
 
     if route is None:
         if requested_alias.startswith("claude-"):
-            return await _call_anthropic_real(body)
+            adapter = get_adapter("anthropic")
+            if adapter is None:
+                raise HTTPException(status_code=500, detail="anthropic adapter not registered")
+            return await adapter.send(body, body.get("model", ""), requested_alias)
         raise HTTPException(status_code=400, detail=f"Unknown model alias: {requested_alias}")
 
     backend = route["backend"]

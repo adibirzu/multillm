@@ -203,11 +203,14 @@ class TestMessagesEndpoint:
         })
         assert response.status_code == 400
 
-    @patch("multillm.gateway.ANTHROPIC_KEY", "test-key")
-    @patch("multillm.gateway._call_anthropic_real")
-    def test_claude_model_passthrough(self, mock_anthropic):
+    @patch("multillm.adapters.anthropic.AnthropicAdapter.send", new_callable=AsyncMock)
+    def test_claude_model_passthrough(self, mock_send):
+        # Plan 02a-02 Task 11: claude-* fallback path in route_request now
+        # dispatches through the anthropic adapter, so the mock target is
+        # AnthropicAdapter.send rather than the retired _call_anthropic_real
+        # inline helper.
         mock_response = make_anthropic_response("Hi from Claude", "claude-sonnet-4-6", 10, 5)
-        mock_anthropic.return_value = mock_response
+        mock_send.return_value = mock_response
 
         response = client.post("/v1/messages", json={
             "model": "claude-sonnet-4-6",
