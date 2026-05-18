@@ -37,11 +37,11 @@ progress:
 
 ## Current Position
 
-- **Current phase:** 2b — Auth & Multi-Tenancy (local-first slice; planned, ready to execute)
-- **Current plan:** 02b-01 (Schema + Protocols + SQLi, 6 tasks) + 02b-02 (API keys + budgets + auto-upgrade, 8 tasks). Combined: 14 atomic commits planned.
-- **Status:** Phase 2b scope explicitly reduced from 21 reqs to 11 (local-first). CONTEXT committed at `b27bc6a`, plans at `5016e9f`. Plan-check PASS with 2 advisory concerns (executor heads-up at dispatch: stress-test connection model, BudgetMiddleware body double-read). 378 tests baseline; +6 expected from 02b-01, +30 expected from 02b-02 → ~414 final.
-- **Progress:** 2/11 phases complete; Phase 2b discussed + planned + checked
-- **Next action:** `/gsd-execute-phase 2b --wave 1 --interactive` to walk Plan 02b-01 (schema + repos + SQLi hardening)
+- **Current phase:** 2b — Auth & Multi-Tenancy (local-first slice; wave 1 shipped)
+- **Current plan:** 02b-01 (6/6 tasks shipped) — AUTH-15 + AUTH-16 + AUTH-17 + AUTH-18 closed. 02b-02 (8 tasks) pending.
+- **Status:** Plan 02b-01 complete. 6 atomic commits (one Task-1 amend), 378 → 396 tests (+18 new, zero regressions). Schema migration 0003_auth_tenancy creates api_keys + budgets; concrete TrackingRepoSqlite + SessionRepoSqlite + MemoryRepoSqlite implement the Phase 2a Protocols against existing usage.db + memory.db files; tenant_id="default" threaded through writes in tracking.py + memory.py; SQLi audit eliminated all `execute(f"...")` patterns across multillm/ + tests/; CI grep gate locks the post-audit state; SQLi regression test covers 3 vectors; AuthMiddleware returns 401 (not 403) on invalid key.
+- **Progress:** 2/11 phases complete; Phase 2b at 6/14 atomic commits (wave 1 done, wave 2 pending)
+- **Next action:** `/gsd-execute-phase 2b --wave 2 --interactive` to walk Plan 02b-02 (API keys + budgets + auto-upgrade)
 
 ```
 [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% (0/11 phases)
