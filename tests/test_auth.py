@@ -71,12 +71,15 @@ class TestAuthEnabled:
             r = client.get("/v1/test")
             assert r.status_code == 401
 
-    def test_wrong_key_returns_403(self):
+    def test_wrong_key_returns_401(self):
+        # Plan 02b-01 Task 5 (AUTH-16): invalid key returns 401, not 403.
+        # RFC 7235: 401 = "credentials missing or wrong"; 403 = "credentials
+        # valid but lacks permission". An invalid API key is a 401.
         app = _make_app("secret123")
         with patch("multillm.auth.API_KEY", "secret123"):
             client = TestClient(app)
             r = client.get("/v1/test", headers={"X-API-Key": "wrong"})
-            assert r.status_code == 403
+            assert r.status_code == 401
 
     def test_correct_key_via_header(self):
         app = _make_app("secret123")

@@ -99,6 +99,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not secrets.compare_digest(provided, API_KEY):
             path = request.url.path
             log.warning("Auth: invalid key for %s %s from %s", request.method, path, request.client.host if request.client else "unknown")
-            return JSONResponse(status_code=403, content={"detail": "Invalid API key."})
+            # AUTH-16: invalid key returns 401, not 403. RFC 7235: 401 means
+            # "you need credentials or yours don't work"; 403 is for "you have
+            # credentials but lack permission". An invalid key is a 401.
+            return JSONResponse(status_code=401, content={"detail": "Invalid API key."})
 
         return await call_next(request)

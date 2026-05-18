@@ -70,6 +70,17 @@ jobs:
           path: coverage.xml
           if-no-files-found: warn
 
+      - name: SQL injection guard
+        # Plan 02b-01 Task 5 (AUTH-17): CI grep gate prevents string-
+        # interpolated SQL. Exits non-zero if any execute(f"...") pattern
+        # is found anywhere in multillm/ or tests/. ripgrep ships on
+        # ubuntu-latest GitHub runners by default.
+        run: |
+          if rg -n "execute\(.*f['\"]" multillm/ tests/; then
+            echo "::error::AUTH-17 violation — f-string interpolated into a SQL execute() call. Use parameterized queries."
+            exit 1
+          fi
+
   # ---------------------------------------------------------------------
   # lint — ruff format-check + ruff check (block) + mypy (warn-only, D-17).
   # ---------------------------------------------------------------------
