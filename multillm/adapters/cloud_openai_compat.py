@@ -45,3 +45,48 @@ class CloudOpenAICompatAdapter(BaseAdapter):
         return await stream_openai_compat(
             self.base_url, self.key_fn(), body, model, model_alias, backend=self.name,
         )
+
+
+# ---------------------------------------------------------------------------
+# Entry-point factories (Plan 02a-01 Task 3).
+#
+# Each factory returns a CloudOpenAICompatAdapter pre-configured for one of
+# the six cloud_openai_compat family backends. Wired into the registry via
+# `[project.entry-points."multillm.backends"]` in pyproject.toml.
+#
+# URLs and key bindings are lifted verbatim from
+# multillm/adapters/setup.py:45-50 so behavior is identical to the legacy
+# register_all_adapters() codepath.
+#
+# Inline config imports avoid circular-import risk at module load time.
+# ---------------------------------------------------------------------------
+
+
+def make_groq() -> "CloudOpenAICompatAdapter":
+    from ..config import GROQ_KEY
+    return CloudOpenAICompatAdapter("groq", "https://api.groq.com/openai", lambda: GROQ_KEY)
+
+
+def make_deepseek() -> "CloudOpenAICompatAdapter":
+    from ..config import DEEPSEEK_KEY
+    return CloudOpenAICompatAdapter("deepseek", "https://api.deepseek.com", lambda: DEEPSEEK_KEY)
+
+
+def make_mistral() -> "CloudOpenAICompatAdapter":
+    from ..config import MISTRAL_KEY
+    return CloudOpenAICompatAdapter("mistral", "https://api.mistral.ai", lambda: MISTRAL_KEY)
+
+
+def make_together() -> "CloudOpenAICompatAdapter":
+    from ..config import TOGETHER_KEY
+    return CloudOpenAICompatAdapter("together", "https://api.together.xyz", lambda: TOGETHER_KEY)
+
+
+def make_xai() -> "CloudOpenAICompatAdapter":
+    from ..config import XAI_KEY
+    return CloudOpenAICompatAdapter("xai", "https://api.x.ai", lambda: XAI_KEY)
+
+
+def make_fireworks() -> "CloudOpenAICompatAdapter":
+    from ..config import FIREWORKS_KEY
+    return CloudOpenAICompatAdapter("fireworks", "https://api.fireworks.ai/inference", lambda: FIREWORKS_KEY)
