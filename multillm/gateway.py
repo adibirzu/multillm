@@ -696,10 +696,10 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "oca":
-        token = await get_oca_bearer_token()
-        if not token:
-            raise HTTPException(status_code=401, detail=f"OCA not authenticated. {OCA_LOGIN_HINT}")
-        return await stream_oca(OCA_ENDPOINT, OCA_API_VERSION, token, body, real_model, model_alias)
+        adapter = get_adapter("oca")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="oca adapter not registered")
+        return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "gemini":
         adapter = get_adapter("gemini")
@@ -773,7 +773,10 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
             raise HTTPException(status_code=500, detail="anthropic adapter not registered")
         return await adapter.send(body, real_model, model_alias)
     elif backend == "oca":
-        return await _call_oca(real_model, body)
+        adapter = get_adapter("oca")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="oca adapter not registered")
+        return await adapter.send(body, real_model, model_alias)
     elif backend == "gemini":
         adapter = get_adapter("gemini")
         if adapter is None:
