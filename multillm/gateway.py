@@ -678,13 +678,10 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "openrouter":
-        if not OPENROUTER_KEY:
-            raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not set")
-        return await stream_openai_compat(
-            "https://openrouter.ai/api", OPENROUTER_KEY, body, real_model, model_alias,
-            extra_headers={"HTTP-Referer": "https://multillm-gateway", "X-Title": "MultiLLM Gateway"},
-            backend="openrouter",
-        )
+        adapter = get_adapter("openrouter")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="openrouter adapter not registered")
+        return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "openai":
         adapter = get_adapter("openai")
@@ -760,16 +757,10 @@ async def _route_single_request(body: dict, backend: str, real_model: str, model
             raise HTTPException(status_code=500, detail="lmstudio adapter not registered")
         return await adapter.send(body, real_model, model_alias)
     elif backend == "openrouter":
-        if not OPENROUTER_KEY:
-            raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not set")
-        payload = build_openai_payload(body, real_model)
-        payload["stream"] = False
-        oai = await _call_openai_compat(
-            "https://openrouter.ai/api", OPENROUTER_KEY, payload,
-            extra_headers={"HTTP-Referer": "https://multillm-gateway", "X-Title": "MultiLLM Gateway"},
-            backend="openrouter",
-        )
-        return openai_response_to_anthropic(oai, model_alias)
+        adapter = get_adapter("openrouter")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="openrouter adapter not registered")
+        return await adapter.send(body, real_model, model_alias)
     elif backend == "openai":
         adapter = get_adapter("openai")
         if adapter is None:
