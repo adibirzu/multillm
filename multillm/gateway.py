@@ -71,7 +71,7 @@ from .streaming import (
     stream_gemini,
 )
 from .stream_utils import StreamTokenCounter
-from .adapters import list_adapters
+from .adapters import get_adapter, list_adapters
 from .adapters.codex_cli import CodexCLIAdapter
 from .adapters.gemini_cli import GeminiCLIAdapter
 from .adapters.setup import register_all_adapters
@@ -663,7 +663,13 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
         raise BackendUnavailableError(f"Backend '{backend}' is unhealthy")
 
     if backend == "ollama":
-        return await stream_ollama(OLLAMA_URL, body, real_model, model_alias)
+        # Plan 02a-01 Task 5: ollama is the proof backend for the adapter
+        # registry dispatch path. Other 11 backends remain on the inline
+        # _call_<backend> path until Plan 02a-02 migrates them.
+        adapter = get_adapter("ollama")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="ollama adapter not registered")
+        return await adapter.stream(body, real_model, model_alias)
 
     elif backend == "lmstudio":
         return await stream_openai_compat(LMSTUDIO_URL, "", body, real_model, model_alias, backend="lmstudio")
@@ -737,7 +743,13 @@ async def route_streaming(body: dict, route: dict, model_alias: str):
 async def _route_single_request(body: dict, backend: str, real_model: str, model_alias: str) -> dict:
     """Dispatch a non-streaming request to the appropriate backend adapter."""
     if backend == "ollama":
-        return await _call_ollama(real_model, body)
+        # Plan 02a-01 Task 5: ollama is the proof backend for the adapter
+        # registry dispatch path. Other 11 backends remain on the inline
+        # _call_<backend> path until Plan 02a-02 migrates them.
+        adapter = get_adapter("ollama")
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="ollama adapter not registered")
+        return await adapter.send(body, real_model, model_alias)
     elif backend == "lmstudio":
         payload = build_openai_payload(body, real_model)
         payload["stream"] = False

@@ -177,8 +177,11 @@ class TestSettingsEndpoints:
 
 class TestMessagesEndpoint:
 
-    @patch("multillm.gateway._call_ollama")
+    @patch("multillm.adapters.ollama.OllamaAdapter.send", new_callable=AsyncMock)
     def test_non_streaming_request(self, mock_ollama):
+        # Plan 02a-01 Task 5: ollama dispatches via the adapter registry, so
+        # tests mock OllamaAdapter.send instead of the retired _call_ollama
+        # inline-path symbol.
         mock_response = make_anthropic_response("Hello!", "ollama/llama3", 10, 5)
         mock_ollama.return_value = mock_response
 
@@ -246,7 +249,7 @@ class TestMessagesEndpoint:
         assert args[1] == "gemini-cli:gemini-2.5-flash"
         assert args[2] == "gemini-cli/default"
 
-    @patch("multillm.gateway._call_ollama")
+    @patch("multillm.adapters.ollama.OllamaAdapter.send", new_callable=AsyncMock)
     def test_request_with_system_prompt(self, mock_ollama):
         mock_response = make_anthropic_response("Yes!", "ollama/llama3", 10, 5)
         mock_ollama.return_value = mock_response
@@ -259,7 +262,7 @@ class TestMessagesEndpoint:
         })
         assert response.status_code == 200
 
-    @patch("multillm.gateway._call_ollama")
+    @patch("multillm.adapters.ollama.OllamaAdapter.send", new_callable=AsyncMock)
     def test_request_with_tools(self, mock_ollama):
         mock_response = make_anthropic_response(
             "", "ollama/llama3",
