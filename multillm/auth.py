@@ -37,6 +37,7 @@ OPTIONAL_PUBLIC_READONLY_API_PREFIXES = (
     "/api/codex-stats",
     "/api/gemini-stats",
     "/api/all-llm-usage",
+    "/api/team-usage",
     "/api/cache",
     "/api/otel",
     "/api/rate-limit",

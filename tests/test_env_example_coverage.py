@@ -34,6 +34,9 @@ MULTILLM_PKG = REPO_ROOT / "multillm"
 # the OS / container runtime and therefore MUST NOT appear in ``.env.example``.
 SYSTEM_PROVIDED: frozenset[str] = frozenset({
     "PATH",
+    # Provided by the OS/login session; read as a default tenant label by the
+    # per-user team-usage collector (multillm/team_collector.py).
+    "USER",
 })
 
 # Names documented in ``.env.example`` that are not yet read directly via

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MultiLLM · Team Usage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #090b10;
+      --surface: rgba(255, 255, 255, 0.035);
+      --surface-2: rgba(255, 255, 255, 0.06);
+      --border: rgba(255, 255, 255, 0.09);
+      --accent: #6c5ce7;
+      --accent-2: #00d2d3;
+      --good: #2ed573;
+      --warn: #ffa502;
+      --bad: #ff4757;
+      --text: #f1f2f6;
+      --muted: #9aa4b2;
+      --mono: 'JetBrains Mono', ui-monospace, monospace;
+      --r: 16px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Outfit', system-ui, sans-serif;
+      background:
+        radial-gradient(900px 600px at 12% -8%, rgba(108,92,231,0.18), transparent 60%),
+        radial-gradient(800px 600px at 100% 0%, rgba(0,210,211,0.10), transparent 55%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: clamp(1.2rem, 2vw, 2.5rem);
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 1240px; margin: 0 auto; }
+    header.page {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 1rem; margin-bottom: 2rem;
+    }
+    h1 {
+      font-size: clamp(1.6rem, 1rem + 2vw, 2.6rem); font-weight: 800; letter-spacing: -0.02em;
+      background: linear-gradient(120deg, #c9c4ff, var(--accent) 55%, var(--accent-2));
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .sub { color: var(--muted); font-size: 0.95rem; margin-top: 0.25rem; }
+    .controls { display: flex; gap: 0.5rem; align-items: center; }
+    select, button {
+      font-family: inherit; font-size: 0.9rem; color: var(--text);
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 0.55rem 0.8rem; cursor: pointer;
+      transition: border-color .2s ease, transform .1s ease;
+    }
+    select:hover, button:hover { border-color: rgba(108,92,231,0.5); }
+    button:active { transform: scale(0.97); }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--r);
+      padding: 1.25rem 1.35rem; backdrop-filter: blur(10px); position: relative; overflow: hidden;
+    }
+    .card::after {
+      content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2)); opacity: 0.8;
+    }
+    .card .label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .card .value { font-size: 1.9rem; font-weight: 800; margin-top: 0.4rem; font-family: var(--mono); }
+    .card .value small { font-size: 0.9rem; color: var(--muted); font-weight: 400; }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+    @media (max-width: 880px) { .grid2 { grid-template-columns: 1fr; } }
+    section.panel {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 1.4rem 1.5rem;
+    }
+    section.panel h2 { font-size: 1.05rem; font-weight: 600; margin-bottom: 1.1rem; display: flex; gap: 0.5rem; align-items: center; }
+    section.panel h2 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.6rem 0.5rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    td.num, th.num { text-align: right; font-family: var(--mono); }
+    tr:last-child td { border-bottom: none; }
+    .who { display: flex; align-items: center; gap: 0.6rem; }
+    .avatar {
+      width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+      font-weight: 700; font-size: 0.85rem; color: #0c0c14;
+      background: linear-gradient(135deg, var(--accent-2), var(--accent));
+    }
+    .pill { font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 20px; font-family: var(--mono); }
+    .pill.ok { background: rgba(46,213,115,0.15); color: var(--good); }
+    .pill.over { background: rgba(255,71,87,0.16); color: var(--bad); }
+    .pill.backend { background: rgba(108,92,231,0.16); color: #b8b1ff; }
+
+    .bar-row { display: grid; grid-template-columns: 130px 1fr 70px; align-items: center; gap: 0.8rem; margin-bottom: 0.7rem; }
+    .bar-track { height: 10px; background: var(--surface-2); border-radius: 6px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .5s var(--ease, cubic-bezier(0.16,1,0.3,1)); }
+    .bar-row .name { font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-row .amt { text-align: right; font-family: var(--mono); font-size: 0.82rem; color: var(--muted); }
+
+    .empty { text-align: center; color: var(--muted); padding: 2.5rem 1rem; font-size: 0.95rem; }
+    footer { color: var(--muted); font-size: 0.78rem; text-align: center; margin-top: 2rem; }
+    a { color: var(--accent-2); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .live { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; color: var(--muted); }
+    .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 0 rgba(46,213,115,0.6); animation: pulse 2s infinite; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(46,213,115,0.5);} 70%{box-shadow:0 0 0 8px rgba(46,213,115,0);} 100%{box-shadow:0 0 0 0 rgba(46,213,115,0);} }
+    @media (prefers-reduced-motion: reduce) { .live .dot { animation: none; } .bar-fill { transition: none; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="page">
+      <div>
+        <h1>Team LLM Usage</h1>
+        <p class="sub">Per-developer, per-account usage across Claude · Codex · Gemini — <a href="/dashboard">gateway dashboard ↗</a></p>
+      </div>
+      <div class="controls">
+        <span class="live"><span class="dot"></span><span id="updated">live</span></span>
+        <select id="window" aria-label="Time window">
+          <option value="24">24 hours</option>
+          <option value="168" selected>7 days</option>
+          <option value="720">30 days</option>
+          <option value="2160">90 days</option>
+        </select>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <div class="cards" id="cards"></div>
+
+    <div class="grid2">
+      <section class="panel">
+        <h2><span class="dot"></span>Developers</h2>
+        <div id="users"></div>
+      </section>
+      <section class="panel">
+        <h2><span class="dot"></span>Accounts</h2>
+        <div id="accounts"></div>
+      </section>
+    </div>
+
+    <section class="panel" style="margin-bottom:1.5rem">
+      <h2><span class="dot"></span>Backends</h2>
+      <div id="backends"></div>
+    </section>
+
+    <footer>
+      MultiLLM Gateway · team usage is aggregated from each developer's local CLI stats by a per-user collector.
+      Counts are token totals only — no prompt content is collected.
+    </footer>
+  </div>
+
+  <script>
+    const fmtInt = (n) => (n || 0).toLocaleString();
+    const fmtUsd = (n) => '$' + (n || 0).toFixed(2);
+    const initials = (s) => (s || '?').slice(0, 2).toUpperCase();
+
+    function card(label, value, sub) {
+      return `<div class="card"><div class="label">${label}</div>
+        <div class="value">${value}${sub ? ` <small>${sub}</small>` : ''}</div></div>`;
+    }
+
+    function renderCards(t) {
+      document.getElementById('cards').innerHTML =
+        card('Developers', fmtInt(t.users)) +
+        card('Accounts', fmtInt(t.accounts)) +
+        card('Requests', fmtInt(t.requests)) +
+        card('Input tokens', fmtInt(t.input_tokens)) +
+        card('Output tokens', fmtInt(t.output_tokens)) +
+        card('Est. cost', fmtUsd(t.cost_usd));
+    }
+
+    function renderUsers(users) {
+      const el = document.getElementById('users');
+      if (!users.length) { el.innerHTML = '<div class="empty">No usage reported yet.</div>'; return; }
+      const rows = users.map((u) => {
+        const over = u.over_budget === true;
+        const budget = u.daily_budget_usd != null
+          ? `<span class="pill ${over ? 'over' : 'ok'}">${over ? 'over' : 'ok'} · ${fmtUsd(u.daily_budget_usd)}/d</span>`
+          : '';
+        return `<tr>
+          <td><div class="who"><span class="avatar">${initials(u.bucket)}</span>${u.bucket} ${budget}</div></td>
+          <td class="num">${fmtInt(u.requests)}</td>
+          <td class="num">${fmtInt(u.input_tokens + u.output_tokens)}</td>
+          <td class="num">${fmtUsd(u.cost_usd)}</td>
+        </tr>`;
+      }).join('');
+      el.innerHTML = `<table><thead><tr>
+        <th>Developer</th><th class="num">Reqs</th><th class="num">Tokens</th><th class="num">Cost</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function renderAccounts(accounts) {
+      const el = document.getElementById('accounts');
+      const filtered = accounts.filter((a) => a.bucket && a.bucket !== '(unknown)');
+      const list = filtered.length ? filtered : accounts;
+      if (!list.length) { el.innerHTML = '<div class="empty">No accounts reported.</div>'; return; }
+      const rows = list.map((a) => `<tr>
+        <td>${a.bucket || '(unlabeled)'} <span class="pill backend">${a.backend || ''}</span></td>
+        <td class="num">${fmtInt(a.input_tokens + a.output_tokens)}</td>
+        <td class="num">${fmtUsd(a.cost_usd)}</td>
+      </tr>`).join('');
+      el.innerHTML = `<table><thead><tr>
+        <th>Account</th><th class="num">Tokens</th><th class="num">Cost</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function renderBackends(backends) {
+      const el = document.getElementById('backends');
+      if (!backends.length) { el.innerHTML = '<div class="empty">No backend activity.</div>'; return; }
+      const max = Math.max(...backends.map((b) => b.input_tokens + b.output_tokens), 1);
+      el.innerHTML = backends.map((b) => {
+        const tok = b.input_tokens + b.output_tokens;
+        const pct = Math.max(2, Math.round((tok / max) * 100));
+        return `<div class="bar-row">
+          <span class="name">${b.bucket}</span>
+          <span class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></span>
+          <span class="amt">${fmtInt(tok)}</span>
+        </div>`;
+      }).join('');
+    }
+
+    async function load() {
+      const hours = document.getElementById('window').value;
+      const upd = document.getElementById('updated');
+      try {
+        const res = await fetch(`/api/team-usage?hours=${hours}`, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        renderCards(data.totals || {});
+        renderUsers(data.by_user || []);
+        renderAccounts(data.by_account || []);
+        renderBackends(data.by_backend || []);
+        upd.textContent = 'updated ' + new Date().toLocaleTimeString();
+      } catch (e) {
+        upd.textContent = 'error: ' + e.message;
+      }
+    }
+
+    document.getElementById('refresh').addEventListener('click', load);
+    document.getElementById('window').addEventListener('change', load);
+    load();
+    setInterval(load, 15000);
+  </script>
+</body>
+</html>

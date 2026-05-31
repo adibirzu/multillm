@@ -61,6 +61,7 @@ dev = [
 [project.scripts]
 multillm = "multillm.cli:app"
 multillm-gateway = "multillm.gateway:main"
+multillm-collect = "multillm.team_collector:main"
 multillm-mcp = "multillm.mcp_server:main"
 multillm-oca-login = "multillm.oca_login:main"
 multillm-doctor = "multillm.doctor:main"
