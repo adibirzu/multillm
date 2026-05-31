@@ -126,8 +126,14 @@ def store_memory(
     source_llm: str = "unknown",
     category: str = "general",
     metadata: Optional[dict] = None,
+    tenant_id: str = "default",
 ) -> str:
-    """Store a memory entry. Returns the memory ID."""
+    """Store a memory entry. Returns the memory ID.
+
+    ``tenant_id`` is the hard ownership boundary (typically the UNIX user, set by the
+    per-user MCP server or the ``X-MultiLLM-Tenant`` request header). Searches filter
+    on it, so memories are isolated per tenant unless a caller opts into a shared view.
+    """
     mem_id = f"mem_{uuid.uuid4().hex[:16]}"
     now = time.time()
     with _get_memory_db() as conn:
@@ -136,7 +142,7 @@ def store_memory(
                (id, created_at, updated_at, project, source_llm, category, title, content, metadata, tenant_id)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (mem_id, now, now, project, source_llm, category, title, content,
-             json.dumps(metadata or {}), "default"),  # Plan 02b-01 Task 3: D-2b-03
+             json.dumps(metadata or {}), tenant_id or "default"),
         )
     return mem_id
 
@@ -145,29 +151,31 @@ def search_memory(
     query: str,
     project: Optional[str] = None,
     limit: int = 10,
+    tenant_id: Optional[str] = None,
 ) -> list[dict]:
-    """Search memories using FTS5 full-text search (local RAG)."""
+    """Search memories using FTS5 full-text search (local RAG).
+
+    ``tenant_id`` (when given) restricts results to that tenant — the per-user
+    ownership boundary. Combine with ``project`` for finer scoping.
+    """
+    sql = [
+        "SELECT m.id, m.title, m.content, m.project, m.source_llm,",
+        "       m.category, m.created_at, m.metadata, rank",
+        "FROM memories_fts fts",
+        "JOIN memories m ON m.rowid = fts.rowid",
+        "WHERE memories_fts MATCH ?",
+    ]
+    params: list = [query]
+    if project:
+        sql.append("AND m.project = ?")
+        params.append(project)
+    if tenant_id:
+        sql.append("AND m.tenant_id = ?")
+        params.append(tenant_id)
+    sql.append("ORDER BY rank LIMIT ?")
+    params.append(limit)
     with _get_memory_db() as conn:
-        if project:
-            rows = conn.execute(
-                """SELECT m.id, m.title, m.content, m.project, m.source_llm,
-                          m.category, m.created_at, m.metadata, rank
-                   FROM memories_fts fts
-                   JOIN memories m ON m.rowid = fts.rowid
-                   WHERE memories_fts MATCH ? AND m.project = ?
-                   ORDER BY rank LIMIT ?""",
-                (query, project, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """SELECT m.id, m.title, m.content, m.project, m.source_llm,
-                          m.category, m.created_at, m.metadata, rank
-                   FROM memories_fts fts
-                   JOIN memories m ON m.rowid = fts.rowid
-                   WHERE memories_fts MATCH ?
-                   ORDER BY rank LIMIT ?""",
-                (query, limit),
-            ).fetchall()
+        rows = conn.execute("\n".join(sql), params).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -175,8 +183,9 @@ def list_memories(
     project: Optional[str] = None,
     category: Optional[str] = None,
     limit: int = 50,
+    tenant_id: Optional[str] = None,
 ) -> list[dict]:
-    """List recent memories, optionally filtered by project/category."""
+    """List recent memories, optionally filtered by project/category/tenant."""
     with _get_memory_db() as conn:
         query = "SELECT id, title, project, source_llm, category, created_at FROM memories WHERE 1=1"
         params: list = []
@@ -186,6 +195,9 @@ def list_memories(
         if category:
             query += " AND category = ?"
             params.append(category)
+        if tenant_id:
+            query += " AND tenant_id = ?"
+            params.append(tenant_id)
         query += " ORDER BY updated_at DESC LIMIT ?"
         params.append(limit)
         rows = conn.execute(query, params).fetchall()

@@ -186,3 +186,50 @@ class TestSettings:
     def test_get_nonexistent_setting(self):
         assert get_setting("nonexistent_key_xyz") is None
         assert get_setting("nonexistent_key_xyz", "fallback") == "fallback"
+
+
+class TestTenantIsolation:
+    """Hard per-tenant scoping (devvm Phase 2): writes are tagged, reads are filtered."""
+
+    def test_search_filters_by_tenant(self):
+        a = store_memory(title="alpha note", content="ztok_isolated alpha body",
+                         project="p", tenant_id="alice")
+        b = store_memory(title="beta note", content="ztok_isolated beta body",
+                         project="p", tenant_id="bob")
+        try:
+            alice = search_memory("ztok_isolated", tenant_id="alice")
+            ids = {r["id"] for r in alice}
+            assert a in ids and b not in ids
+
+            bob = search_memory("ztok_isolated", tenant_id="bob")
+            ids = {r["id"] for r in bob}
+            assert b in ids and a not in ids
+        finally:
+            delete_memory(a); delete_memory(b)
+
+    def test_no_tenant_sees_all(self):
+        a = store_memory(title="x", content="ztok_shared aa", tenant_id="alice")
+        b = store_memory(title="y", content="ztok_shared bb", tenant_id="bob")
+        try:
+            ids = {r["id"] for r in search_memory("ztok_shared")}  # no tenant filter
+            assert a in ids and b in ids
+        finally:
+            delete_memory(a); delete_memory(b)
+
+    def test_list_filters_by_tenant(self):
+        a = store_memory(title="ztl alice", content="c", project="ztlproj", tenant_id="alice")
+        b = store_memory(title="ztl bob", content="c", project="ztlproj", tenant_id="bob")
+        try:
+            names = {m["title"] for m in list_memories(project="ztlproj", tenant_id="alice")}
+            assert "ztl alice" in names and "ztl bob" not in names
+        finally:
+            delete_memory(a); delete_memory(b)
+
+    def test_default_tenant_when_unset(self):
+        mem_id = store_memory(title="d", content="ztok_default body")
+        try:
+            # stored under 'default'; a search scoped to 'default' finds it
+            ids = {r["id"] for r in search_memory("ztok_default", tenant_id="default")}
+            assert mem_id in ids
+        finally:
+            delete_memory(mem_id)

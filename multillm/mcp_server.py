@@ -52,6 +52,29 @@ from .memory import (
 from .tracking import get_usage_summary, get_project_summary, get_sessions, get_dashboard_stats
 from .config import detect_project
 
+import getpass
+
+
+def _enforce_tenant() -> bool:
+    """Opt-in (MULTILLM_ENFORCE_TENANT) so standalone multillm stays globally shared,
+    while a multi-developer deployment isolates memory per UNIX user."""
+    return os.environ.get("MULTILLM_ENFORCE_TENANT", "").lower() in ("1", "true", "yes", "on")
+
+
+def _current_tenant() -> str:
+    try:
+        return getpass.getuser()
+    except Exception:
+        return "default"
+
+
+def _write_tenant() -> str:
+    return _current_tenant() if _enforce_tenant() else "default"
+
+
+def _read_tenant():
+    return _current_tenant() if _enforce_tenant() else None
+
 log = logging.getLogger("multillm.mcp")
 
 GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "http://localhost:8080")
@@ -481,6 +504,7 @@ async def llm_memory_store(params: MemoryStoreInput) -> str:
     mem_id = store_memory(
         title=params.title, content=params.content, project=params.project,
         source_llm=params.source_llm, category=params.category,
+        tenant_id=_write_tenant(),
     )
     return f"Memory stored: {mem_id} (title='{params.title}', project='{params.project}')"
 
@@ -488,7 +512,8 @@ async def llm_memory_store(params: MemoryStoreInput) -> str:
 @mcp.tool(name="llm_memory_search", annotations={"title": "Search shared memory (RAG)", "readOnlyHint": True})
 async def llm_memory_search(params: MemorySearchInput) -> str:
     """Search shared memories using full-text search. Works as local RAG for all LLMs."""
-    results = search_memory(query=params.query, project=params.project, limit=params.limit)
+    results = search_memory(query=params.query, project=params.project, limit=params.limit,
+                            tenant_id=_read_tenant())
     if not results:
         return f"No memories found for query: '{params.query}'"
 
@@ -505,7 +530,7 @@ async def llm_memory_search(params: MemorySearchInput) -> str:
 @mcp.tool(name="llm_memory_list", annotations={"title": "List recent memories", "readOnlyHint": True})
 async def llm_memory_list(project: Optional[str] = None, category: Optional[str] = None) -> str:
     """List recent shared memories, optionally filtered by project or category."""
-    results = list_memories(project=project, category=category, limit=30)
+    results = list_memories(project=project, category=category, limit=30, tenant_id=_read_tenant())
     if not results:
         return "No memories stored yet."
 

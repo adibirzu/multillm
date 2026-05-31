@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -206,6 +206,12 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(SetupRedirectMiddleware)
 app.include_router(setup_router, prefix="/setup")
 mount_setup_static(app)
+
+# Register multi-tenant team usage monitoring (per-user / per-account).
+# See multillm/team_usage_api.py — adds /api/usage/ingest, /api/team-usage, /team.
+from .team_usage_api import register as _register_team_usage  # noqa: E402
+
+_register_team_usage(app)
 
 
 # Plan 02a-02 Task 20: the 10 inline _call_<backend> functions and the
@@ -798,18 +804,23 @@ async def update_settings(request: Request):
 
 
 @app.get("/memory/search")
-async def memory_search_endpoint(q: str, project: Optional[str] = None, limit: int = 10):
+async def memory_search_endpoint(q: str, project: Optional[str] = None, limit: int = 10,
+                                 x_tenant: Optional[str] = Header(None, alias="X-MultiLLM-Tenant")):
     from .memory import search_memory
-    return search_memory(query=q, project=project, limit=limit)
+    return search_memory(query=q, project=project, limit=limit, tenant_id=x_tenant)
 
 
 # ── Memory & Context API (replaces MCP for direct HTTP access) ───────────────
+# Tenant scoping: callers identify their ownership boundary with the
+# X-MultiLLM-Tenant header (typically the UNIX user). When present, reads are
+# restricted to that tenant and writes are tagged with it.
 
 @app.get("/api/memory")
-async def list_memories_api(project: Optional[str] = None, category: Optional[str] = None, limit: int = 50):
+async def list_memories_api(project: Optional[str] = None, category: Optional[str] = None, limit: int = 50,
+                            x_tenant: Optional[str] = Header(None, alias="X-MultiLLM-Tenant")):
     """List recent shared memories."""
     from .memory import list_memories
-    return list_memories(project=project, category=category, limit=limit)
+    return list_memories(project=project, category=category, limit=limit, tenant_id=x_tenant)
 
 
 @app.post("/api/memory")
@@ -821,6 +832,7 @@ async def store_memory_api(request: Request):
     content = data.get("content")
     if not title or not content:
         raise HTTPException(status_code=400, detail="title and content are required")
+    tenant_id = request.headers.get("x-multillm-tenant") or data.get("tenant_id") or "default"
     mem_id = store_memory(
         title=title,
         content=content,
@@ -828,15 +840,17 @@ async def store_memory_api(request: Request):
         source_llm=data.get("source_llm", "claude"),
         category=data.get("category", "general"),
         metadata=data.get("metadata"),
+        tenant_id=tenant_id,
     )
-    return {"status": "ok", "id": mem_id, "title": title}
+    return {"status": "ok", "id": mem_id, "title": title, "tenant_id": tenant_id}
 
 
 @app.get("/api/memory/search")
-async def search_memory_api(q: str, project: Optional[str] = None, limit: int = 10):
+async def search_memory_api(q: str, project: Optional[str] = None, limit: int = 10,
+                            x_tenant: Optional[str] = Header(None, alias="X-MultiLLM-Tenant")):
     """Search shared memories using FTS5 full-text search."""
     from .memory import search_memory
-    return search_memory(query=q, project=project, limit=limit)
+    return search_memory(query=q, project=project, limit=limit, tenant_id=x_tenant)
 
 
 @app.get("/api/memory/{memory_id}")
