@@ -158,12 +158,12 @@ def test_get_codex_stats_reads_rollout_token_breakdowns(tmp_path, monkeypatch):
         [
             (
                 "thr-external", str(rollout_external), 1_775_470_000, 1_775_470_100, "cli", "openai",
-                "/Users/abirzu/dev/multillm", "External", "danger-full-access", "never",
+                "/Users/test/dev/multillm", "External", "danger-full-access", "never",
                 125, "gpt-5.4",
             ),
             (
                 "thr-oca", str(rollout_oca), 1_775_470_200, 1_775_470_300, "cli", "oca-chicago",
-                "/Users/abirzu/dev/multillm", "OCA", "danger-full-access", "never",
+                "/Users/test/dev/multillm", "OCA", "danger-full-access", "never",
                 70, "gpt-5.4",
             ),
         ],

@@ -28,11 +28,27 @@ venv/
 .aws/
 .azure/
 
-# Claude Code (user-local)
+# AI-agent / CLI tool dirs (may hold auth tokens — never commit).
+# Keep the safe project-level Codex MCP config; ignore everything else under .codex/.
 .claude/
+.codex/*
+!.codex/config.toml
+.gemini/
+.gemini-clipboard/
+.aider*
+.antigravity*
+.cursor/
+.windsurf/
 
 # Local agent/tool workspaces
 .serena/
+.ruff_cache/
+.mypy_cache/
+
+# Firebase / misc tool debug output
+firebase-debug.log
+.firebase/
+.wix/
 
 # IDE
 .vscode/

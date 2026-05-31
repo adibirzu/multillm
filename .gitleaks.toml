@@ -57,6 +57,9 @@ paths = [
     # ourselves to avoid recursive false positives.
     '''^\.gitleaks\.toml$''',
     '''^\.pre-commit-config\.yaml$''',
+    # .codex/ holds a SHA-256 file-integrity manifest (a hash of a file named
+    # secrets.cjs trips generic-api-key). No real secrets; now git-ignored too.
+    '''^\.codex/''',
 ]
 
 regexes = [
