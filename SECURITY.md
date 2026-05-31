@@ -17,10 +17,7 @@ Pre-1.0 versions receive security fixes on a best-effort basis only. Operators o
 
 Report vulnerabilities via **GitHub Security Advisories**:
 
-> <https://github.com/${OWNER}/${REPO}/security/advisories/new>
-
-> [!NOTE]
-> `${OWNER}/${REPO}` is a placeholder. The maintainers will replace it with the canonical repository slug at v1.0 publication (decision D-16). Until then, use the link in the published release notes.
+> <https://github.com/adibirzu/multillm/security/advisories/new>
 
 When reporting, please include:
 

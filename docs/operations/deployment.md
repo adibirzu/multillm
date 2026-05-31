@@ -11,7 +11,7 @@ Three recipes for running MultiLLM in production. Pick the one that matches your
 The canonical bring-up path. Single service, SQLite-backed, host-volume mounted for durability.
 
 ```bash
-git clone https://github.com/${OWNER}/multillm.git
+git clone https://github.com/adibirzu/multillm.git
 cd multillm
 cp .env.example .env
 docker compose up -d
@@ -155,7 +155,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: gateway
-          image: ghcr.io/${OWNER}/multillm:latest
+          image: ghcr.io/adibirzu/multillm:latest
           ports:
             - containerPort: 8080
           envFrom:

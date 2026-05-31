@@ -2,10 +2,10 @@
 
 > Open-source multi-tenant LLM gateway. Route one API to 16+ backends, ship `docker compose up`, own your data.
 
-[![CI](https://github.com/${OWNER}/multillm/actions/workflows/ci.yml/badge.svg)](https://github.com/${OWNER}/multillm/actions/workflows/ci.yml)
+[![CI](https://github.com/adibirzu/multillm/actions/workflows/ci.yml/badge.svg)](https://github.com/adibirzu/multillm/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/multillm.svg)](https://pypi.org/project/multillm/)
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
-[![Image size](https://img.shields.io/docker/image-size/${OWNER}/multillm/latest)](https://github.com/${OWNER}/multillm/pkgs/container/multillm)
+[![Image size](https://img.shields.io/docker/image-size/adibirzu/multillm/latest)](https://github.com/adibirzu/multillm/pkgs/container/multillm)
 
 ## Why MultiLLM
 
@@ -22,7 +22,7 @@ The shortest path from `git clone` to a working `/v1/messages` request, using a 
 1. **Clone**
 
    ```bash
-   git clone https://github.com/${OWNER}/multillm.git
+   git clone https://github.com/adibirzu/multillm.git
    cd multillm
    ```
 

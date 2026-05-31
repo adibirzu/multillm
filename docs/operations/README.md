@@ -12,4 +12,4 @@ Operator-facing runbooks for self-hosting MultiLLM. The audience is whoever runs
 
 Phase 10 of the roadmap publishes these as a MkDocs Material site. Today they live as plain Markdown in the repo so they're greppable from any operator's shell.
 
-For project-level context (vision, design decisions, architecture diagrams), see [`.planning/`](../../.planning/). For the developer-facing contributing guide, see [CONTRIBUTING.md](../../CONTRIBUTING.md).
+For project-level context (vision, quick start, architecture), see the [README](../../README.md). For the developer-facing contributing guide, see [CONTRIBUTING.md](../../CONTRIBUTING.md).

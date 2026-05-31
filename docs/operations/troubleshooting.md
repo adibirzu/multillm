@@ -162,7 +162,7 @@ The `pre-<rev>-<ts>.db` files are the auto-snapshots `multillm migrate up` takes
 2. Pin to the previous MultiLLM version so the restored DB matches the running image:
 
    ```bash
-   # docker-compose.yml: image: ghcr.io/${OWNER}/multillm:v1.0.0-rc.1
+   # docker-compose.yml: image: ghcr.io/adibirzu/multillm:v1.0.0-rc.1
    docker compose up -d
    ```
 

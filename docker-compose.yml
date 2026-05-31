@@ -5,8 +5,7 @@
 # Dashboard:    open http://localhost:8080/dashboard  (post-setup)
 #
 # This is intentionally a single-service compose. SQLite is the only storage
-# at v1.0 — no Redis, no Postgres. See D-02 in
-# .planning/phases/01-open-source-readiness/01-CONTEXT.md.
+# at v1.0 — no Redis, no Postgres.
 
 services:
   gateway:

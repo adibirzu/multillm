@@ -5,8 +5,8 @@ Thanks for your interest in improving MultiLLM. This guide gets you from a fresh
 ## Quick start
 
 ```bash
-git clone https://github.com/${OWNER}/${REPO}.git
-cd ${REPO}
+git clone https://github.com/adibirzu/multillm.git
+cd multillm
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[test]"
@@ -21,15 +21,14 @@ Python 3.11 or 3.12 is required. The full test suite should pass on a fresh chec
 |------|---------|
 | `multillm/` | Gateway source (FastAPI app, adapters, tracking, memory) |
 | `tests/` | pytest suite (unit, integration, streaming, adapter-specific) |
-| `docs/` | Operations and contributor documentation (Phase 10 expands this) |
-| `.planning/` | GSD planning artifacts (phase plans, requirements, roadmap) |
+| `docs/` | Operations and contributor documentation |
 | `.github/` | Issue templates, PR template, CI workflows |
 
 See `CLAUDE.md` at the repo root for module-by-module architecture notes.
 
 ## Pre-commit hooks
 
-Once Plan 01-02 lands, this repo will ship with a `.pre-commit-config.yaml` covering:
+This repo ships with a `.pre-commit-config.yaml` covering:
 
 - **gitleaks** — secret scanning (block-on-fail; cannot be skipped)
 - **ruff** — Python linting and formatting
@@ -64,7 +63,7 @@ We aim for **80 percent line coverage minimum** on `multillm/`. New modules ship
 
 ## Code style
 
-- **Formatter and linter:** `ruff` (config in `pyproject.toml` once Plan 01-02 lands)
+- **Formatter and linter:** `ruff`
 - **Type checker:** `mypy` (strict on new modules; gradual elsewhere)
 - **Line length:** 100 columns
 - **Imports:** sorted by `ruff` (replaces isort)
@@ -82,7 +81,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 
 Types we use: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`, `build`.
 
-Scope is usually a module name or a plan identifier like `01-01`. Example:
+Scope is usually a module name (e.g. `adapters`, `tracking`, `gateway`). Example:
 
 ```
 feat(adapters): add LM Studio streaming support

@@ -8,7 +8,7 @@ assignees: []
 
 <!--
 Before filing:
-- Please search existing issues and the project roadmap (.planning/ROADMAP.md) to avoid duplicates.
+- Please search existing issues to avoid duplicates.
 - For new LLM backends, please use the "Backend request" template instead.
 -->
 

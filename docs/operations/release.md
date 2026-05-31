@@ -267,7 +267,8 @@ Procedure:
 
 ## References
 
-- D-07 / D-08 / D-09 / D-10 / D-11: `.planning/phases/01-open-source-readiness/01-CONTEXT.md`
+- Open-source-readiness decision records (D-07…D-11): see the project's git history
+  (the internal `.planning/` artifacts are kept local-only and not published).
 - PEP 740 — release-artifact attestations: https://peps.python.org/pep-0740/
 - Sigstore: https://www.sigstore.dev/
 - PyPI Trusted Publishing: https://docs.pypi.org/trusted-publishers/
