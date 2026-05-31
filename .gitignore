@@ -70,3 +70,6 @@ coverage.xml
 .DS_Store
 Thumbs.db
 .orphaned_at
+
+# Internal GSD planning scaffolding — local-only, never published.
+.planning/
