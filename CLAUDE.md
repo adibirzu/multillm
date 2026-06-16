@@ -191,6 +191,7 @@ The gateway routes to the LLM the user actually has installed locally:
 - **`resolve_local_target()`** picks the most capable installed + reachable local model (ranked by parameter size).
 - **Fallback** (`_get_fallback_model`) prefers the configured `fallback_chain`, then `resolve_local_target()` — so it never targets a model the user hasn't pulled.
 - **`local_first` setting** (default `true`): an unknown/unavailable model alias degrades to the best installed local model instead of returning 400.
+- **On-demand startup** (`local_launch.py`, `local_autostart` setting default `true`): when fallback needs a local model but the daemon is stopped, the gateway starts the installed backend (`ollama serve` / `lms server start`), waits for readiness, marks it healthy, re-discovers, then routes. Only localhost URLs are auto-started; spawning is per-backend locked. Manual control: `POST /api/local/start {"backend":"ollama"}` and `GET /api/local/status`.
 
 ## OS-Start Service
 
