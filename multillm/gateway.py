@@ -81,6 +81,12 @@ from .discovery import (
     LOCAL_DISCOVERABLE_BACKENDS,
     resolve_local_target,
 )
+from .local_launch import (
+    ensure_any_local_backend,
+    ensure_local_backend,
+    installed_local_backends,
+    is_backend_installed,
+)
 from .caching import cache_search, cache_store, get_cache_stats, LANGCACHE_ENABLED
 from .claude_stats import get_claude_code_stats
 from .codex_stats import get_codex_stats
@@ -716,6 +722,20 @@ async def messages(request: Request):
             if isinstance(primary_error, HTTPException) and 400 <= primary_error.status_code < 500:
                 if primary_error.status_code not in (401, 403):  # Auth errors DO fallback
                     should_fallback = False
+
+            # Start an installed-but-stopped local daemon on demand so fallback
+            # has a target even when the user's local LLM isn't running.
+            if should_fallback:
+                from .memory import get_setting
+                if get_setting("local_autostart", True):
+                    started = await ensure_any_local_backend()
+                    if started:
+                        # Reflect reality immediately: the background health probe
+                        # still has the daemon marked unhealthy, which would make
+                        # the fallback dispatch's health gate reject the daemon we
+                        # just confirmed is up.
+                        get_health(started).mark_healthy(0.0)
+                        await _run_discovery()  # refresh cache + ROUTES
 
             # Resolve the candidate first, then probe *its* backend — so a user
             # running only LM Studio (no Ollama) still gets a local fallback.
@@ -1504,6 +1524,41 @@ async def otel_status_api():
 async def rate_limit_api():
     """Get rate limit status and active client info."""
     return rate_limit_status()
+
+
+@app.get("/api/local/status")
+async def local_status_api():
+    """Report which local backends are installed (CLI on PATH)."""
+    from .memory import get_setting
+    return {
+        "installed": installed_local_backends(),
+        "autostart": get_setting("local_autostart", True),
+    }
+
+
+@app.post("/api/local/start")
+async def local_start_api(body: dict | None = None):
+    """Start an installed-but-stopped local backend on demand.
+
+    Body: ``{"backend": "ollama"}`` to target one, or omit to start the first
+    installed local backend. Triggers a discovery refresh on success.
+    """
+    backend = (body or {}).get("backend")
+    if backend:
+        if not is_backend_installed(backend):
+            raise HTTPException(status_code=404, detail=f"Local backend not installed: {backend}")
+        started = await ensure_local_backend(backend)
+        ready_backend = backend if started else None
+    else:
+        ready_backend = await ensure_any_local_backend()
+
+    if ready_backend:
+        await _run_discovery()
+    return {
+        "started": bool(ready_backend),
+        "backend": ready_backend,
+        "installed": installed_local_backends(),
+    }
 
 
 @app.get("/api/health")

@@ -272,6 +272,9 @@ _DEFAULT_SETTINGS = {
     # When True, unknown/unavailable aliases resolve to the best installed +
     # reachable local model (instead of erroring), and fallback prefers it.
     "local_first": True,
+    # When True, a needed-but-stopped local daemon (Ollama/LM Studio) is started
+    # on demand before falling back to it.
+    "local_autostart": True,
     "auto_orchestration_enabled": True,
     "auto_second_opinion_model": "oca/gpt5",
     "auto_council_models": ["ollama/qwen3-30b", "oca/gpt5", "gemini/flash"],
