@@ -559,6 +559,26 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
             "SELECT COUNT(*) FROM sessions WHERE " + session_where, session_params,
         ).fetchone()
 
+        # Status breakdown — surfaces fallback/cache_hit/error/streaming mix that
+        # is collected per-request but was never aggregated for the dashboard.
+        by_status = conn.execute(
+            """SELECT COALESCE(status, 'unknown') as status,
+                      COUNT(*) as requests
+               FROM usage WHERE """ + where_clause + """
+               GROUP BY status ORDER BY requests DESC""",
+            params,
+        ).fetchall()
+
+        # Recent errors — most recent failed requests with their messages.
+        recent_errors = conn.execute(
+            """SELECT timestamp, model_alias, backend, status, error_message
+               FROM usage
+               WHERE """ + where_clause + """
+                 AND (status = 'error' OR error_message IS NOT NULL)
+               ORDER BY timestamp DESC LIMIT 20""",
+            params,
+        ).fetchall()
+
         # Hourly breakdown (last 168 hours max)
         hourly_since = max(since, time.time() - 168 * 3600)
         hourly_where = "timestamp > ?"
@@ -579,6 +599,11 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
                GROUP BY hour, backend ORDER BY hour ASC""",
             hourly_params,
         ).fetchall()
+
+    status_rows = [dict(r) for r in by_status]
+    status_counts = {r["status"]: r["requests"] for r in status_rows}
+    error_count = status_counts.get("error", 0)
+    fallback_count = sum(c for s, c in status_counts.items() if s.startswith("fallback"))
 
     totals_dict = dict(totals) if totals else {}
     total_requests = totals_dict.get("total_requests", 0) or 0
@@ -613,6 +638,14 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
         "by_model": [dict(r) for r in by_model],
         "daily": [dict(r) for r in daily],
         "hourly": [dict(r) for r in hourly],
+        "by_status": status_rows,
+        "reliability": {
+            "error_count": error_count,
+            "fallback_count": fallback_count,
+            "error_rate": (error_count / total_requests) if total_requests else 0,
+            "fallback_rate": (fallback_count / total_requests) if total_requests else 0,
+        },
+        "recent_errors": [dict(r) for r in recent_errors],
     }
 
 

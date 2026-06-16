@@ -191,6 +191,29 @@ class TestDashboardStats:
         assert "by_model" in stats
         assert "daily" in stats
         assert "hourly" in stats
+        assert "by_status" in stats
+        assert "reliability" in stats
+        assert "recent_errors" in stats
+
+    def test_dashboard_reliability_breakdown(self):
+        record_usage(
+            project="dash-rel", model_alias="openai/gpt-4o", backend="openai",
+            real_model="gpt-4o", input_tokens=0, output_tokens=0, latency_ms=10.0,
+            status="error", error_message="Connection refused",
+        )
+        record_usage(
+            project="dash-rel", model_alias="ollama/llama3", backend="ollama",
+            real_model="llama3", input_tokens=10, output_tokens=5, latency_ms=20.0,
+            status="fallback",
+        )
+        stats = get_dashboard_stats(hours=1, project="dash-rel")
+        statuses = {r["status"] for r in stats["by_status"]}
+        assert "error" in statuses
+        assert "fallback" in statuses
+        assert stats["reliability"]["error_count"] >= 1
+        assert stats["reliability"]["fallback_count"] >= 1
+        assert stats["reliability"]["error_rate"] > 0
+        assert any(e["error_message"] == "Connection refused" for e in stats["recent_errors"])
 
     def test_dashboard_stats_counts(self):
         record_usage(

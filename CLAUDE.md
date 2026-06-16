@@ -25,6 +25,8 @@ Claude Code → HTTP requests → FastAPI Gateway (port 8080) → Backend adapte
 - **`multillm/streaming.py`** — SSE streaming from all backends → Anthropic SSE format
 - **`multillm/config.py`** — Route loading, env-based config, project detection
 - **`multillm/converters.py`** — Anthropic <-> OpenAI format conversion
+- **`multillm/discovery.py`** — Dynamic model discovery + installed-aware local routing (`resolve_local_target`)
+- **`multillm/service.py`** — OS-start service installer (launchd plist / systemd user unit)
 
 ## Available Backends (16)
 
@@ -180,6 +182,31 @@ curl -X DELETE http://localhost:8080/api/memory/{id}
 - `GET/PUT /settings` — Gateway settings
 - `GET /api/cache` — Cache stats
 - `GET /api/otel` — OTel/OCI APM status
+
+## Installed-Aware Local Routing
+
+The gateway routes to the LLM the user actually has installed locally:
+
+- **Discovery** probes Ollama (`/api/tags`) and LM Studio (`/v1/models`) at startup (`discovery.py`); only reachable backends populate the cache.
+- **`resolve_local_target()`** picks the most capable installed + reachable local model (ranked by parameter size).
+- **Fallback** (`_get_fallback_model`) prefers the configured `fallback_chain`, then `resolve_local_target()` — so it never targets a model the user hasn't pulled.
+- **`local_first` setting** (default `true`): an unknown/unavailable model alias degrades to the best installed local model instead of returning 400.
+
+## OS-Start Service
+
+Run the gateway as a boot service (replaces the SessionStart-hook-only startup):
+
+```bash
+multillm service install     # launchd (macOS) or systemd --user (Linux); RunAtLoad + KeepAlive
+multillm service status      # installed / loaded state
+multillm service uninstall   # stop + remove
+```
+
+The launchd plist sets `PATH` explicitly so subprocess CLI backends (`codex`, `gemini`, `ollama`) resolve under launchd's minimal environment.
+
+## Dashboard — Routing & Reliability Panel
+
+`get_dashboard_stats()` now returns `by_status`, `reliability` (error_rate, fallback_rate, counts), and `recent_errors`. The dashboard's **Routing & Reliability** panel renders these plus live `/api/routing/scores` (adaptive scores) and `/api/health` (circuit-breaker state).
 
 ## Sandbox Modes (CLI Backends)
 

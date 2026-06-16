@@ -734,6 +734,16 @@
   </div>
 
   <!-- Backends Discovery -->
+  <!-- Routing & Reliability -->
+  <div class="panel" style="grid-column: 1 / -1">
+    <div class="panel-header">
+      <span>Routing &amp; Reliability</span>
+    </div>
+    <div class="panel-body" id="routingReliabilityPanel">
+      <div class="loading">Loading routing state...</div>
+    </div>
+  </div>
+
   <div class="panels">
     <div class="panel" style="grid-column: 1 / -1">
       <div class="panel-header">
@@ -1313,6 +1323,12 @@ function buildOverviewHourly(payload) {
   return Object.values(aggregates).sort((a, b) => a.hour.localeCompare(b.hour) || a.backend.localeCompare(b.backend));
 }
 
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 async function fetchJSON(url, options = {}) {
   const r = await fetch(url, withAuthOptions(options));
   if (!r.ok) {
@@ -1714,8 +1730,74 @@ function renderDashboard(payload) {
   renderGeminiProjectUsage(payload.geminiStats);
   renderGeminiHistory(payload.geminiStats);
   renderUnifiedLedger(payload.unified);
+  renderRoutingReliability(payload.stats);
 
   document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+
+// Routing & Reliability: live adaptive scores + status/error mix from collected data.
+async function renderRoutingReliability(stats) {
+  const el = document.getElementById('routingReliabilityPanel');
+  if (!el) return;
+  stats = stats || {};
+  const rel = stats.reliability || {};
+  const byStatus = stats.by_status || [];
+  const recentErrors = stats.recent_errors || [];
+
+  const pct = (v) => `${((v || 0) * 100).toFixed(1)}%`;
+  const errColor = (rel.error_rate || 0) > 0.05 ? 'var(--danger, #e74c3c)' : 'var(--accent2)';
+
+  // Live adaptive routing scores + circuit-breaker state (best-effort).
+  let routing = {backends: {}}, health = {backends: {}, circuit_breakers: {}};
+  try { routing = await fetchJSON(`${API}/api/routing/scores`); } catch (e) {}
+  try { health = await fetchJSON(`${API}/api/health`); } catch (e) {}
+
+  const summary = `<div class="stat-grid" style="margin-bottom:16px">
+    <div class="stat-card"><div class="label">Error Rate</div>
+      <div class="value" style="color:${errColor}">${pct(rel.error_rate)}</div>
+      <div class="sub">${rel.error_count || 0} errors</div></div>
+    <div class="stat-card"><div class="label">Fallback Rate</div>
+      <div class="value">${pct(rel.fallback_rate)}</div>
+      <div class="sub">${rel.fallback_count || 0} fell back to local</div></div>
+  </div>`;
+
+  const statusRows = byStatus.length ? byStatus.map(s =>
+    `<span class="model-tag" style="margin:2px 6px 2px 0;display:inline-block">${escapeHtml(s.status)}: <strong>${Number(s.requests) || 0}</strong></span>`
+  ).join('') : '<span class="empty-state">No requests yet</span>';
+
+  const scoreEntries = Object.entries(routing.backends || {});
+  const scoreRows = scoreEntries.length ? scoreEntries
+    .sort((a, b) => (b[1].score || 0) - (a[1].score || 0))
+    .map(([backend, info]) => {
+      const cb = (health.circuit_breakers || {})[backend];
+      const cbState = cb && cb.state ? cb.state : 'closed';
+      const dot = cbState === 'open' ? '🔴' : cbState === 'half_open' ? '🟡' : '🟢';
+      const score = (info.score || 0);
+      const w = Math.round(score * 100);
+      const color = score >= 0.5 ? 'var(--accent2)' : score >= 0.1 ? '#e0a800' : 'var(--danger, #e74c3c)';
+      const safeBackend = escapeHtml(backend);
+      return `<div class="bar-row" style="margin:4px 0">
+        <div class="bar-label" style="min-width:140px">${dot} <span class="model-tag backend-${safeBackend}">${safeBackend}</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${color}"></div></div>
+        <div class="bar-value" style="min-width:240px">score ${score.toFixed(3)} &middot; CB:${escapeHtml(cbState)}
+          &middot; h:${(info.health_score||0).toFixed(2)}/l:${(info.latency_score||0).toFixed(2)}/e:${(info.error_score||0).toFixed(2)}</div>
+      </div>`;
+    }).join('') : '<div class="empty-state">No routing scores available</div>';
+
+  const errorRows = recentErrors.length ? `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:8px">
+    <thead><tr style="text-align:left;color:var(--muted)">
+      <th>When</th><th>Model</th><th>Backend</th><th>Status</th><th>Error</th></tr></thead>
+    <tbody>${recentErrors.map(e => `<tr style="border-top:1px solid var(--border)">
+      <td>${e.timestamp ? escapeHtml(new Date(e.timestamp * 1000).toLocaleString()) : '-'}</td>
+      <td>${escapeHtml(e.model_alias || '-')}</td><td>${escapeHtml(e.backend || '-')}</td>
+      <td>${escapeHtml(e.status || '-')}</td>
+      <td style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(e.error_message || '')}">${escapeHtml(e.error_message || '-')}</td>
+    </tr>`).join('')}</tbody></table>` : '';
+
+  el.innerHTML = summary
+    + `<div style="font-size:11px;color:var(--muted);margin:4px 0 6px">Request status mix</div>${statusRows}`
+    + `<div style="font-size:11px;color:var(--muted);margin:16px 0 6px">Adaptive routing scores &middot; circuit-breaker state</div>${scoreRows}`
+    + (errorRows ? `<div style="font-size:11px;color:var(--muted);margin:16px 0 6px">Recent errors</div>${errorRows}` : '');
 }
 
 async function loadDashboard(force = false) {

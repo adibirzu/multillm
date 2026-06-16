@@ -17,6 +17,10 @@ from multillm.discovery import (
     discover_gemini,
     discover_all_models,
     discovered_to_routes,
+    _parse_parameter_size,
+    rank_local_models,
+    get_discovered_local_models,
+    resolve_local_target,
 )
 
 
@@ -257,3 +261,68 @@ class TestDiscoveredToRoutes:
         assert routes["ollama/llama3"]["model"] == "llama3:latest"
         assert routes["ollama/llama3"]["discovered"] is True
         assert "openai/gpt-4o" in routes
+
+
+class TestParseParameterSize:
+
+    @pytest.mark.parametrize("value,expected", [
+        ("30B", 30.0),
+        ("7b", 7.0),
+        ("3.8B", 3.8),
+        ("500M", 0.5),
+        ("", 0.0),
+        ("unknown", 0.0),
+        (None, 0.0),
+    ])
+    def test_parses_parameter_size(self, value, expected):
+        assert _parse_parameter_size(value) == pytest.approx(expected)
+
+
+class TestResolveLocalTarget:
+
+    def _seed(self, cache):
+        from multillm import discovery
+        discovery._discovery_cache = cache
+
+    def test_get_discovered_local_models_only_local_backends(self):
+        self._seed({
+            "ollama": [{"id": "ollama/a", "backend": "ollama", "model": "a"}],
+            "lmstudio": [{"id": "lmstudio/b", "backend": "lmstudio", "model": "b"}],
+            "openai": [{"id": "openai/gpt-4o", "backend": "openai", "model": "gpt-4o"}],
+        })
+        ids = {m["id"] for m in get_discovered_local_models()}
+        assert ids == {"ollama/a", "lmstudio/b"}
+
+    def test_rank_prefers_larger_parameter_size(self):
+        models = [
+            {"id": "ollama/small", "parameter_size": "3B"},
+            {"id": "ollama/big", "parameter_size": "30B"},
+            {"id": "ollama/mid", "parameter_size": "7B"},
+        ]
+        ranked = [m["id"] for m in rank_local_models(models)]
+        assert ranked == ["ollama/big", "ollama/mid", "ollama/small"]
+
+    def test_resolve_picks_most_capable_reachable(self):
+        self._seed({
+            "ollama": [
+                {"id": "ollama/small", "backend": "ollama", "model": "small", "parameter_size": "3B"},
+                {"id": "ollama/big", "backend": "ollama", "model": "big", "parameter_size": "30B"},
+            ],
+        })
+        alias, route = resolve_local_target()
+        assert alias == "ollama/big"
+        assert route["backend"] == "ollama"
+        assert route["model"] == "big"
+        assert route["discovered"] is True
+
+    def test_resolve_respects_reachable_filter(self):
+        self._seed({
+            "ollama": [{"id": "ollama/big", "backend": "ollama", "model": "big", "parameter_size": "30B"}],
+            "lmstudio": [{"id": "lmstudio/x", "backend": "lmstudio", "model": "x"}],
+        })
+        alias, _ = resolve_local_target(reachable_backends={"lmstudio"})
+        assert alias == "lmstudio/x"
+
+    def test_resolve_returns_none_when_no_local(self):
+        self._seed({"openai": [{"id": "openai/gpt-4o", "backend": "openai", "model": "gpt-4o"}]})
+        assert resolve_local_target() is None
