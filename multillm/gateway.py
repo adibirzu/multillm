@@ -74,7 +74,13 @@ from .langfuse_integration import (
     init_langfuse, shutdown_langfuse, trace_llm_generation, get_langfuse_status,
 )
 from .llm_observability import build_llm_observability_summary
-from .discovery import discover_all_models, discovered_to_routes
+from .discovery import (
+    discover_all_models,
+    discovered_to_routes,
+    get_discovered_local_models,
+    LOCAL_DISCOVERABLE_BACKENDS,
+    resolve_local_target,
+)
 from .caching import cache_search, cache_store, get_cache_stats, LANGCACHE_ENABLED
 from .claude_stats import get_claude_code_stats
 from .codex_stats import get_codex_stats
@@ -244,19 +250,74 @@ FALLBACK_ERRORS = (
 )
 
 
+def _healthy_local_backends() -> set[str]:
+    """Local discoverable backends currently passing their health gate."""
+    return {b for b in LOCAL_DISCOVERABLE_BACKENDS if is_backend_healthy(b)}
+
+
+def _installed_local_models() -> set[tuple[str, str]]:
+    """(backend, real_model) pairs that discovery currently reports as installed.
+
+    Empty when no discovery pass has populated the cache yet, which the caller
+    treats as "cannot verify" rather than "nothing installed".
+    """
+    return {
+        (m.get("backend", ""), m.get("model", ""))
+        for m in get_discovered_local_models()
+    }
+
+
 def _get_fallback_model() -> tuple[str, dict]:
-    """Get the best available local fallback model."""
-    # Prefer configured fallback chain from settings
+    """Get the best available local fallback model.
+
+    Resolution order:
+    1. Configured ``fallback_chain`` entries — but a *local* chain entry is only
+       honoured when discovery confirms that model is actually installed (the
+       static ROUTES always contain default Ollama aliases the user may never
+       have pulled). Non-local entries are trusted as-is.
+    2. Best installed + reachable local model from live discovery.
+    3. Any Ollama route, then a hardcoded last resort.
+    """
     from .memory import get_setting
+
     chain = get_setting("fallback_chain", ["ollama/qwen3-30b", "ollama/llama3"])
+    installed = _installed_local_models()
     for alias in chain:
-        if alias in ROUTES:
-            return alias, ROUTES[alias]
-    # Last resort: first Ollama route
+        route = ROUTES.get(alias)
+        if route is None:
+            continue
+        backend = route.get("backend", "")
+        if backend not in LOCAL_DISCOVERABLE_BACKENDS:
+            return alias, route  # cloud fallback entry — trust it
+        # Local entry: require an installed match when we have discovery data.
+        # If the cache is empty we cannot verify, so fall through to discovery.
+        if installed and (backend, route.get("model", "")) in installed:
+            return alias, route
+
+    # 2. Installed-aware: best discovered local model that is reachable now.
+    resolved = resolve_local_target(reachable_backends=_healthy_local_backends())
+    if resolved is not None:
+        return resolved
+
+    # 3. Last resort: first Ollama route, else a hardcoded default.
     for alias, route in ROUTES.items():
         if route["backend"] == "ollama":
             return alias, route
     return "ollama/llama3", {"backend": "ollama", "model": "llama3"}
+
+
+async def _check_local_backend_available(backend: str) -> bool:
+    """Probe whether a local backend is reachable for fallback dispatch."""
+    if backend == "ollama":
+        return await _check_ollama_available()
+    if backend == "lmstudio":
+        try:
+            async with httpx.AsyncClient(timeout=2) as client:
+                r = await client.get(f"{LMSTUDIO_URL}/v1/models")
+                return r.status_code == 200
+        except Exception:
+            return False
+    return is_backend_healthy(backend)
 
 
 def _normalize_family_name(value: str) -> str:
@@ -340,6 +401,17 @@ def _select_route(model_alias: str) -> tuple[str, dict]:
     if not route:
         if model_alias.startswith("claude-"):
             return model_alias, {"backend": "anthropic", "model": model_alias}
+        # local_first: degrade an unknown alias to the best installed local model
+        # rather than failing outright, so requests still get served on-device.
+        from .memory import get_setting
+        if get_setting("local_first", True):
+            resolved = resolve_local_target(reachable_backends=_healthy_local_backends())
+            if resolved is not None:
+                log.info(
+                    "Unknown alias '%s' resolved to local target '%s' (local_first)",
+                    model_alias, resolved[0],
+                )
+                return resolved
         raise HTTPException(status_code=400, detail=f"Unknown model alias: {model_alias}")
 
     if "/" in model_alias:
@@ -645,8 +717,10 @@ async def messages(request: Request):
                 if primary_error.status_code not in (401, 403):  # Auth errors DO fallback
                     should_fallback = False
 
-            if should_fallback and await _check_ollama_available():
-                fb_alias, fb_route = _get_fallback_model()
+            # Resolve the candidate first, then probe *its* backend — so a user
+            # running only LM Studio (no Ollama) still gets a local fallback.
+            fb_alias, fb_route = _get_fallback_model() if should_fallback else ("", {})
+            if should_fallback and await _check_local_backend_available(fb_route.get("backend", "")):
                 log.warning(
                     "rid=%s backend '%s' failed (%s), falling back to '%s'",
                     request_id, backend, type(primary_error).__name__, fb_alias,

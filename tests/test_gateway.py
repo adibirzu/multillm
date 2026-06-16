@@ -583,3 +583,54 @@ class TestObservabilityEndpoints:
         assert "modelItems" in data["limits"]
         claude_source = next(item for item in data["sources"] if item["source"] == "claude_code")
         assert claude_source["tokens"] == 1500
+
+
+class TestInstalledAwareFallback:
+    """Codex review regression fence: fallback must prefer installed local models."""
+
+    def _seed_discovery(self, cache):
+        from multillm import discovery
+        discovery._discovery_cache = dict(cache)
+
+    def teardown_method(self):
+        from multillm import discovery
+        discovery._discovery_cache = {}
+
+    def test_default_chain_skipped_when_static_model_not_installed(self):
+        # Discovery reports a different installed Ollama model than the static
+        # chain default (ollama/qwen3-30b -> hf.co/...). Fallback must NOT return
+        # the uninstalled static chain entry; it must pick the installed model.
+        from multillm import gateway
+        self._seed_discovery({
+            "ollama": [
+                {"id": "ollama/phi3", "backend": "ollama", "model": "phi3:latest",
+                 "parameter_size": "3.8B"},
+            ],
+        })
+        with patch("multillm.gateway.is_backend_healthy", return_value=True):
+            alias, route = gateway._get_fallback_model()
+        assert route["backend"] == "ollama"
+        assert route["model"] == "phi3:latest"  # installed model, not the static default
+
+    def test_chain_honoured_when_static_model_is_installed(self):
+        from multillm import gateway
+        # The real model behind ollama/llama3 is "llama3" — mark it installed.
+        self._seed_discovery({
+            "ollama": [
+                {"id": "ollama/llama3", "backend": "ollama", "model": "llama3",
+                 "parameter_size": "8B"},
+            ],
+        })
+        with patch("multillm.memory.get_setting", return_value=["ollama/llama3"]), \
+             patch("multillm.gateway.is_backend_healthy", return_value=True):
+            alias, route = gateway._get_fallback_model()
+        assert alias == "ollama/llama3"
+        assert route["model"] == "llama3"
+
+    def test_empty_cache_falls_through_to_chain(self):
+        # With no discovery data we cannot verify; trust the configured chain.
+        from multillm import gateway
+        self._seed_discovery({})
+        with patch("multillm.memory.get_setting", return_value=["ollama/llama3"]):
+            alias, route = gateway._get_fallback_model()
+        assert alias == "ollama/llama3"

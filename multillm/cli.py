@@ -176,6 +176,49 @@ def serve() -> None:
     gateway_main()
 
 
+@app.group(
+    name="service",
+    help="Install/uninstall the gateway as a per-user service that starts at login.",
+)
+def service() -> None:
+    """Service management command group (launchd on macOS, systemd on Linux)."""
+
+
+@service.command(name="install", help="Install and start the gateway as a login service.")
+def service_install_cmd() -> None:
+    """Write the platform service file and load it (RunAtLoad/KeepAlive)."""
+    from multillm.config import DATA_DIR, GATEWAY_HOST, GATEWAY_PORT
+    from multillm.service import install_service
+
+    try:
+        paths = install_service(host=GATEWAY_HOST, port=GATEWAY_PORT, data_dir=DATA_DIR)
+    except RuntimeError as exc:
+        _emit_error(f"service install failed: {exc}", exit_code=1)
+        return
+    click.echo(f"Installed {paths.platform} service: {paths.unit_path}")
+    click.echo(f"Gateway will start at login at http://{GATEWAY_HOST}:{GATEWAY_PORT}")
+
+
+@service.command(name="uninstall", help="Stop and remove the gateway boot service.")
+def service_uninstall_cmd() -> None:
+    """Unload and delete the platform service file."""
+    from multillm.service import uninstall_service
+
+    paths = uninstall_service()
+    click.echo(f"Removed {paths.platform} service: {paths.unit_path}")
+
+
+@service.command(name="status", help="Show whether the boot service is installed and loaded.")
+def service_status_cmd() -> None:
+    """Print installed/loaded state for the host platform."""
+    from multillm.service import service_status
+
+    state = service_status()
+    mark = "🟢" if state["loaded"] else ("🟡" if state["installed"] else "⚪")
+    click.echo(f"{mark} {state['platform']} service — {state['detail']}")
+    click.echo(f"   unit: {state['unit_path']}")
+
+
 @app.command(
     name="reset",
     help=(

@@ -14,6 +14,7 @@ Usage:
 """
 
 import logging
+import re
 import time
 
 import httpx
@@ -356,3 +357,76 @@ def discovered_to_routes(discovered: dict[str, list[dict]]) -> dict[str, dict]:
                 "name": m.get("name", ""),
             }
     return routes
+
+
+# ── Installed-aware local routing ──────────────────────────────────────────
+#
+# Backends that run on the user's own machine and expose a model list. A model
+# is only in ``_discovery_cache`` if its probe succeeded, so presence here means
+# "installed and reachable when last discovered" — the signal we route on.
+LOCAL_DISCOVERABLE_BACKENDS = ("ollama", "lmstudio")
+
+
+def _parse_parameter_size(value: str) -> float:
+    """Parse an Ollama ``parameter_size`` like ``"30B"`` / ``"3.8B"`` into billions.
+
+    Returns 0.0 when the value is missing or unparseable so it sorts last.
+    """
+    if not value:
+        return 0.0
+    match = re.match(r"\s*([0-9]+(?:\.[0-9]+)?)\s*([bBmM])?", str(value))
+    if not match:
+        return 0.0
+    number = float(match.group(1))
+    unit = (match.group(2) or "b").lower()
+    return number / 1000.0 if unit == "m" else number
+
+
+def _capability_key(model: dict) -> tuple[float, int]:
+    """Rank key for a local model: larger parameter count (then bytes) is more capable."""
+    return (
+        _parse_parameter_size(model.get("parameter_size", "")),
+        int(model.get("size", 0) or 0),
+    )
+
+
+def get_discovered_local_models() -> list[dict]:
+    """Return locally-installed + reachable models from the discovery cache.
+
+    Reads the module cache populated by :func:`discover_all_models`; does not
+    perform any network I/O. Empty until the first discovery pass has run.
+    """
+    models: list[dict] = []
+    for backend in LOCAL_DISCOVERABLE_BACKENDS:
+        models.extend(_discovery_cache.get(backend, []))
+    return models
+
+
+def rank_local_models(models: list[dict]) -> list[dict]:
+    """Order local models most-capable first using a parameter-size heuristic."""
+    return sorted(models, key=_capability_key, reverse=True)
+
+
+def resolve_local_target(
+    *,
+    reachable_backends: "set[str] | None" = None,
+) -> "tuple[str, dict] | None":
+    """Pick the best installed + reachable local model as a route target.
+
+    Selects the highest-capability model among locally-discovered backends,
+    optionally restricted to ``reachable_backends`` (e.g. health-gated set).
+    Returns ``(alias, route_dict)`` or ``None`` when nothing local is available.
+    """
+    candidates = get_discovered_local_models()
+    if reachable_backends is not None:
+        candidates = [m for m in candidates if m.get("backend") in reachable_backends]
+    if not candidates:
+        return None
+    best = rank_local_models(candidates)[0]
+    route = {
+        "backend": best["backend"],
+        "model": best["model"],
+        "discovered": True,
+        "name": best.get("name", ""),
+    }
+    return best["id"], route

@@ -269,6 +269,9 @@ _DEFAULT_SETTINGS = {
     "streaming_enabled": True,
     "otel_enabled": False,
     "fallback_chain": ["ollama/qwen3-30b", "ollama/llama3", "ollama/mistral"],
+    # When True, unknown/unavailable aliases resolve to the best installed +
+    # reachable local model (instead of erroring), and fallback prefers it.
+    "local_first": True,
     "auto_orchestration_enabled": True,
     "auto_second_opinion_model": "oca/gpt5",
     "auto_council_models": ["ollama/qwen3-30b", "oca/gpt5", "gemini/flash"],
