@@ -23,9 +23,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import subprocess
 import time
+from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
@@ -47,6 +49,9 @@ _LAUNCHERS: dict[str, dict] = {
         "command": ["lms", "server", "start"],
         "readiness_url": f"{LMSTUDIO_URL}/v1/models",
         "url": LMSTUDIO_URL,
+        # LM Studio installs its CLI here and it is often not on PATH (especially
+        # under launchd), so detection must look beyond PATH.
+        "extra_paths": [str(Path.home() / ".lmstudio" / "bin")],
     },
 }
 
@@ -64,11 +69,23 @@ def _is_localhost(url: str) -> bool:
 
 
 def backend_binary(backend: str) -> str | None:
-    """Resolve the launcher binary for ``backend`` on PATH, or None."""
+    """Resolve the launcher binary for ``backend``, or None.
+
+    Checks PATH first, then any backend-specific ``extra_paths`` (e.g. LM
+    Studio's ``~/.lmstudio/bin``) so detection works even when the CLI is not on
+    the gateway process's PATH.
+    """
     spec = _LAUNCHERS.get(backend)
     if not spec:
         return None
-    return shutil.which(spec["binary"])
+    found = shutil.which(spec["binary"])
+    if found:
+        return found
+    for directory in spec.get("extra_paths", []):
+        candidate = Path(directory) / spec["binary"]
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def is_backend_installed(backend: str) -> bool:
@@ -97,16 +114,20 @@ async def _probe_backend(backend: str) -> bool:
 def _spawn_backend(backend: str) -> None:
     """Start the daemon as a detached background process (no wait)."""
     spec = _LAUNCHERS[backend]
+    # Use the resolved absolute path so the spawn works even when the CLI is not
+    # on the gateway's PATH (falls back to the bare command name otherwise).
+    resolved = backend_binary(backend)
+    command = [resolved, *spec["command"][1:]] if resolved else list(spec["command"])
     log_path = DATA_DIR / f"{backend}-autostart.log"
     with open(log_path, "ab") as logf:
         subprocess.Popen(  # noqa: S603 — fixed command, no user input
-            spec["command"],
+            command,
             stdout=logf,
             stderr=logf,
             stdin=subprocess.DEVNULL,
             start_new_session=True,
         )
-    log.info("Started local backend '%s' via %s", backend, " ".join(spec["command"]))
+    log.info("Started local backend '%s' via %s", backend, " ".join(command))
 
 
 async def ensure_local_backend(backend: str, *, timeout: float = _START_TIMEOUT_S) -> bool:

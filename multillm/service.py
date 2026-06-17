@@ -53,8 +53,9 @@ def _service_path(python_exe: str) -> str:
     """
     bin_dir = str(Path(python_exe).parent)
     home_local = str(Path.home() / ".local" / "bin")
+    lmstudio_bin = str(Path.home() / ".lmstudio" / "bin")  # LM Studio CLI (lms)
     parts = [bin_dir, "/usr/local/bin", "/opt/homebrew/bin", home_local,
-             "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+             lmstudio_bin, "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
     # De-duplicate while preserving order.
     seen: set[str] = set()
     ordered = [p for p in parts if not (p in seen or seen.add(p))]

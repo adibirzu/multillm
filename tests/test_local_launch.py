@@ -29,6 +29,16 @@ class TestInstalledDetection:
     def test_unknown_backend_has_no_binary(self):
         assert backend_binary("nope") is None
 
+    def test_lmstudio_found_via_extra_paths_when_not_on_path(self):
+        # `lms` is not on PATH but exists in ~/.lmstudio/bin — must still resolve.
+        with patch("multillm.local_launch.shutil.which", return_value=None), \
+             patch("multillm.local_launch.Path.is_file", return_value=True), \
+             patch("multillm.local_launch.os.access", return_value=True):
+            resolved = backend_binary("lmstudio")
+        assert resolved is not None
+        assert resolved.endswith("/.lmstudio/bin/lms")
+        assert is_backend_installed("lmstudio") is True
+
 
 class TestEnsureLocalBackend:
 
