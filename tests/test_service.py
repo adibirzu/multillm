@@ -37,6 +37,8 @@ class TestRenderLaunchd:
         path = plist["EnvironmentVariables"]["PATH"]
         assert path.startswith("/usr/bin")
         assert "/usr/local/bin" in path
+        # LM Studio CLI dir so `lms` autostart resolves under launchd.
+        assert "/.lmstudio/bin" in path
         assert plist["StandardOutPath"].endswith(".log")
 
 
