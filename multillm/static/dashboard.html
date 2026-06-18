@@ -676,6 +676,17 @@
     </div>
   </div>
 
+  <!-- Budgets & Alerts -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <span>Budgets &amp; Alerts</span>
+      <span style="font-size:10px;color:var(--text-dim)">gateway-metered cloud spend caps</span>
+    </div>
+    <div class="panel-body" id="budgetsPanel" style="padding:12px 16px">
+      <div class="loading">Loading...</div>
+    </div>
+  </div>
+
   <!-- Usage Limits -->
   <div class="panel" style="margin-bottom:24px">
     <div class="panel-header" id="limitsHeader">Weekly Usage &amp; Cost</div>
@@ -1808,6 +1819,70 @@ function renderCostForecast(fc) {
   return `<div class="stat-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">${cards}</div>${etaRows}`;
 }
 
+// Budgets: caps vs spend with alert colouring. Configure via PUT /api/budgets.
+async function loadBudgets() {
+  const el = document.getElementById('budgetsPanel');
+  if (!el) return;
+  try {
+    const b = await fetchJSON(`${API}/api/budgets`);
+    el.innerHTML = renderBudgets(b);
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--text-dim);font-size:12px">Budgets unavailable: ${e.message || e}</div>`;
+  }
+}
+
+function budgetStateColor(state) {
+  return state === 'exceeded' ? '#ef4444' : state === 'warn' ? '#f59e0b' : 'var(--accent2)';
+}
+
+function budgetBar(window, w) {
+  if (!w) return '';
+  const pct = Math.min(100, w.percentUsed || 0);
+  const color = budgetStateColor(w.state);
+  return `<div style="margin:6px 0">
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim)">
+      <span>${window}</span>
+      <span style="color:${color}">${fmtCost(w.spentUSD)} / ${fmtCost(w.capUSD)} (${w.percentUsed}%)</span>
+    </div>
+    <div style="height:6px;background:var(--surface2,#222);border-radius:3px;overflow:hidden;margin-top:3px">
+      <div style="height:100%;width:${pct}%;background:${color}"></div>
+    </div>
+  </div>`;
+}
+
+function renderBudgets(b) {
+  const g = b.global || {};
+  const hasCaps = g.daily || g.monthly || (b.projects && b.projects.length);
+  if (!hasCaps) {
+    return `<div style="color:var(--text-dim);font-size:12px">
+      No budgets configured. Set caps with:<br>
+      <code style="font-size:11px">curl -X PUT ${API}/api/budgets -d '{"enabled":true,"daily_usd":10,"monthly_usd":200}'</code>
+    </div>`;
+  }
+  const enforce = b.enabled
+    ? `<span style="color:var(--accent2);font-size:11px">enforcement ON</span>`
+    : `<span style="color:var(--text-dim);font-size:11px">monitoring only</span>`;
+
+  let alertBanner = '';
+  if (b.alerts && b.alerts.length) {
+    alertBanner = b.alerts.map(a =>
+      `<div style="font-size:12px;color:${budgetStateColor(a.state)};margin-bottom:4px">⚠ ${a.message}</div>`
+    ).join('');
+  }
+
+  const globalBlock = `<div style="margin-bottom:10px">
+    <div style="font-weight:600;margin-bottom:2px">All gateway spend ${enforce}</div>
+    ${budgetBar('Today', g.daily)}${budgetBar('Month', g.monthly)}
+  </div>`;
+
+  const projectBlocks = (b.projects || []).map(p => `<div style="margin-bottom:10px">
+    <div style="font-weight:600;margin-bottom:2px">${p.label}</div>
+    ${budgetBar('Today', p.daily)}${budgetBar('Month', p.monthly)}
+  </div>`).join('');
+
+  return alertBanner + globalBlock + projectBlocks;
+}
+
 // Translate the bundle's SWR cache metadata into a short status the user reads.
 // stale-refreshing → data is showing now but a background recompute is running.
 function freshnessLabel(perf) {
@@ -1926,6 +2001,7 @@ async function loadDashboard(force = false) {
     const performance = bundle.performance || {};
     renderDashboard({stats, sessions, backends, cacheStats, claudeStats, codexStats, geminiStats, unified, active, otelStatus, status, performance});
     loadCostForecast();
+    loadBudgets();
   } catch (error) {
     if (error.name !== 'AbortError' && requestId === loadSequence) {
       renderDashboardError(error);

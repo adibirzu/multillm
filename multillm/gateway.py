@@ -94,6 +94,8 @@ from .gemini_stats import get_gemini_stats
 from . import bundle_cache
 from . import cost_forecast
 from . import failover
+from . import budgets
+from .stats_cache import ttl_cache
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
 from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker, calculate_backend_score
@@ -563,6 +565,20 @@ async def route_request(body: dict, model_alias: Optional[str] = None, route: Op
     return await _dispatch_with_resilience(route["backend"], body, route["model"], model_alias)
 
 
+@ttl_cache(seconds=30)
+def _gateway_spend_snapshot(project: Optional[str] = None) -> dict:
+    """Cached rolling-window gateway-metered spend (day + month).
+
+    TTL-cached so the per-request budget gate doesn't hit SQLite every call.
+    """
+    today = get_dashboard_stats(hours=24, project=project)
+    month = get_dashboard_stats(hours=720, project=project)
+    return {
+        "today": float(today.get("totals", {}).get("total_cost", 0) or 0),
+        "month": float(month.get("totals", {}).get("total_cost", 0) or 0),
+    }
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.post("/v1/messages")
@@ -591,6 +607,24 @@ async def messages(request: Request):
     effective_alias, route = _select_route(requested_alias)
     backend = route.get("backend", "unknown")
     request_id = f"req_{uuid.uuid4().hex[:12]}"
+
+    # ── Budget enforcement (opt-in) ──────────────────────────────
+    # Only metered cloud backends count against budgets; local backends are
+    # free, so they are never blocked. Zero overhead unless budgets.enabled.
+    from .memory import get_setting as _get_setting
+    budget_cfg = _get_setting("budgets", {}) or {}
+    if budget_cfg.get("enabled") and backend in CLOUD_BACKENDS:
+        snap = _gateway_spend_snapshot(None)
+        proj_spend = {PROJECT: _gateway_spend_snapshot(PROJECT)} if PROJECT else {}
+        allowed, reason = budgets.check_request_allowed(
+            config=budget_cfg, project=PROJECT,
+            spent_today=snap["today"], spent_month=snap["month"],
+            project_spend=proj_spend,
+        )
+        if not allowed:
+            if client_id:
+                release_concurrent(client_id)
+            raise HTTPException(status_code=402, detail=f"Budget exceeded: {reason}")
 
     log.info(
         "Request rid=%s requested=%s selected=%s backend=%s stream=%s project=%s",
@@ -1648,6 +1682,48 @@ async def cost_estimate_api(body: dict | None = None):
         candidates=candidates,
         expected_output_tokens=expected_output,
     )
+
+
+@app.get("/api/budgets")
+async def budgets_status_api():
+    """Current budget status: caps, spend, %used, alert states, and enforcement.
+
+    Spend is the gateway-metered cloud cost (rolling 24h / 30d), not flat-rate
+    subscriptions — so budgets reflect what the gateway can actually control.
+    """
+    from .memory import get_setting
+
+    config = get_setting("budgets", {}) or {}
+    snap = await asyncio.to_thread(_gateway_spend_snapshot, None)
+    project_spend = {}
+    for name in (config.get("per_project") or {}):
+        project_spend[name] = await asyncio.to_thread(_gateway_spend_snapshot, name)
+
+    return budgets.evaluate_budgets(
+        config=config,
+        spent_today=snap["today"],
+        spent_month=snap["month"],
+        project_spend=project_spend,
+    )
+
+
+@app.put("/api/budgets")
+async def set_budgets_api(body: dict | None = None):
+    """Update budget configuration (merged into the persisted ``budgets`` setting).
+
+    Body example::
+
+        {"enabled": true, "daily_usd": 10, "monthly_usd": 200,
+         "alert_thresholds": [0.8, 1.0],
+         "per_project": {"multillm": {"daily_usd": 5}}}
+    """
+    from .memory import get_setting, set_setting
+
+    current = get_setting("budgets", {}) or {}
+    current.update(body or {})
+    set_setting("budgets", current)
+    _gateway_spend_snapshot.cache_clear()  # reflect new caps immediately
+    return {"status": "ok", "budgets": current}
 
 
 @app.get("/api/cache")
