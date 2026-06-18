@@ -665,6 +665,25 @@
     </div>
   </div>
 
+  <!-- Council: ask multiple models -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <span>Council — Ask Multiple Models</span>
+      <span style="font-size:10px;color:var(--text-dim)">2nd / 3rd opinions, cost-aware</span>
+    </div>
+    <div class="panel-body" style="padding:14px 16px">
+      <textarea id="councilPrompt" rows="3" placeholder="Ask a question to several models at once…"
+        style="width:100%;box-sizing:border-box;background:var(--bg2,#15151f);color:var(--text);border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:10px;font:inherit;font-size:13px;resize:vertical"></textarea>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
+        <input id="councilModels" type="text" placeholder="models (comma-separated) — blank = defaults"
+          style="flex:1;min-width:240px;background:var(--bg2,#15151f);color:var(--text);border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:8px 10px;font:inherit;font-size:12px">
+        <button id="councilAsk" type="button"
+          style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 18px;font:inherit;font-weight:600;cursor:pointer">Ask Council</button>
+      </div>
+      <div id="councilResult" style="margin-top:14px"></div>
+    </div>
+  </div>
+
   <!-- Cost Forecast & Burn Rate -->
   <div class="panel" style="margin-bottom:24px">
     <div class="panel-header">
@@ -1755,6 +1774,71 @@ function renderDashboard(payload) {
   renderRoutingReliability(payload.stats);
 
   document.getElementById('lastUpdate').textContent = freshnessLabel(payload.performance);
+}
+
+// Council: fire one prompt at several models, show pre-flight cost then each
+// response with its actual cost. Wired to POST /api/council.
+function wireCouncil() {
+  const btn = document.getElementById('councilAsk');
+  if (!btn || btn._wired) return;
+  btn._wired = true;
+  btn.addEventListener('click', askCouncil);
+}
+
+async function askCouncil() {
+  const btn = document.getElementById('councilAsk');
+  const out = document.getElementById('councilResult');
+  const prompt = (document.getElementById('councilPrompt').value || '').trim();
+  if (!prompt) { out.innerHTML = '<div style="color:var(--accent4);font-size:12px">Enter a prompt first.</div>'; return; }
+  const modelsRaw = (document.getElementById('councilModels').value || '').trim();
+  const models = modelsRaw ? modelsRaw.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+
+  btn.disabled = true; btn.textContent = 'Asking…';
+  out.innerHTML = '<div class="loading">Querying models in parallel…</div>';
+  try {
+    const body = {prompt, max_tokens: 1024};
+    if (models) body.models = models;
+    const d = await fetchJSON(`${API}/api/council`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    out.innerHTML = renderCouncil(d);
+  } catch (e) {
+    out.innerHTML = `<div style="color:var(--accent4);font-size:12px">Council failed: ${e.message || e}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Ask Council';
+  }
+}
+
+function renderCouncil(d) {
+  const est = (d.preflightEstimate && d.preflightEstimate.estimates) || [];
+  const estChips = est.map(e =>
+    `<span style="display:inline-block;background:var(--bg2,#15151f);border:1px solid var(--border,#2a2a3a);border-radius:12px;padding:2px 10px;margin:2px;font-size:11px;color:${e.isFree ? 'var(--accent2)' : 'var(--text-dim)'}">${e.alias}: ${e.isFree ? 'free' : fmtCostP(e.estimatedCostUSD)}</span>`
+  ).join('');
+
+  const cards = (d.responses || []).map(r => {
+    if (r.error) {
+      return `<div style="border:1px solid var(--accent4);border-radius:8px;padding:10px;margin-bottom:10px">
+        <div style="font-weight:600;color:var(--accent4)">${r.alias}</div>
+        <div style="font-size:12px;color:var(--text-dim)">⚠ ${r.error}</div></div>`;
+    }
+    const escaped = (r.text || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    return `<div style="border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:10px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div style="font-weight:600;color:var(--accent5)">${r.alias}</div>
+        <div style="font-size:11px;color:var(--text-dim)">${fmtCostP(r.actualCostUSD)} · ${r.inputTokens}/${r.outputTokens} tok · ${Math.round(r.latencyMs)}ms</div>
+      </div>
+      <div style="font-size:13px;white-space:pre-wrap;margin-top:6px">${escaped}</div>
+    </div>`;
+  }).join('');
+
+  const t = d.totals || {};
+  const totalLine = `<div style="font-size:12px;color:var(--text-dim);margin-top:6px">Total actual spend: <b style="color:var(--text)">${fmtCostP(t.actualCostUSD)}</b> across ${t.modelsSucceeded}/${t.modelsQueried} models</div>`;
+
+  return `<div style="margin-bottom:10px"><span style="font-size:11px;color:var(--text-dim)">Pre-flight estimate:</span> ${estChips}</div>${cards}${totalLine}`;
+}
+
+// Small currency formatter that keeps sub-cent precision for per-call costs.
+function fmtCostP(n) {
+  if (!n) return '$0';
+  return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits: n < 0.01 ? 4 : 2, maximumFractionDigits: 4});
 }
 
 // Cost forecast: burn-rate, projected spend, and time-to-quota. Fetched
@@ -3388,6 +3472,7 @@ document.addEventListener('visibilitychange', () => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 updateLiveToggle();
+wireCouncil();
 loadDashboard(true);
 startLiveTicker();
 </script>
