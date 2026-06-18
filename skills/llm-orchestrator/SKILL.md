@@ -1,6 +1,6 @@
 ---
 name: llm-orchestrator
-description: Route work through the local MultiLLM gateway and decide when to ask other LLMs or helper agents for support. Use when Codex should leverage Claude, OCA, GPT, local models, or MultiLLM specialist agents for second opinions, architecture review, security review, context handoff, dashboard checks, or multi-device session consolidation.
+description: Route work through the local MultiLLM gateway and decide when to ask other LLMs or helper agents for support. Use when Codex should leverage Claude, GPT, local models, or MultiLLM specialist agents for second opinions, architecture review, security review, context handoff, dashboard checks, or multi-device session consolidation.
 ---
 
 # LLM Orchestrator

@@ -158,7 +158,6 @@ llm_memory_store(
 | Groq (Llama) | Ultra-fast inference, quick questions | $ |
 | DeepSeek | Reasoning, math, code analysis | $ |
 | Codex CLI | Code generation with sandbox | Free |
-| OCA | Enterprise code assist | Free |
 
 ## Multi-Device Setup
 

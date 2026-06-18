@@ -29,7 +29,6 @@ _BACKEND_NAMES = [
     "groq",
     "lmstudio",
     "mistral",
-    "oca",
     "ollama",
     "openai",
     "openrouter",

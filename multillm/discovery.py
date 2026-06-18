@@ -6,7 +6,7 @@ Dynamic model discovery for all backends.
 
 Queries each backend's API to find available models, then merges with
 static routes from config.py. Supports: Ollama, LM Studio, OpenAI,
-OpenRouter, Gemini, OCA.
+OpenRouter, Gemini.
 
 Usage:
     models = await discover_all_models()
@@ -24,7 +24,6 @@ from .config import (
     OPENROUTER_KEY, OPENAI_KEY, GEMINI_KEY,
     GROQ_KEY, DEEPSEEK_KEY, MISTRAL_KEY, TOGETHER_KEY,
     XAI_KEY, FIREWORKS_KEY,
-    OCA_ENDPOINT, OCA_API_VERSION,
 )
 
 log = logging.getLogger("multillm.discovery")
@@ -160,56 +159,6 @@ async def discover_openrouter() -> list[dict]:
         return []
 
 
-async def discover_oca() -> list[dict]:
-    """Query OCA for available models (API → cache file → fallback)."""
-    from .oca_auth import get_oca_bearer_token, _load_cached_oca_models
-
-    def _format_oca_models(raw_models: list, *, catalog_source: str) -> list[dict]:
-        models = []
-        for m in raw_models:
-            mid = m.get("id", m) if isinstance(m, dict) else str(m)
-            short = mid.split("/")[-1] if "/" in mid else mid
-            models.append({
-                "id": f"oca/{short}" if not mid.startswith("oca/") else mid,
-                "backend": "oca",
-                "model": mid,
-                "name": short,
-                "catalog_source": catalog_source,
-            })
-        return models
-
-    # Try live API first
-    token = await get_oca_bearer_token()
-    if token:
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.get(
-                    f"{OCA_ENDPOINT}/{OCA_API_VERSION}/app/litellm/models",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-                r.raise_for_status()
-                data = r.json()
-            models = _format_oca_models(data.get("data", data.get("models", [])), catalog_source="api")
-            if models:
-                log.info("OCA: discovered %d models from API", len(models))
-                return models
-        except Exception as e:
-            log.debug("OCA API discovery failed: %s", e)
-
-    # Try ~/.oca/models.json cache (maintained by OCA VS Code extension)
-    cached = _load_cached_oca_models()
-    if cached:
-        models = _format_oca_models(cached, catalog_source="cache")
-        log.info("OCA: loaded %d models from cache file", len(models))
-        return models
-
-    # Hardcoded fallback
-    return _format_oca_models([
-        {"id": "oca/gpt5"}, {"id": "oca/llama4"}, {"id": "oca/grok4"},
-        {"id": "oca/openai-o3"}, {"id": "oca/gpt-4.1"}, {"id": "oca/grok3"},
-    ], catalog_source="fallback")
-
-
 async def discover_gemini() -> list[dict]:
     """Query Gemini for available models."""
     if not GEMINI_KEY:
@@ -313,7 +262,6 @@ async def discover_all_models(force: bool = False) -> dict[str, list[dict]]:
         discover_lmstudio(),
         discover_openai(),
         discover_openrouter(),
-        discover_oca(),
         discover_gemini(),
         discover_groq(),
         discover_deepseek(),
@@ -325,7 +273,7 @@ async def discover_all_models(force: bool = False) -> dict[str, list[dict]]:
     )
 
     backends = [
-        "ollama", "lmstudio", "openai", "openrouter", "oca", "gemini",
+        "ollama", "lmstudio", "openai", "openrouter", "gemini",
         "groq", "deepseek", "mistral", "together", "xai", "fireworks",
     ]
     cache = {}

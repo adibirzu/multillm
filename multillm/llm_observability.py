@@ -221,18 +221,9 @@ def build_llm_observability_summary(
     codex_external_actual_cost = 0.0
     codex_external_list_price = 0.0
     codex_external_providers: list[str] = []
-    codex_oca_tokens = 0
-    codex_oca_sessions = 0
-    codex_oca_providers: list[str] = []
     for provider, aggregate in codex_by_provider.items():
         tokens = int(aggregate.get("tokens", 0) or 0)
         sessions = int(aggregate.get("sessions", 0) or 0)
-        if aggregate.get("isOCA"):
-            codex_oca_tokens += tokens
-            codex_oca_sessions += sessions
-            if tokens > 0 or sessions > 0:
-                codex_oca_providers.append(provider)
-            continue
         codex_external_tokens += tokens
         codex_external_sessions += sessions
         codex_external_actual_cost += float(aggregate.get("actualCostUSD", 0) or 0)
@@ -244,8 +235,6 @@ def build_llm_observability_summary(
         codex_status = "unavailable"
     elif codex_external_tokens > 0 or codex_external_sessions > 0:
         codex_status = "external_usage"
-    elif codex_oca_tokens > 0 or codex_oca_sessions > 0:
-        codex_status = "oca_only"
     else:
         codex_status = "idle"
 
@@ -279,13 +268,10 @@ def build_llm_observability_summary(
         "codex_cli": {
             "available": codex_available,
             "status": codex_status,
-            "usedTokens": codex_external_tokens + codex_oca_tokens,
+            "usedTokens": codex_external_tokens,
             "externalTokens": codex_external_tokens,
             "externalSessions": codex_external_sessions,
             "externalProviders": sorted(codex_external_providers),
-            "ocaTokens": codex_oca_tokens,
-            "ocaSessions": codex_oca_sessions,
-            "ocaProviders": sorted(codex_oca_providers),
             "sessions": int(codex_stats.get("totalSessions", 0) or 0),
         },
         "gemini_cli": {
@@ -360,7 +346,6 @@ def build_llm_observability_summary(
     codex_remaining = max(0, limits["codex_cli_external"] - codex_external_tokens) if limits["codex_cli_external"] > 0 else None
     for model, aggregate in sorted(codex_by_model.items(), key=lambda item: item[0]):
         external_tokens = int(aggregate.get("externalTokens", aggregate.get("tokens", 0)) or 0)
-        oca_tokens = int(aggregate.get("ocaTokens", 0) or 0)
         providers = aggregate.get("providers", [])
         if external_tokens > 0:
             model_items.append(
@@ -374,22 +359,6 @@ def build_llm_observability_summary(
                     scope="shared_provider",
                     shared_used_tokens=codex_external_tokens,
                     scopeLabel="Codex CLI external",
-                    providers=providers,
-                    ocaTokens=oca_tokens,
-                )
-            )
-        elif oca_tokens > 0:
-            model_items.append(
-                _build_model_limit_item(
-                    source="codex_cli",
-                    model=model,
-                    used_tokens=oca_tokens,
-                    limit_tokens=0,
-                    remaining_tokens=None,
-                    available=codex_available,
-                    scope="unlimited",
-                    shared_used_tokens=None,
-                    scopeLabel="OCA",
                     providers=providers,
                 )
             )

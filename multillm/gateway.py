@@ -6,7 +6,7 @@ MultiLLM Gateway — Anthropic-compatible proxy with streaming and tool support.
 
 Routes requests to 16+ backends: Ollama, LM Studio, OpenAI, Anthropic,
 OpenRouter, Google Gemini, Groq, DeepSeek, Mistral, Together, xAI, Fireworks,
-Azure OpenAI, AWS Bedrock, Oracle Code Assist (OCA), Codex CLI, Gemini CLI.
+Azure OpenAI, AWS Bedrock, Codex CLI, Gemini CLI.
 
 Features: SSE streaming, tool_use passthrough, token tracking, cache token
 tracking, adaptive routing, circuit breakers, health probes, OpenTelemetry.
@@ -40,7 +40,7 @@ from .config import (
     OPENROUTER_KEY, OPENAI_KEY, ANTHROPIC_KEY, GEMINI_KEY,
     GROQ_KEY, DEEPSEEK_KEY, MISTRAL_KEY, TOGETHER_KEY,
     XAI_KEY, FIREWORKS_KEY,
-    AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AWS_BEDROCK_REGION, OCA_ENDPOINT, load_routes, detect_project,
+    AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AWS_BEDROCK_REGION, load_routes, detect_project,
 )
 from . import __version__
 from .cli_tools import resolve_cli_binary
@@ -62,7 +62,6 @@ from .converters import (
     make_message_delta_event,
     make_message_stop_event,
 )
-from .oca_auth import OCA_LOGIN_HINT, get_oca_bearer_token
 from .stream_utils import StreamTokenCounter
 from .adapters import get_adapter, list_adapters
 # Plan 02a-02 Task 20: setup.py:register_all_adapters() retired —
@@ -110,8 +109,8 @@ from .stats_cache import ttl_cache
 # Default fusion panel/judge — free/authenticated backends. Unavailable members
 # degrade gracefully (they error and are dropped). Override via the
 # fusion_panel / fusion_judge settings.
-_DEFAULT_FUSION_PANEL = ["oca/gpt-5.4", "gemini-cli/pro", "ollama/llama3"]
-_DEFAULT_FUSION_JUDGE = "oca/gpt-5.4"
+_DEFAULT_FUSION_PANEL = ["codex/gpt-5-4", "gemini-cli/pro", "ollama/llama3"]
+_DEFAULT_FUSION_JUDGE = "gemini-cli/pro"
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
 from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker, calculate_backend_score
@@ -263,7 +262,7 @@ _register_team_usage(app)
 
 # Backends that require internet connectivity
 CLOUD_BACKENDS = {
-    "openrouter", "openai", "anthropic", "oca", "gemini",
+    "openrouter", "openai", "anthropic", "gemini",
     "groq", "deepseek", "mistral", "together", "xai", "fireworks",
     "azure_openai", "bedrock",
 }
@@ -961,8 +960,6 @@ async def health():
             except Exception as e:
                 backends[name] = f"unreachable ({type(e).__name__})"
 
-    token = await get_oca_bearer_token()
-    backends["oca"] = "authenticated" if token else "not authenticated"
     backends["gemini"] = "configured" if GEMINI_KEY else "not set"
     backends["openai"] = "configured" if OPENAI_KEY else "not set"
     backends["anthropic"] = "configured" if ANTHROPIC_KEY else "not set"
@@ -1210,16 +1207,6 @@ async def backends_api(refresh: bool = False):
     """List all backends with their discovered models."""
     discovered = await discover_all_models(force=refresh)
 
-    def _get_oca_discovery_auth_state() -> tuple[bool, str]:
-        from .oca_auth import _is_expired, _read_cached_token
-
-        token_data = _read_cached_token()
-        if not token_data:
-            return False, "missing"
-        if _is_expired(token_data):
-            return False, "expired"
-        return True, "valid"
-
     def _backend_auth_metadata(backend: str) -> dict:
         auth_backends = {
             "openai": ("OPENAI_API_KEY", bool(OPENAI_KEY)),
@@ -1232,15 +1219,6 @@ async def backends_api(refresh: bool = False):
             "xai": ("XAI_API_KEY", bool(XAI_KEY)),
             "fireworks": ("FIREWORKS_API_KEY", bool(FIREWORKS_KEY)),
         }
-        if backend == "oca":
-            authenticated, token_status = _get_oca_discovery_auth_state()
-            return {
-                "requires_auth": True,
-                "authenticated": authenticated,
-                "status_hint": "authenticated" if authenticated else "unauthenticated",
-                "note": None if authenticated else OCA_LOGIN_HINT,
-                "token_status": token_status,
-            }
         if backend in auth_backends:
             env_var, authenticated = auth_backends[backend]
             return {
@@ -1309,8 +1287,6 @@ async def backends_api(refresh: bool = False):
                 for m in models
             ],
         }
-        if backend == "oca":
-            summary[backend]["token_status"] = auth.get("token_status")
     return {"backends": summary, "total_routes": len(ROUTES)}
 
 
@@ -1476,7 +1452,6 @@ def _build_all_llm_usage(
         "tokens": codex_tokens,
         "actualCostUSD": round(codex_actual, 4),
         "listPriceUSD": round(codex_list, 4),
-        "savedByOCA": round(codex_list - codex_actual, 4),
         "sessions": codex.get("totalSessions", 0),
         "byProvider": codex.get("byProvider", {}),
     })
@@ -1790,7 +1765,7 @@ async def council_api(body: dict | None = None):
     from .memory import get_setting
 
     models = body.get("models") or get_setting(
-        "auto_council_models", ["ollama/qwen3-30b", "oca/gpt5", "gemini/flash"]
+        "auto_council_models", ["ollama/qwen3-30b", "codex/gpt-5-4", "gemini/flash"]
     )
     max_tokens = int(body.get("max_tokens", 2048))
     temperature = float(body.get("temperature", 0.7))
@@ -2110,15 +2085,6 @@ async def auth_status():
             "export AWS_BEDROCK_REGION=us-east-1 AWS_PROFILE=<profile>",
     }
 
-    # OCA (OAuth PKCE)
-    token = await get_oca_bearer_token()
-    backends["oca"] = {
-        "authenticated": bool(token),
-        "method": "oauth_pkce",
-        "action": None if token else OCA_LOGIN_HINT,
-        "token_status": "valid" if token else "expired_or_missing",
-    }
-
     # CLI-based backends
     for cli_name, cli_bin in [("codex_cli", "codex"), ("gemini_cli", "gemini")]:
         try:
@@ -2195,7 +2161,6 @@ def main():
     log.info("  OpenRouter:  %s", "configured" if OPENROUTER_KEY else "not set")
     log.info("  OpenAI:     %s", "configured" if OPENAI_KEY else "not set")
     log.info("  Anthropic:  %s", "configured" if ANTHROPIC_KEY else "not set")
-    log.info("  OCA:        %s", OCA_ENDPOINT)
     log.info("  Gemini:     %s", "configured" if GEMINI_KEY else "not set")
     log.info("  Routes:     %d total", len(ROUTES))
     uvicorn.run("multillm.gateway:app", host=GATEWAY_HOST, port=GATEWAY_PORT, reload=GATEWAY_RELOAD)

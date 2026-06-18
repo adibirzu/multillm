@@ -82,25 +82,6 @@ AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
 AWS_BEDROCK_REGION = os.getenv("AWS_BEDROCK_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
 AWS_BEDROCK_PROFILE = os.getenv("AWS_BEDROCK_PROFILE", "")
 
-# ── OCA (Oracle Code Assist) — fully env-configured ─────────────────────────
-OCA_ENDPOINT = os.getenv("OCA_ENDPOINT", "")
-OCA_API_VERSION = os.getenv("OCA_API_VERSION", "20250206")
-OCA_TOKEN_CACHE = Path(os.getenv("OCA_CACHE_DIR", str(Path.home() / ".oca"))).expanduser()
-OCA_IDCS_URL = _first_env(
-    "OCA_IDCS_URL",
-    "OCA_IDCS_OAUTH_URL",
-    "OCI_IDCS_OAUTH_URL",
-    "IDCS_URL",
-    "ORACLE_SSO_OAUTH_URL",
-)
-OCA_CLIENT_ID = _first_env(
-    "OCA_CLIENT_ID",
-    "OCA_IDCS_CLIENT_ID",
-    "OCI_IDCS_CLIENT_ID",
-    "IDCS_CLIENT_ID",
-    "ORACLE_SSO_CLIENT_ID",
-)
-
 # ── OpenTelemetry / OCI APM ──────────────────────────────────────────────────
 OTEL_ENABLED = os.getenv("OTEL_ENABLED", "false").lower() in ("true", "1", "yes")
 OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "multillm-gateway")
@@ -187,24 +168,6 @@ DEFAULT_ROUTES: dict[str, dict] = {
     # Anthropic
     "claude-haiku":          {"backend": "anthropic",  "model": "claude-haiku-4-5-20251001"},
     "claude-sonnet":         {"backend": "anthropic",  "model": "claude-sonnet-4-6"},
-    # OCA (Oracle Code Assist)
-    "oca/gpt5":              {"backend": "oca",        "model": "oca/gpt5"},
-    "oca/llama4":            {"backend": "oca",        "model": "oca/llama4"},
-    "oca/grok4":             {"backend": "oca",        "model": "oca/grok4"},
-    "oca/openai-o3":         {"backend": "oca",        "model": "oca/openai-o3"},
-    "oca/gpt-4.1":           {"backend": "oca",        "model": "oca/gpt-4.1"},
-    "oca/grok3":             {"backend": "oca",        "model": "oca/grok3"},
-    "oca/grok4-fast-reasoning": {"backend": "oca",     "model": "oca/grok4-fast-reasoning"},
-    "oca/grok-code-fast-1":  {"backend": "oca",        "model": "oca/grok-code-fast-1"},
-    "oca/gpt-oss-120b":      {"backend": "oca",        "model": "oca/gpt-oss-120b"},
-    "oca/gpt-5.4":           {"backend": "oca",        "model": "oca/gpt-5.4"},
-    "oca/gpt-5-codex":       {"backend": "oca",        "model": "oca/gpt-5-codex"},
-    "oca/gpt-5.1-codex":     {"backend": "oca",        "model": "oca/gpt-5.1-codex"},
-    "oca/gpt-5.1-codex-mini": {"backend": "oca",       "model": "oca/gpt-5.1-codex-mini"},
-    "oca/gpt-5.1-codex-max": {"backend": "oca",        "model": "oca/gpt-5.1-codex-max"},
-    "oca/gpt-5.2":           {"backend": "oca",        "model": "oca/gpt-5.2"},
-    "oca/gpt-5.2-codex":     {"backend": "oca",        "model": "oca/gpt-5.2-codex"},
-    "oca/gpt-5.3-codex":     {"backend": "oca",        "model": "oca/gpt-5.3-codex"},
     # Gemini (Google SDK)
     "gemini/flash":          {"backend": "gemini",     "model": "gemini-2.0-flash"},
     "gemini/pro":            {"backend": "gemini",     "model": "gemini-2.0-pro"},

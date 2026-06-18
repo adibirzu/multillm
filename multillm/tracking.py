@@ -55,7 +55,6 @@ COST_TABLE = {
     "openrouter":   {"input": 2.50,   "output": 10.0},
     "openai":       {"input": 2.50,   "output": 10.0},
     "anthropic":    {"input": 3.0,    "output": 15.0},
-    "oca":          {"input": 0.0,    "output": 0.0},    # Internal Oracle
     "gemini":       {"input": 0.075,  "output": 0.30},   # Flash pricing
     "groq":         {"input": 0.05,   "output": 0.08},   # Llama 70B pricing
     "deepseek":     {"input": 0.27,   "output": 1.10},   # DeepSeek-V3
@@ -805,7 +804,7 @@ def trace_llm_call(model_alias: str, backend: str, project: str):
             "anthropic": "anthropic", "openai": "openai", "gemini": "google",
             "ollama": "ollama", "openrouter": "openrouter", "groq": "groq",
             "deepseek": "deepseek", "mistral": "mistral", "together": "together",
-            "xai": "xai", "fireworks": "fireworks", "oca": "oracle",
+            "xai": "xai", "fireworks": "fireworks",
             "azure_openai": "azure", "bedrock": "aws", "lmstudio": "lmstudio",
             "codex_cli": "openai", "gemini_cli": "google",
         }

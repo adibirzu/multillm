@@ -102,7 +102,7 @@ mcp = FastMCP("multillm")
 
 class AskModelInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    model: str = Field(..., description="Model alias (e.g. 'ollama/llama3', 'oca/gpt5', 'gemini/flash', 'codex/cli')")
+    model: str = Field(..., description="Model alias (e.g. 'ollama/llama3', 'codex/gpt-5-4', 'gemini/flash', 'codex/cli')")
     prompt: str = Field(..., description="The question or task", min_length=1)
     system: Optional[str] = Field(default=None, description="Optional system prompt")
     max_tokens: int = Field(default=2048, ge=64, le=16000)
@@ -196,7 +196,7 @@ async def _call_gateway(
 
 @mcp.tool(name="llm_ask_model", annotations={"title": "Ask a specific LLM model", "readOnlyHint": True})
 async def llm_ask_model(params: AskModelInput) -> str:
-    """Send a prompt to any LLM via the gateway (Ollama, OCA, Gemini, Codex, OpenAI, etc.)."""
+    """Send a prompt to any LLM via the gateway (Ollama, Codex, Gemini, OpenAI, etc.)."""
     try:
         response = await _call_gateway(
             model=params.model, prompt=params.prompt, system=params.system,
@@ -213,7 +213,7 @@ async def llm_ask_model(params: AskModelInput) -> str:
 
 @mcp.tool(name="llm_second_opinion", annotations={"title": "Get review from another LLM", "readOnlyHint": True})
 async def llm_second_opinion(params: SecondOpinionInput) -> str:
-    """Ask another LLM (OCA, GPT-4o, Gemini, Llama, etc.) to review code or a plan."""
+    """Ask another LLM (GPT-4o, Gemini, Llama, etc.) to review code or a plan."""
     system = (
         f"You are a rigorous technical reviewer. Focus on: {params.review_focus}. "
         "Structure: VERDICT: PASS|WARN|FAIL, ISSUES: (list), SUGGESTIONS: (list), SUMMARY: (2-3 sentences)"
@@ -228,7 +228,7 @@ async def llm_second_opinion(params: SecondOpinionInput) -> str:
 
 @mcp.tool(name="llm_council", annotations={"title": "Query multiple LLMs in parallel", "readOnlyHint": True})
 async def llm_council(params: CouncilInput) -> str:
-    """Query 2-5 LLMs simultaneously (e.g. OCA + Gemini + Ollama + Claude for diverse perspectives)."""
+    """Query 2-5 LLMs simultaneously (e.g. Codex + Gemini + Ollama + Claude for diverse perspectives)."""
     async def ask_one(model: str) -> tuple[str, str]:
         try:
             resp = await _call_gateway(model=model, prompt=params.prompt, system=params.system, max_tokens=1024)
@@ -259,7 +259,7 @@ async def llm_summarize_cheap(params: SummarizeInput) -> str:
 
 @mcp.tool(name="llm_list_models", annotations={"title": "List available models", "readOnlyHint": True, "idempotentHint": True})
 async def llm_list_models() -> str:
-    """List all model aliases available in the gateway (Ollama, OCA, Gemini, Codex, OpenAI, etc.)."""
+    """List all model aliases available in the gateway (Ollama, Codex, Gemini, OpenAI, etc.)."""
     try:
         client = _get_gateway_client()
         r = await client.get(f"{GATEWAY_URL}/routes")
@@ -323,7 +323,7 @@ async def llm_status() -> str:
 
 @mcp.tool(name="llm_discover_models", annotations={"title": "Discover models from backends", "readOnlyHint": True})
 async def llm_discover_models(backend: Optional[str] = None, refresh: bool = True) -> str:
-    """Discover available models from all backends (Ollama, LM Studio, OpenAI, OCA, Gemini, OpenRouter).
+    """Discover available models from all backends (Ollama, LM Studio, OpenAI, Gemini, OpenRouter).
     Use refresh=True to force re-query. Optionally filter by backend name."""
     try:
         client = _get_gateway_client()
@@ -353,8 +353,8 @@ async def llm_discover_models(backend: Optional[str] = None, refresh: bool = Tru
 @mcp.tool(name="llm_add_route", annotations={"title": "Add/configure a model route", "readOnlyHint": False})
 async def llm_add_route(alias: str, backend: str, model: str) -> str:
     """Add or update a model route. Example: alias='my-gpt4', backend='openai', model='gpt-4o-2024-08-06'.
-    Backends: ollama, lmstudio, openai, openrouter, anthropic, oca, gemini, codex_cli."""
-    valid_backends = {"ollama", "lmstudio", "openai", "openrouter", "anthropic", "oca", "gemini", "codex_cli"}
+    Backends: ollama, lmstudio, openai, openrouter, anthropic, gemini, codex_cli."""
+    valid_backends = {"ollama", "lmstudio", "openai", "openrouter", "anthropic", "gemini", "codex_cli"}
     if backend not in valid_backends:
         return f"Invalid backend '{backend}'. Valid: {', '.join(sorted(valid_backends))}"
     try:

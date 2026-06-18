@@ -28,7 +28,7 @@ def test_get_client_reuses_pool():
 
 def test_different_backends_get_different_pools():
     c1 = get_client("ollama")
-    c2 = get_client("oca")
+    c2 = get_client("gemini")
     assert c1 is not c2
 
 
@@ -46,7 +46,7 @@ def test_http2_enabled():
 @pytest.mark.asyncio
 async def test_close_all_clears_pools():
     get_client("ollama")
-    get_client("oca")
+    get_client("gemini")
     assert len(_clients) == 2
     await close_all()
     assert len(_clients) == 0

@@ -27,7 +27,7 @@ class TestHealthEndpoint:
     def test_health_shows_all_backends(self):
         response = client.get("/health")
         backends = response.json()["backends"]
-        expected = {"ollama", "lmstudio", "oca", "gemini", "openai", "anthropic", "openrouter", "codex_cli", "gemini_cli"}
+        expected = {"ollama", "lmstudio", "gemini", "openai", "anthropic", "openrouter", "codex_cli", "gemini_cli"}
         assert expected == set(backends.keys())
 
 
@@ -51,32 +51,31 @@ class TestRoutesEndpoint:
 class TestBackendsEndpoint:
 
     @patch("multillm.gateway.discover_all_models", new_callable=AsyncMock)
-    @patch("multillm.oca_auth._read_cached_token")
-    def test_backends_marks_cached_oca_catalog_as_not_runnable(self, mock_read_cached_token, mock_discover):
-        mock_read_cached_token.return_value = None
+    def test_backends_marks_cached_catalog_as_not_runnable_without_key(self, mock_discover):
         mock_discover.return_value = {
-            "oca": [
+            "openrouter": [
                 {
-                    "id": "oca/gpt-5.4",
-                    "backend": "oca",
-                    "model": "oca/gpt-5.4",
-                    "name": "gpt-5.4",
+                    "id": "openrouter/some-model",
+                    "backend": "openrouter",
+                    "model": "some-model",
+                    "name": "some-model",
                     "catalog_source": "cache",
                 }
             ],
             "ollama": [],
         }
 
-        response = client.get("/api/backends")
+        with patch("multillm.gateway.OPENROUTER_KEY", ""):
+            response = client.get("/api/backends")
 
         assert response.status_code == 200
-        data = response.json()["backends"]["oca"]
+        data = response.json()["backends"]["openrouter"]
         assert data["available"] is False
         assert data["catalog_available"] is True
         assert data["catalog_source"] == "cache"
         assert data["status"] == "catalog_only"
         assert data["authenticated"] is False
-        assert "multillm-oca-login" in data["note"]
+        assert "OPENROUTER_API_KEY" in data["note"]
 
 
 class TestModelsEndpoint:
@@ -548,18 +547,10 @@ class TestObservabilityEndpoints:
             "byModel": {},
             "byProvider": {
                 "openai": {
-                    "tokens": 1000,
-                    "sessions": 1,
+                    "tokens": 4000,
+                    "sessions": 2,
                     "actualCostUSD": 1.2,
-                    "listPriceUSD": 1.2,
-                    "isOCA": False,
-                },
-                "oca-chicago": {
-                    "tokens": 3000,
-                    "sessions": 1,
-                    "actualCostUSD": 0.0,
-                    "listPriceUSD": 1.2,
-                    "isOCA": True,
+                    "listPriceUSD": 2.4,
                 },
             },
             "daily": [],
@@ -595,7 +586,7 @@ class TestFusionSlug:
 
     def _routes(self):
         return {
-            "oca/gpt-5.4": {"backend": "oca", "model": "oca/gpt5"},
+            "codex/gpt-5-4": {"backend": "codex_cli", "model": "codex:gpt-5-4"},
             "gemini-cli/pro": {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-pro"},
             "ollama/llama3": {"backend": "ollama", "model": "llama3"},
         }
@@ -603,7 +594,7 @@ class TestFusionSlug:
     def _fake_route_request(self):
         async def fake(body, model_alias=None, route=None):
             m = body["model"]
-            if m.startswith("oca"):  # judge produces analysis + final answer
+            if m.startswith("codex"):  # judge produces analysis + final answer
                 return {"content": [{"type": "text",
                         "text": f"Consensus: ok\n{__import__('multillm.fusion', fromlist=['FINAL_ANSWER_MARKER']).FINAL_ANSWER_MARKER}\nFused final answer."}],
                         "usage": {"input_tokens": 30, "output_tokens": 12}}
@@ -617,7 +608,7 @@ class TestFusionSlug:
             patch("multillm.gateway.route_request", new=AsyncMock(side_effect=self._fake_route_request())),
             patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
                 "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
-                "fusion_judge": "oca/gpt-5.4",
+                "fusion_judge": "codex/gpt-5-4",
             }.get(k, d)),
         ):
             r = client.post("/v1/messages", json={
@@ -638,7 +629,7 @@ class TestFusionSlug:
             patch("multillm.gateway.route_request", new=AsyncMock(side_effect=self._fake_route_request())),
             patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
                 "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
-                "fusion_judge": "oca/gpt-5.4",
+                "fusion_judge": "codex/gpt-5-4",
                 "fusion_auto_threshold": 0.5,
             }.get(k, d)),
         ):
@@ -658,7 +649,7 @@ class TestFusionSlug:
             patch.dict("multillm.gateway.ROUTES", self._routes(), clear=True),
             patch("multillm.gateway.route_request", new=AsyncMock(side_effect=fake)),
             patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
-                "fusion_judge": "oca/gpt-5.4",
+                "fusion_judge": "codex/gpt-5-4",
                 "fusion_auto_threshold": 0.6,
             }.get(k, d)),
         ):
@@ -677,7 +668,7 @@ class TestFusionSlug:
             patch("multillm.gateway.route_request", new=AsyncMock(side_effect=self._fake_route_request())),
             patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
                 "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
-                "fusion_judge": "oca/gpt-5.4",
+                "fusion_judge": "codex/gpt-5-4",
             }.get(k, d)),
         ):
             r = client.post("/api/fusion", json={"prompt": "Compare REST vs gRPC.", "max_tokens": 100})

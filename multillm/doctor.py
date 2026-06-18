@@ -27,9 +27,6 @@ from .config import (
     GEMINI_KEY,
     GROQ_KEY,
     MISTRAL_KEY,
-    OCA_CLIENT_ID,
-    OCA_ENDPOINT,
-    OCA_IDCS_URL,
     OPENAI_KEY,
     OPENROUTER_KEY,
     TOGETHER_KEY,
@@ -57,7 +54,6 @@ def _configured_backends() -> dict[str, bool]:
         "xai": bool(XAI_KEY),
         "fireworks": bool(FIREWORKS_KEY),
         "azure_openai": bool(AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT),
-        "oca": bool(OCA_ENDPOINT and OCA_IDCS_URL and OCA_CLIENT_ID),
     }
 
 

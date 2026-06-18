@@ -103,8 +103,13 @@ async def _run_codex_exec(prompt: str, sandbox: str, exec_target: list[str]) -> 
     if not codex_bin:
         raise FileNotFoundError("codex")
 
+    # `--full-auto` was removed in Codex CLI 0.140+; the sandbox policy is set
+    # explicitly via `-s <mode>` (exec is non-interactive, so no approval flag
+    # is needed). `--skip-git-repo-check` is required because the gateway runs
+    # from a non-repo working directory (launchd home), which Codex otherwise
+    # refuses to execute in ("not inside a trusted directory").
     proc = await asyncio.create_subprocess_exec(
-        codex_bin, "exec", "--full-auto", "-s", sandbox, *exec_target, "-",
+        codex_bin, "exec", "-s", sandbox, "--skip-git-repo-check", *exec_target, "-",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

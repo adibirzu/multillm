@@ -89,7 +89,7 @@ def test_backfill_populates_existing_rows(tmp_db: Path) -> None:
                 ('2026-05-18T10:01:00', 'openai', 'gpt-4o',  200, 60),
                 ('2026-05-18T10:02:00', 'anthropic','claude-3', 300, 70),
                 ('2026-05-18T10:03:00', 'gemini', 'flash',  400, 80),
-                ('2026-05-18T10:04:00', 'oca',    'gpt5',   500, 90);
+                ('2026-05-18T10:04:00', 'codex_cli', 'gpt-5-4', 500, 90);
             """
         )
         conn.commit()

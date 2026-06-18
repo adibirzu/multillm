@@ -52,18 +52,7 @@ KNOWN_OPTIONAL_EXTRAS: frozenset[str] = frozenset({
 # ``multillm/config.py``. They are documented in ``.env.example`` and are
 # real env vars the code consults, but the AST walker cannot see them as
 # direct ``os.getenv`` literals.
-KNOWN_INDIRECT_LOOKUPS: frozenset[str] = frozenset({
-    "OCA_IDCS_URL",
-    "OCA_IDCS_OAUTH_URL",
-    "OCI_IDCS_OAUTH_URL",
-    "IDCS_URL",
-    "ORACLE_SSO_OAUTH_URL",
-    "OCA_CLIENT_ID",
-    "OCA_IDCS_CLIENT_ID",
-    "OCI_IDCS_CLIENT_ID",
-    "IDCS_CLIENT_ID",
-    "ORACLE_SSO_CLIENT_ID",
-})
+KNOWN_INDIRECT_LOOKUPS: frozenset[str] = frozenset()
 
 _ENV_LINE_RE = re.compile(r"^([A-Z][A-Z0-9_]+)=")
 

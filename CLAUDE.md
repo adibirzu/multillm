@@ -2,7 +2,7 @@
 
 ## Overview
 
-MultiLLM is a unified LLM gateway that proxies requests to 16+ backends through a single Anthropic-compatible API. It provides token tracking, cost estimation, shared cross-LLM memory, circuit breakers, health probes, and a real-time dashboard.
+MultiLLM is a unified LLM gateway that proxies requests to 15+ backends through a single Anthropic-compatible API. It provides token tracking, cost estimation, shared cross-LLM memory, circuit breakers, health probes, and a real-time dashboard.
 
 **Gateway URL**: `http://localhost:8080`
 **Dashboard**: `http://localhost:8080/dashboard`
@@ -28,13 +28,12 @@ Claude Code → HTTP requests → FastAPI Gateway (port 8080) → Backend adapte
 - **`multillm/discovery.py`** — Dynamic model discovery + installed-aware local routing (`resolve_local_target`)
 - **`multillm/service.py`** — OS-start service installer (launchd plist / systemd user unit)
 
-## Available Backends (16)
+## Available Backends (15)
 
 | Type | Backends |
 |------|----------|
 | Local | Ollama, LM Studio, Codex CLI, Gemini CLI |
 | Cloud | OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek, Mistral, Together, xAI, Fireworks, Azure OpenAI, AWS Bedrock |
-| Enterprise | OCA (Oracle Code Assist) |
 
 ## Plugin Commands (Slash Commands)
 
@@ -284,7 +283,6 @@ Codex CLI and Gemini CLI support configurable sandbox modes:
 
 ```
 ollama/qwen3-30b, ollama/llama3.3
-oca/gpt5, oca/gpt-4o
 openai/gpt-4o, openai/o1
 gemini/flash, gemini/pro
 groq/llama-3.3-70b
@@ -305,7 +303,7 @@ Tests cover converters, gateway, memory, streaming, tracking, sessions, discover
 ## Development Notes
 
 - Gateway uses **inline routing functions** in `gateway.py`, not the adapter registry — both must be kept in sync
-- Cost tracking for all 16 backends is in `COST_TABLE` in `tracking.py`
-- Local backends (ollama, lmstudio, codex_cli, gemini_cli, oca) are $0 cost
+- Cost tracking for all 15 backends is in `COST_TABLE` in `tracking.py`
+- Local backends (ollama, lmstudio, codex_cli, gemini_cli) are $0 cost
 - Circuit breaker: 5 failures → open, 60s recovery → half-open probe
 - `CancelledError` is NOT counted as a backend failure (important for half-open probes)

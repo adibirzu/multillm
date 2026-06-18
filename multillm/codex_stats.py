@@ -46,10 +46,6 @@ OPENAI_LIST_PRICING: dict[str, dict[str, float]] = {
     "o4-mini":      {"input": 1.10,  "output": 4.40,  "cached_input": 0.275},
 }
 
-# OCA provider pricing (internal Oracle — effectively free)
-OCA_PROVIDERS = {"oca-chicago", "oca", "oca-ashburn", "oca-frankfurt", "oca-london"}
-
-
 def _get_list_pricing(model: str) -> dict[str, float]:
     """Get OpenAI list pricing for a model. Returns input/output per 1M tokens."""
     pricing = OPENAI_LIST_PRICING.get(model)
@@ -228,8 +224,7 @@ def _estimate_session_cost(
             + output_tokens * pricing["output"]
         ) / 1_000_000
 
-    actual_cost = 0.0 if provider.lower() in OCA_PROVIDERS else list_price
-    return actual_cost, list_price
+    return list_price, list_price
 
 
 def _connect_readonly() -> Optional[sqlite3.Connection]:
@@ -366,8 +361,6 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
                     "externalSessions": 0,
                     "externalActualCostUSD": 0.0,
                     "externalListPriceUSD": 0.0,
-                    "ocaTokens": 0,
-                    "ocaSessions": 0,
                     "providers": set(),
                 }
             model_agg = by_model[model]
@@ -381,14 +374,10 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
             model_agg["actualCostUSD"] += actual_cost
             model_agg["listPriceUSD"] += list_price
             model_agg["providers"].add(provider)
-            if provider.lower() in OCA_PROVIDERS:
-                model_agg["ocaTokens"] += session_tokens
-                model_agg["ocaSessions"] += 1
-            else:
-                model_agg["externalTokens"] += session_tokens
-                model_agg["externalSessions"] += 1
-                model_agg["externalActualCostUSD"] += actual_cost
-                model_agg["externalListPriceUSD"] += list_price
+            model_agg["externalTokens"] += session_tokens
+            model_agg["externalSessions"] += 1
+            model_agg["externalActualCostUSD"] += actual_cost
+            model_agg["externalListPriceUSD"] += list_price
 
             if provider not in by_provider:
                 by_provider[provider] = {
@@ -401,7 +390,6 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
                     "sessions": 0,
                     "actualCostUSD": 0.0,
                     "listPriceUSD": 0.0,
-                    "isOCA": provider.lower() in OCA_PROVIDERS,
                 }
             provider_agg = by_provider[provider]
             provider_agg["tokens"] += session_tokens
@@ -478,7 +466,6 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
             "totalRealNetTokens": total_real_net_tokens,
             "totalActualCostUSD": round(total_actual_cost, 4),
             "totalListPriceUSD": round(total_list_price, 4),
-            "savedByOCA": round(total_list_price - total_actual_cost, 4),
             "byModel": by_model,
             "byProvider": by_provider,
             "daily": daily_list,
@@ -519,6 +506,5 @@ def get_codex_today() -> dict:
         "realNetTokens": today_real_net,
         "actualCostUSD": round(today_actual, 4),
         "listPriceUSD": round(today_list, 4),
-        "savedByOCA": round(today_list - today_actual, 4),
         "details": today_sessions,
     }

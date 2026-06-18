@@ -24,7 +24,6 @@ venv/
 *.db-journal
 
 # Auth tokens and provider caches (never commit)
-.oca/
 .aws/
 .azure/
 

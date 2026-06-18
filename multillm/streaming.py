@@ -158,53 +158,6 @@ async def stream_anthropic_passthrough(
     return StreamingResponse(generate(), media_type="text/event-stream", headers=ANTHROPIC_SSE_HEADERS)
 
 
-# ── OCA streaming ───────────────────────────────────────────────────────────
-
-async def stream_oca(
-    endpoint: str,
-    api_version: str,
-    token: str,
-    body: dict,
-    model: str,
-    model_alias: str,
-) -> StreamingResponse:
-    """Stream from Oracle Code Assist, converting OpenAI SSE to Anthropic SSE."""
-    payload = build_openai_payload(body, model)
-    payload["stream"] = True
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}",
-        "client": "multillm-gateway",
-        "client-version": "0.1.0",
-    }
-    url = f"{endpoint}/{api_version}/app/litellm/chat/completions"
-
-    async def generate() -> AsyncIterator[str]:
-        state = StreamState(model_alias)
-        yield make_message_start_event(state)
-        yield make_ping_event()
-
-        client = get_client("oca")
-        async with client.stream("POST", url, json=payload, headers=headers) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data_str = line[6:]
-                if data_str.strip() == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data_str)
-                except json.JSONDecodeError:
-                    continue
-
-                for event in openai_chunk_to_anthropic_events(chunk, state):
-                    yield event
-
-    return StreamingResponse(generate(), media_type="text/event-stream", headers=ANTHROPIC_SSE_HEADERS)
-
-
 # ── Gemini streaming ────────────────────────────────────────────────────────
 
 async def stream_gemini(

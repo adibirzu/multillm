@@ -41,16 +41,14 @@ def test_build_summary_includes_direct_limits_and_statuses():
         },
         codex_stats={
             "available": True,
-            "totalSessions": 4,
+            "totalSessions": 2,
             "byModel": {
                 "gpt-5.4": {
-                    "tokens": 5_200,
-                    "sessions": 4,
+                    "tokens": 1_200,
+                    "sessions": 2,
                     "externalTokens": 1_200,
                     "externalSessions": 2,
-                    "ocaTokens": 4_000,
-                    "ocaSessions": 2,
-                    "providers": ["oca-chicago", "openai"],
+                    "providers": ["openai"],
                 },
             },
             "byProvider": {
@@ -59,14 +57,6 @@ def test_build_summary_includes_direct_limits_and_statuses():
                     "sessions": 2,
                     "actualCostUSD": 3.5,
                     "listPriceUSD": 3.5,
-                    "isOCA": False,
-                },
-                "oca-chicago": {
-                    "tokens": 4_000,
-                    "sessions": 2,
-                    "actualCostUSD": 0.0,
-                    "listPriceUSD": 9.0,
-                    "isOCA": True,
                 },
             },
         },
@@ -122,52 +112,3 @@ def test_build_summary_includes_direct_limits_and_statuses():
     assert model_items["gemini-2.5-pro"]["remainingTokens"] == 11_000
     assert model_items["gemini-2.5-pro"]["usedTokens"] == 8_000
     assert model_items["gemini-2.5-pro"]["scope"] == "shared_provider"
-
-
-def test_codex_oca_only_usage_keeps_external_limit_at_zero():
-    summary = build_llm_observability_summary(
-        hours=24,
-        gateway_stats={"totals": {}, "session_count": 0, "by_model": []},
-        claude_stats={"available": False},
-        codex_stats={
-            "available": True,
-            "totalSessions": 2,
-            "byModel": {
-                "gpt-5.4": {
-                    "tokens": 8_000,
-                    "sessions": 2,
-                    "externalTokens": 0,
-                    "externalSessions": 0,
-                    "ocaTokens": 8_000,
-                    "ocaSessions": 2,
-                    "providers": ["oca-frankfurt"],
-                },
-            },
-            "byProvider": {
-                "oca-frankfurt": {
-                    "tokens": 8_000,
-                    "sessions": 2,
-                    "actualCostUSD": 0.0,
-                    "listPriceUSD": 14.0,
-                    "isOCA": True,
-                },
-            },
-        },
-        gemini_stats={"available": False},
-        settings={"usage_limits": {"codex_cli_external": 7_000}},
-        today=date(2026, 4, 6),
-    )
-
-    statuses = summary["statusBySource"]
-    assert statuses["codex_cli"]["status"] == "oca_only"
-    assert statuses["codex_cli"]["externalTokens"] == 0
-    assert statuses["codex_cli"]["ocaTokens"] == 8_000
-
-    items = {item["id"]: item for item in summary["limits"]["items"]}
-    assert items["codex_cli_external"]["usedTokens"] == 0
-    assert items["codex_cli_external"]["limitTokens"] == 7_000
-    assert items["codex_cli_external"]["remainingTokens"] == 7_000
-
-    model_items = {item["model"]: item for item in summary["limits"]["modelItems"]}
-    assert model_items["gpt-5.4"]["remainingTokens"] is None
-    assert model_items["gpt-5.4"]["scope"] == "unlimited"

@@ -354,7 +354,6 @@
   .backend-anthropic { background: #6c5ce733; color: #a29bfe; }
   .backend-openai { background: #74b9ff33; color: #74b9ff; }
   .backend-gemini { background: #fdcb6e33; color: #fdcb6e; }
-  .backend-oca { background: #e1705533; color: #e17055; }
   .backend-openrouter { background: #fd79a833; color: #fd79a8; }
   .backend-codex_cli { background: #55efc433; color: #55efc4; }
   .backend-claude_code { background: #d4a0ff33; color: #d4a0ff; }
@@ -898,7 +897,7 @@ const API = window.location.origin;
 const BACKEND_COLORS = {
   gateway: '#6c5ce7',
   ollama: '#00b894', anthropic: '#a29bfe', openai: '#74b9ff',
-  gemini: '#fdcb6e', oca: '#e17055', openrouter: '#fd79a8',
+  gemini: '#fdcb6e', openrouter: '#fd79a8',
   codex_cli: '#55efc4', lmstudio: '#81ecec',
   groq: '#f97220', deepseek: '#536dfe', mistral: '#ff6f00',
   together: '#7c4dff', xai: '#e0e0e0', fireworks: '#ff5252',
@@ -915,7 +914,6 @@ const PROVIDERS = {
   anthropic:    { label: 'Anthropic',   icon: '🧠', type: 'cloud' },
   gemini:       { label: 'Gemini',      icon: '💎', type: 'cloud' },
   openrouter:   { label: 'OpenRouter',  icon: '🔀', type: 'cloud' },
-  oca:          { label: 'OCA',         icon: '☁️', type: 'cloud' },
   groq:         { label: 'Groq',        icon: '⚡', type: 'cloud' },
   deepseek:     { label: 'DeepSeek',    icon: '🔍', type: 'cloud' },
   mistral:      { label: 'Mistral',     icon: '🌬️', type: 'cloud' },
@@ -2446,7 +2444,6 @@ const WEEKLY_LIMITS = {
   'Claude Opus':   { limit: 35_000_000, color: 'var(--accent)' },
   'Claude Sonnet': { limit: 70_000_000, color: 'var(--accent5)' },
   'Codex CLI':     { limit: 70_000_000, color: 'var(--accent2)' },
-  'OCA':           { limit: 350_000_000, color: 'var(--accent3)' },
   'Gemini':        { limit: 14_000_000, color: '#e17055' },
   'Gemini API':    { limit: 14_000_000, color: '#e17055' },
   'Groq':          { limit: 42_000, color: '#f97220' },       // Groq free tier
@@ -2512,9 +2509,7 @@ function renderProviderStrip(backends, usageByBackend, directStatus = {}) {
       } else if (id === 'codex_cli') {
         statusText = direct.status === 'external_usage'
           ? `external ${direct.externalSessions || direct.sessions || 0} sessions`
-          : direct.status === 'oca_only'
-            ? `OCA only · ${direct.sessions || 0} sessions`
-            : `${direct.sessions || 0} sessions`;
+          : `${direct.sessions || 0} sessions`;
       } else if (id === 'gemini_cli') {
         statusText = `${direct.sessions || 0} sessions`;
       } else {
@@ -2572,7 +2567,7 @@ function renderLimits(unified, gwStats) {
   });
 
   const backendToLimit = {
-    oca: 'OCA', gemini: 'Gemini API',
+    gemini: 'Gemini API',
     groq: 'Groq', deepseek: 'DeepSeek', mistral: 'Mistral',
     together: 'Together', xai: 'xAI', fireworks: 'Fireworks',
     azure_openai: 'Azure', bedrock: 'Bedrock',
@@ -2825,8 +2820,6 @@ function renderCodexModelUsage(data) {
     return;
   }
 
-  const savedByOCA = data.savedByOCA || 0;
-
   const modelRows = Object.entries(byModel).map(([model, u]) => `<tr>
     <td style="font-weight:600;color:#55efc4">${model}</td>
     <td class="token-num">${fmt(u.inputTokens || 0)}</td>
@@ -2839,9 +2832,8 @@ function renderCodexModelUsage(data) {
   </tr>`);
 
   const providerRows = Object.entries(byProvider).map(([prov, u]) => {
-    const ocaBadge = u.isOCA ? ' <span style="background:#55efc422;color:#55efc4;padding:1px 4px;border-radius:3px;font-size:9px">FREE</span>' : '';
     return `<tr>
-      <td style="font-weight:600;color:#81ecec">${prov}${ocaBadge}</td>
+      <td style="font-weight:600;color:#81ecec">${prov}</td>
       <td class="token-num">${fmt(u.inputTokens || 0)}</td>
       <td class="token-num">${fmt(u.outputTokens || 0)}</td>
       <td class="token-num" style="color:var(--text-dim)">${fmt(u.cachedTokens || 0)}</td>
@@ -2859,7 +2851,6 @@ function renderCodexModelUsage(data) {
       ${fmt(data.totalCachedTokens || 0)} cached / ${fmt(data.totalRealNetTokens || 0)} net &middot;
       Actual: <span style="color:var(--accent3)">${fmtCost(data.totalActualCostUSD)}</span>
       &middot; List price: <span style="color:var(--text-dim)">${fmtCost(data.totalListPriceUSD)}</span>
-      ${savedByOCA > 0 ? `&middot; <span style="color:#55efc4;font-weight:600">Saved ${fmtCost(savedByOCA)} via OCA</span>` : ''}
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap">
       <div style="flex:1 1 420px;min-width:0;overflow-x:auto">
@@ -2889,10 +2880,7 @@ function renderCodexHistory(data) {
   const rows = sessions.map(s => {
     const title = (s.title || s.firstMessage || '').substring(0, 60);
     const proj = s.project || '—';
-    const isOCA = s.provider && s.provider.toLowerCase().startsWith('oca');
-    const costCell = isOCA
-      ? `<td class="token-num" style="color:#55efc4">$0 <span style="font-size:9px;color:var(--text-dim)">(${fmtCost(s.listPriceUSD)} list)</span></td>`
-      : `<td class="token-num" style="color:var(--accent3)">${fmtCost(s.actualCostUSD)}</td>`;
+    const costCell = `<td class="token-num" style="color:var(--accent3)">${fmtCost(s.actualCostUSD)}</td>`;
     return `<tr>
       <td style="white-space:nowrap">${s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}</td>
       <td style="color:#55efc4">${s.model}</td>
@@ -2992,7 +2980,6 @@ function renderUnifiedLedger(data) {
     const avail = s.available ? '●' : '○';
     const actualCost = s.actualCostUSD || s.costUSD || 0;
     const listPrice = s.listPriceUSD || actualCost;
-    const saved = s.savedByOCA || 0;
     const focused = dashboardState.source === s.source;
     return `<div onclick="setSourceFilter('${s.source}')" style="flex:1;min-width:180px;background:${color}11;border:1px solid ${focused ? color : color + '33'};border-radius:8px;padding:12px;cursor:pointer">
       <div style="font-size:10px;color:${color};text-transform:uppercase;letter-spacing:1px">${avail} ${label}</div>
@@ -3003,7 +2990,6 @@ function renderUnifiedLedger(data) {
         ${s.messages ? ` · ${fmt(s.messages)} msgs` : ''}
         ${s.requests ? ` · ${s.requests} reqs` : ''}
       </div>
-      ${saved > 0 ? `<div style="font-size:10px;color:#55efc4;margin-top:2px;font-weight:600">Saved ${fmtCost(saved)} via OCA</div>` : ''}
       ${s.dataAsOf ? `<div style="font-size:9px;color:var(--text-dim);margin-top:2px">data as of ${s.dataAsOf}</div>` : ''}
     </div>`;
   });
@@ -3039,7 +3025,6 @@ function renderUnifiedLedger(data) {
       <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">Grand Total — All LLMs</div>
       <div style="font-size:32px;font-weight:800;color:var(--accent3);margin:4px 0" class="token-num">${fmt(grandTokens)} tokens</div>
       <div style="font-size:16px;color:var(--accent3)">${fmtCost(grandCost)} actual${grandSaved > 0 ? ` <span style="font-size:12px;color:var(--text-dim);text-decoration:line-through">${fmtCost(grandListPrice)} list</span>` : ''}</div>
-      ${grandSaved > 0 ? `<div style="font-size:13px;color:#55efc4;font-weight:600;margin-top:4px">Saved ${fmtCost(grandSaved)} via OCA</div>` : ''}
     </div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
       ${sourceCards.join('')}
@@ -3195,7 +3180,7 @@ async function showBackendDrilldown(backend) {
           <div class="stat-card" style="padding:12px"><div class="label">Sessions</div><div class="value" style="font-size:20px">${fmt(payload.codexStats.totalSessions || 0)}</div></div>
           <div class="stat-card" style="padding:12px"><div class="label">Tokens</div><div class="value token-num" style="font-size:20px">${fmt(payload.codexStats.totalTokens || 0)}</div></div>
           <div class="stat-card" style="padding:12px"><div class="label">Actual Cost</div><div class="value" style="font-size:20px">${fmtCost(payload.codexStats.totalActualCostUSD || 0)}</div></div>
-          <div class="stat-card" style="padding:12px"><div class="label">Saved via OCA</div><div class="value" style="font-size:20px;color:#55efc4">${fmtCost(payload.codexStats.savedByOCA || 0)}</div></div>
+          <div class="stat-card" style="padding:12px"><div class="label">List Price</div><div class="value" style="font-size:20px;color:var(--text-dim)">${fmtCost(payload.codexStats.totalListPriceUSD || 0)}</div></div>
         </div>
         <div class="panels" style="margin-bottom:0">
           <div class="panel">

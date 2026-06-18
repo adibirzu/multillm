@@ -14,7 +14,7 @@ from typing import Optional
 class BaseAdapter(ABC):
     """Interface that all backend adapters must implement."""
 
-    name: str  # e.g. "ollama", "openai", "oca"
+    name: str  # e.g. "ollama", "openai", "gemini"
 
     @abstractmethod
     async def send(self, body: dict, model: str, model_alias: str) -> dict:

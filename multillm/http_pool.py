@@ -20,7 +20,6 @@ _PROFILES = {
     "openai":    httpx.Timeout(120.0, connect=10.0),   # cloud
     "openrouter": httpx.Timeout(120.0, connect=10.0),
     "anthropic": httpx.Timeout(120.0, connect=10.0),
-    "oca":       httpx.Timeout(180.0, connect=10.0),   # OCA can be slow
     "gemini":    httpx.Timeout(120.0, connect=10.0),
     "groq":      httpx.Timeout(60.0, connect=10.0),    # Groq is ultra-fast
     "deepseek":  httpx.Timeout(120.0, connect=10.0),

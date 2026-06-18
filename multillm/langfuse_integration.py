@@ -76,7 +76,7 @@ _PROVIDER_MAP = {
     "anthropic": "anthropic", "openrouter": "openrouter", "gemini": "google",
     "groq": "groq", "deepseek": "deepseek", "mistral": "mistral",
     "together": "together", "xai": "xai", "fireworks": "fireworks",
-    "oca": "oracle-code-assist", "azure_openai": "azure-openai",
+    "azure_openai": "azure-openai",
     "bedrock": "aws-bedrock", "codex_cli": "openai-codex",
     "gemini_cli": "google-gemini",
 }

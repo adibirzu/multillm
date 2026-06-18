@@ -22,9 +22,7 @@ from .config import (
     GROQ_KEY, DEEPSEEK_KEY, MISTRAL_KEY, TOGETHER_KEY,
     XAI_KEY, FIREWORKS_KEY,
     AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT,
-    OCA_ENDPOINT,
 )
-from .oca_auth import get_oca_bearer_token
 from .resilience import get_breaker
 
 log = logging.getLogger("multillm.health")
@@ -183,28 +181,6 @@ async def _probe_anthropic() -> tuple[bool, float, str]:
         return False, latency, f"{type(e).__name__}: {e}"
 
 
-async def _probe_oca() -> tuple[bool, float, str]:
-    if not OCA_ENDPOINT:
-        return False, 0.0, "not configured"
-    token = await get_oca_bearer_token()
-    if not token:
-        return False, 0.0, "auth failed"
-    t0 = time.monotonic()
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(
-                f"{OCA_ENDPOINT}/20250206/app/litellm/models",
-                headers={"Authorization": f"Bearer {token}", "client": "multillm-gateway"},
-            )
-            latency = (time.monotonic() - t0) * 1000
-            if r.status_code < 400:
-                return True, latency, ""
-            return False, latency, f"HTTP {r.status_code}"
-    except Exception as e:
-        latency = (time.monotonic() - t0) * 1000
-        return False, latency, f"{type(e).__name__}: {e}"
-
-
 async def _probe_gemini() -> tuple[bool, float, str]:
     if not GEMINI_KEY:
         return False, 0.0, "not configured"
@@ -227,7 +203,6 @@ async def check_all_backends():
     """Run health probes against all backends concurrently."""
     probes = {**BACKEND_PROBES}
     probes["anthropic"] = _probe_anthropic
-    probes["oca"] = _probe_oca
     probes["gemini"] = _probe_gemini
 
     tasks = {name: asyncio.create_task(fn()) for name, fn in probes.items()}

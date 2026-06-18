@@ -119,7 +119,6 @@ class TestCheckAllBackends:
 
         with patch("multillm.health.BACKEND_PROBES", probes), \
              patch("multillm.health._probe_anthropic", return_value=(False, 0, "not configured")), \
-             patch("multillm.health._probe_oca", return_value=(False, 0, "not configured")), \
              patch("multillm.health._probe_gemini", return_value=(False, 0, "not configured")):
             await check_all_backends()
 
@@ -135,7 +134,6 @@ class TestCheckAllBackends:
 
         with patch("multillm.health.BACKEND_PROBES", probes), \
              patch("multillm.health._probe_anthropic", return_value=(False, 0, "not configured")), \
-             patch("multillm.health._probe_oca", return_value=(False, 0, "not configured")), \
              patch("multillm.health._probe_gemini", return_value=(False, 0, "not configured")):
             await check_all_backends()
 
@@ -150,7 +148,6 @@ class TestCheckAllBackends:
 
         with patch("multillm.health.BACKEND_PROBES", probes), \
              patch("multillm.health._probe_anthropic", return_value=(False, 0, "not configured")), \
-             patch("multillm.health._probe_oca", return_value=(False, 0, "not configured")), \
              patch("multillm.health._probe_gemini", return_value=(False, 0, "not configured")):
             await check_all_backends()
 

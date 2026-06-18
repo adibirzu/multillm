@@ -11,13 +11,13 @@ reports each model's response with its **actual token cost** plus combined total
 One model failing never sinks the rest.
 
 Default model set (omit `models` to use gateway settings `auto_council_models`):
-`ollama/qwen3-30b`, `oca/gpt5`, `gemini/flash`.
+`ollama/qwen3-30b`, `codex/gpt-5-4`, `gemini/flash`.
 
 Send the council request (replace PROMPT; optionally set models/max_tokens):
 ```bash
 curl -s http://localhost:8080/api/council \
   -H 'Content-Type: application/json' \
-  -d '{"prompt": "PROMPT", "models": ["ollama/qwen3-30b", "oca/gpt5", "gemini/flash"], "max_tokens": 2048, "temperature": 0.7}' \
+  -d '{"prompt": "PROMPT", "models": ["ollama/qwen3-30b", "codex/gpt-5-4", "gemini/flash"], "max_tokens": 2048, "temperature": 0.7}' \
   | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
