@@ -665,6 +665,17 @@
     </div>
   </div>
 
+  <!-- Cost Forecast & Burn Rate -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <span>Cost Forecast &amp; Burn Rate</span>
+      <span style="font-size:10px;color:var(--text-dim)">predicted spend and time-to-quota</span>
+    </div>
+    <div class="panel-body" id="costForecast" style="padding:12px 16px">
+      <div class="loading">Loading...</div>
+    </div>
+  </div>
+
   <!-- Usage Limits -->
   <div class="panel" style="margin-bottom:24px">
     <div class="panel-header" id="limitsHeader">Weekly Usage &amp; Cost</div>
@@ -1735,6 +1746,68 @@ function renderDashboard(payload) {
   document.getElementById('lastUpdate').textContent = freshnessLabel(payload.performance);
 }
 
+// Cost forecast: burn-rate, projected spend, and time-to-quota. Fetched
+// separately so a slow/absent forecast never blocks the main dashboard render.
+async function loadCostForecast() {
+  const el = document.getElementById('costForecast');
+  if (!el) return;
+  try {
+    const hours = getHours();
+    const projectParam = currentProjectParam();
+    const fc = await fetchJSON(`${API}/api/cost/forecast?hours=${hours}${projectParam}`);
+    el.innerHTML = renderCostForecast(fc);
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--text-dim);font-size:12px">Forecast unavailable: ${e.message || e}</div>`;
+  }
+}
+
+function renderCostForecast(fc) {
+  const p = fc.projected || {};
+  const gw = (fc.burnRate && fc.burnRate.gateway) || {};
+  const etas = fc.quotaETAs || [];
+
+  const cards = `
+    <div class="stat-card">
+      <div class="label">Projected / day</div>
+      <div class="value" style="color:var(--accent5)">${fmtCost(p.perDayUSD)}</div>
+      <div class="sub">${p.basis || ''}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Projected / month</div>
+      <div class="value" style="color:var(--accent5)">${fmtCost(p.monthEndUSD)}</div>
+      <div class="sub">${fmtCost(p.windowSpendUSD)} in last ${p.windowDays || 0}d</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Gateway burn (live)</div>
+      <div class="value token-num">${fmt(gw.tokensPerMin)}<span style="font-size:11px;color:var(--text-dim)">/min</span></div>
+      <div class="sub">${fmtCost(gw.costPerHourUSD)}/hr</div>
+    </div>`;
+
+  let etaRows = '';
+  if (etas.length) {
+    etaRows = etas.slice(0, 6).map(e => {
+      const danger = e.exhaustsToday ? 'var(--danger, #ef4444)' : 'var(--text)';
+      return `<tr>
+        <td style="padding:4px 8px">${e.label || e.source}</td>
+        <td style="padding:4px 8px;text-align:right">${fmt(e.remainingTokens)}</td>
+        <td style="padding:4px 8px;text-align:right">${fmt(e.tokensPerHour)}/h</td>
+        <td style="padding:4px 8px;text-align:right;color:${danger};font-weight:600">${e.etaText}${e.exhaustsToday ? ' ⚠' : ''}</td>
+      </tr>`;
+    }).join('');
+    etaRows = `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:12px">
+      <thead><tr style="color:var(--text-dim);text-align:left">
+        <th style="padding:4px 8px">Quota</th>
+        <th style="padding:4px 8px;text-align:right">Remaining</th>
+        <th style="padding:4px 8px;text-align:right">Burn</th>
+        <th style="padding:4px 8px;text-align:right">Runs out in</th>
+      </tr></thead><tbody>${etaRows}</tbody></table>`;
+  } else {
+    etaRows = `<div style="color:var(--text-dim);font-size:12px;margin-top:10px">No quotas with remaining headroom and active burn — nothing forecast to exhaust.</div>`;
+  }
+
+  return `<div class="stat-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">${cards}</div>${etaRows}`;
+}
+
 // Translate the bundle's SWR cache metadata into a short status the user reads.
 // stale-refreshing → data is showing now but a background recompute is running.
 function freshnessLabel(perf) {
@@ -1852,6 +1925,7 @@ async function loadDashboard(force = false) {
     const unified = bundle.unified || {};
     const performance = bundle.performance || {};
     renderDashboard({stats, sessions, backends, cacheStats, claudeStats, codexStats, geminiStats, unified, active, otelStatus, status, performance});
+    loadCostForecast();
   } catch (error) {
     if (error.name !== 'AbortError' && requestId === loadSequence) {
       renderDashboardError(error);

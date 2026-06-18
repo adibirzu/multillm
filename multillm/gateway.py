@@ -92,6 +92,7 @@ from .claude_stats import get_claude_code_stats
 from .codex_stats import get_codex_stats
 from .gemini_stats import get_gemini_stats
 from . import bundle_cache
+from . import cost_forecast
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
 from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker, calculate_backend_score
@@ -1556,6 +1557,63 @@ async def dashboard_bundle_api(
         )
 
     return await bundle_cache.get_bundle(key, _compute, force=refresh)
+
+
+async def _cached_unified(hours: int, project: Optional[str]) -> dict:
+    """Fetch the unified usage payload via the SWR bundle cache (no extra scan)."""
+    key = bundle_cache.make_key(
+        hours=hours, project=project, session_limit=50, direct_session_limit=100
+    )
+
+    async def _compute() -> dict:
+        return await asyncio.to_thread(
+            _compute_dashboard_bundle,
+            hours=hours, project=project, session_limit=50, direct_session_limit=100,
+        )
+
+    bundle = await bundle_cache.get_bundle(key, _compute)
+    return bundle.get("unified") or {}
+
+
+@app.get("/api/cost/forecast")
+async def cost_forecast_api(hours: int = Query(168, ge=1, le=43800), project: Optional[str] = None):
+    """Burn-rate, projected spend (today/month), and quota-exhaustion ETAs.
+
+    Reuses the cached unified payload and cheap gateway SQL windows, so it does
+    not trigger a fresh history scan.
+    """
+    unified = await _cached_unified(hours, project)
+    gw_recent_1h = await asyncio.to_thread(get_dashboard_stats, hours=1, project=project)
+    gw_recent_24h = await asyncio.to_thread(get_dashboard_stats, hours=24, project=project)
+
+    return cost_forecast.build_cost_forecast(
+        unified=unified,
+        gw_recent_1h=gw_recent_1h,
+        gw_recent_24h=gw_recent_24h,
+        window_hours=hours,
+    )
+
+
+@app.post("/api/cost/estimate")
+async def cost_estimate_api(body: dict | None = None):
+    """Pre-flight cost estimate of a prompt across candidate model aliases.
+
+    Body: ``{"prompt": "...", "models": ["openai/gpt-4o", ...],
+    "expected_output_tokens": 500}``. ``models`` is optional — omit to price
+    every known route. Returns estimates sorted cheapest-first.
+    """
+    body = body or {}
+    prompt = body.get("prompt", "")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Missing 'prompt'")
+    candidates = body.get("models") or None
+    expected_output = body.get("expected_output_tokens", cost_forecast.DEFAULT_EXPECTED_OUTPUT_TOKENS)
+    return cost_forecast.estimate_prompt_cost(
+        prompt=prompt,
+        routes=ROUTES,
+        candidates=candidates,
+        expected_output_tokens=expected_output,
+    )
 
 
 @app.get("/api/cache")
