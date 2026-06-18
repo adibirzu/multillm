@@ -590,6 +590,107 @@ class TestObservabilityEndpoints:
         assert claude_source["tokens"] == 1500
 
 
+class TestFusionSlug:
+    """`fusion` and `auto` model slugs on /v1/messages → abstracted synthesis."""
+
+    def _routes(self):
+        return {
+            "oca/gpt-5.4": {"backend": "oca", "model": "oca/gpt5"},
+            "gemini-cli/pro": {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-pro"},
+            "ollama/llama3": {"backend": "ollama", "model": "llama3"},
+        }
+
+    def _fake_route_request(self):
+        async def fake(body, model_alias=None, route=None):
+            m = body["model"]
+            if m.startswith("oca"):  # judge produces analysis + final answer
+                return {"content": [{"type": "text",
+                        "text": f"Consensus: ok\n{__import__('multillm.fusion', fromlist=['FINAL_ANSWER_MARKER']).FINAL_ANSWER_MARKER}\nFused final answer."}],
+                        "usage": {"input_tokens": 30, "output_tokens": 12}}
+            return {"content": [{"type": "text", "text": f"panel answer from {m}"}],
+                    "usage": {"input_tokens": 8, "output_tokens": 9}}
+        return fake
+
+    def test_fusion_slug_returns_single_synthesized_answer(self):
+        with (
+            patch.dict("multillm.gateway.ROUTES", self._routes(), clear=True),
+            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=self._fake_route_request())),
+            patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
+                "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
+                "fusion_judge": "oca/gpt-5.4",
+            }.get(k, d)),
+        ):
+            r = client.post("/v1/messages", json={
+                "model": "fusion",
+                "messages": [{"role": "user", "content": "Compare REST vs gRPC and recommend one."}],
+                "max_tokens": 100,
+            })
+        assert r.status_code == 200
+        data = r.json()
+        assert data["content"][0]["text"] == "Fused final answer."
+        assert data["model"] == "fusion"
+
+    def test_auto_slug_escalates_complex_prompt_to_fusion(self):
+        complex_prompt = ("Analyze and compare the trade-offs between REST and gRPC for our "
+                          "gateway. Why does one win under concurrency? Recommend and design a plan.")
+        with (
+            patch.dict("multillm.gateway.ROUTES", self._routes(), clear=True),
+            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=self._fake_route_request())),
+            patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
+                "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
+                "fusion_judge": "oca/gpt-5.4",
+                "fusion_auto_threshold": 0.5,
+            }.get(k, d)),
+        ):
+            r = client.post("/v1/messages", json={
+                "model": "auto",
+                "messages": [{"role": "user", "content": complex_prompt}],
+                "max_tokens": 100,
+            })
+        assert r.status_code == 200
+        assert r.json()["content"][0]["text"] == "Fused final answer."
+
+    def test_auto_slug_routes_simple_prompt_to_single_model(self):
+        async def fake(body, model_alias=None, route=None):
+            return {"content": [{"type": "text", "text": "Paris."}],
+                    "usage": {"input_tokens": 4, "output_tokens": 2}}
+        with (
+            patch.dict("multillm.gateway.ROUTES", self._routes(), clear=True),
+            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=fake)),
+            patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
+                "fusion_judge": "oca/gpt-5.4",
+                "fusion_auto_threshold": 0.6,
+            }.get(k, d)),
+        ):
+            r = client.post("/v1/messages", json={
+                "model": "auto",
+                "messages": [{"role": "user", "content": "What is the capital of France?"}],
+                "max_tokens": 50,
+            })
+        assert r.status_code == 200
+        # easy prompt → single model, plain answer (not the fused marker text)
+        assert r.json()["content"][0]["text"] == "Paris."
+
+    def test_fusion_api_endpoint_returns_full_result(self):
+        with (
+            patch.dict("multillm.gateway.ROUTES", self._routes(), clear=True),
+            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=self._fake_route_request())),
+            patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
+                "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
+                "fusion_judge": "oca/gpt-5.4",
+            }.get(k, d)),
+        ):
+            r = client.post("/api/fusion", json={"prompt": "Compare REST vs gRPC.", "max_tokens": 100})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "fused"
+        assert data["finalAnswer"] == "Fused final answer."
+        assert data["totals"]["panelSucceeded"] == 2
+
+    def test_fusion_api_requires_prompt(self):
+        assert client.post("/api/fusion", json={}).status_code == 400
+
+
 class TestCouncilEndpoint:
     """POST /api/council: pre-flight estimate + parallel query + per-model cost."""
 

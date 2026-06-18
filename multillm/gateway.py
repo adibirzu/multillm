@@ -53,6 +53,14 @@ from .runtime_security import (
 from .converters import (
     extract_text_from_anthropic,
     count_tokens,
+    make_anthropic_response,
+    StreamState,
+    make_message_start_event,
+    make_content_block_start_event,
+    make_text_delta_event,
+    make_content_block_stop_event,
+    make_message_delta_event,
+    make_message_stop_event,
 )
 from .oca_auth import OCA_LOGIN_HINT, get_oca_bearer_token
 from .stream_utils import StreamTokenCounter
@@ -95,7 +103,15 @@ from . import bundle_cache
 from . import cost_forecast
 from . import failover
 from . import budgets
+from . import fusion
+from . import complexity
 from .stats_cache import ttl_cache
+
+# Default fusion panel/judge — free/authenticated backends. Unavailable members
+# degrade gracefully (they error and are dropped). Override via the
+# fusion_panel / fusion_judge settings.
+_DEFAULT_FUSION_PANEL = ["oca/gpt-5.4", "gemini-cli/pro", "ollama/llama3"]
+_DEFAULT_FUSION_JUDGE = "oca/gpt-5.4"
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
 from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker, calculate_backend_score
@@ -604,6 +620,32 @@ async def messages(request: Request):
     body = await request.json()
     requested_alias = body.get("model", "ollama/llama3")
     is_streaming = body.get("stream", False)
+
+    # ── Fusion / auto model-slug interception ────────────────────
+    # `fusion` runs the panel→judge→synthesis pipeline and returns one response.
+    # `auto` estimates prompt complexity and escalates only hard prompts to
+    # fusion, routing easy ones to a single capable model.
+    if requested_alias == "fusion" or requested_alias.startswith("fusion/"):
+        try:
+            return _fusion_response(await _run_fusion(body), requested_alias, is_streaming)
+        finally:
+            if client_id:
+                release_concurrent(client_id)
+
+    if requested_alias == "auto" or requested_alias.startswith("auto/"):
+        from .memory import get_setting
+        comp = complexity.estimate_complexity(extract_text_from_anthropic(body))
+        threshold = float(get_setting("fusion_auto_threshold", 0.6))
+        if comp["score"] >= threshold:
+            try:
+                return _fusion_response(await _run_fusion(body), "auto", is_streaming)
+            finally:
+                if client_id:
+                    release_concurrent(client_id)
+        # Easy prompt → route to a single capable model and continue normally.
+        requested_alias = get_setting("fusion_judge", _DEFAULT_FUSION_JUDGE)
+        body = {**body, "model": requested_alias}
+
     effective_alias, route = _select_route(requested_alias)
     backend = route.get("backend", "unknown")
     request_id = f"req_{uuid.uuid4().hex[:12]}"
@@ -1778,6 +1820,112 @@ async def council_api(body: dict | None = None):
             "modelsSucceeded": len(succeeded),
         },
     }
+
+
+async def _fusion_query_fn(alias: str, prompt: str, max_tokens: int, temperature: float) -> dict:
+    """Query one model for fusion and record its usage (per-backend accuracy).
+
+    Sub-calls don't flow through the main ``messages`` handler, so they are not
+    otherwise recorded; logging each here keeps cost tracking, budgets, and the
+    forecast accurate for fusion runs.
+    """
+    r = await _council_query_one(alias, prompt, max_tokens, temperature)
+    if not r.get("error"):
+        route = ROUTES.get(alias, {})
+        record_usage(
+            project=PROJECT, model_alias=alias, backend=r.get("backend", ""),
+            real_model=route.get("model", alias),
+            input_tokens=r.get("inputTokens", 0), output_tokens=r.get("outputTokens", 0),
+            latency_ms=r.get("latencyMs", 0), status="fusion",
+        )
+    return r
+
+
+def _resolve_fusion_config(body: dict) -> tuple[list, str, int, float]:
+    """Resolve (panel, judge, max_tokens, temperature) from body + settings."""
+    from .memory import get_setting
+
+    md = body.get("metadata") or {}
+    panel = body.get("fusion_panel") or md.get("fusion_panel") or get_setting("fusion_panel", _DEFAULT_FUSION_PANEL)
+    judge = body.get("fusion_judge") or md.get("fusion_judge") or get_setting("fusion_judge", _DEFAULT_FUSION_JUDGE)
+    max_tokens = int(body.get("max_tokens", 1024))
+    temperature = float(body.get("temperature", 0.7))
+    return panel, judge, max_tokens, temperature
+
+
+async def _run_fusion(body: dict) -> dict:
+    """Run the fusion pipeline for a request body and return the full result."""
+    prompt = extract_text_from_anthropic(body)
+    panel, judge, max_tokens, temperature = _resolve_fusion_config(body)
+    return await fusion.run_fusion(
+        prompt=prompt, panel=panel, judge=judge,
+        query_fn=_fusion_query_fn, max_tokens=max_tokens, temperature=temperature,
+    )
+
+
+def _fusion_usage(result: dict) -> tuple[int, int]:
+    """Aggregate (input, output) tokens across the panel + judge."""
+    in_tok = sum(r.get("inputTokens", 0) for r in result.get("panel", []) if not r.get("error"))
+    out_tok = sum(r.get("outputTokens", 0) for r in result.get("panel", []) if not r.get("error"))
+    ju = result.get("judgeUsage") or {}
+    return in_tok + ju.get("inputTokens", 0), out_tok + ju.get("outputTokens", 0)
+
+
+def _fusion_to_anthropic(result: dict, model_label: str) -> JSONResponse:
+    """Abstract a fusion result into a single Anthropic-format JSON response."""
+    text = result.get("finalAnswer") or "[fusion produced no answer]"
+    in_tok, out_tok = _fusion_usage(result)
+    resp = make_anthropic_response(
+        text, model=model_label, input_tokens=in_tok, output_tokens=out_tok,
+        usage_extras={"fusion_status": result.get("status"),
+                      "fusion_cost_usd": result.get("totals", {}).get("costUSD")},
+    )
+    return JSONResponse(resp)
+
+
+def _fusion_to_anthropic_stream(result: dict, model_label: str) -> StreamingResponse:
+    """Stream a fusion result as Anthropic SSE (final answer in one delta).
+
+    Fusion must synthesize the whole answer before it can stream, so the answer
+    is delivered as a single content delta — valid Anthropic SSE that any client
+    expecting a stream (e.g. Claude Code) can consume.
+    """
+    text = result.get("finalAnswer") or "[fusion produced no answer]"
+    in_tok, out_tok = _fusion_usage(result)
+
+    async def gen():
+        state = StreamState(model_label, input_tokens=in_tok)
+        yield make_message_start_event(state)
+        yield make_content_block_start_event(0)
+        yield make_text_delta_event(0, text)
+        yield make_content_block_stop_event(0)
+        yield make_message_delta_event("end_turn", out_tok)
+        yield make_message_stop_event()
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+def _fusion_response(result: dict, model_label: str, is_streaming: bool):
+    """Return the fusion result as JSON or SSE depending on the request."""
+    return (_fusion_to_anthropic_stream if is_streaming else _fusion_to_anthropic)(result, model_label)
+
+
+@app.post("/api/fusion")
+async def fusion_api(body: dict | None = None):
+    """Run fusion explicitly and return the full result (panel + analysis + answer).
+
+    Body: ``{"prompt": "...", "fusion_panel": [...], "fusion_judge": "...",
+    "max_tokens": 1024, "temperature": 0.7}``. Panel/judge default to the
+    fusion_panel/fusion_judge settings. Use the ``fusion`` model slug on
+    ``/v1/messages`` instead to get a single abstracted response.
+    """
+    body = body or {}
+    if not body.get("prompt"):
+        raise HTTPException(status_code=400, detail="Missing 'prompt'")
+    # /api/fusion takes prompt directly; adapt it to the messages body shape.
+    adapted = dict(body)
+    adapted["messages"] = [{"role": "user", "content": body["prompt"]}]
+    return await _run_fusion(adapted)
 
 
 @app.get("/api/budgets")

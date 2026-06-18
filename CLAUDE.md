@@ -170,6 +170,7 @@ curl -X DELETE http://localhost:8080/api/memory/{id}
 - `GET /api/cost/forecast?hours=168&project=name` — Burn-rate (gateway live + per-source window avg), projected spend per day/week/month, and quota-exhaustion ETA per usage limit. Reuses the cached bundle (no extra scan).
 - `POST /api/cost/estimate` — Pre-flight prompt pricing across candidate model aliases. Body: `{"prompt":"...","models":["openai/gpt-4o",...],"expected_output_tokens":500}`. Returns estimates sorted cheapest-first (tiktoken `cl100k_base`), flags free local models.
 - `POST /api/council` — Query several models in parallel, cost-aware. Body: `{"prompt":"...","models":[...],"max_tokens":2048,"temperature":0.7}`. Returns a pre-flight cheapest-first cost estimate, each model's response with its **actual** token cost, and combined totals. One model failing does not sink the rest. Backs the `/llm-council` command.
+- `POST /api/fusion` — Thought-level **fusion**: panel → judge → synthesis. Body: `{"prompt":"...","fusion_panel":[...],"fusion_judge":"...","max_tokens":1024}`. Dispatches the panel in parallel, then one judge call produces a structured analysis (consensus / contradictions / partial coverage / unique insights / blind spots) and a grounded final answer. Returns the full result (panel + analysis + answer + cost). Degrades gracefully: 1 panel success → returns it; judge failure → best panel answer.
 - `GET /api/budgets` — Budget status: caps, gateway-metered spend (rolling 24h/30d), %used, alert states (`ok|warn|exceeded`), enforcement flag.
 - `PUT /api/budgets` — Set budget config. Body: `{"enabled":true,"daily_usd":10,"monthly_usd":200,"alert_thresholds":[0.8,1.0],"per_project":{"name":{"daily_usd":5}}}`. When `enabled`, an exceeded global/project cap blocks new **cloud** requests with HTTP 402 (local backends are free, never blocked).
 
@@ -214,6 +215,26 @@ notice. Plain 4xx client errors (400, etc.) are NOT failed over.
   builds the ordered, de-duplicated provider list (skipping the failed backend).
 - Set `fallback_chain` to your preferred provider order for cross-cloud failover,
   e.g. `["anthropic/claude-sonnet-4-6","openai/gpt-4o","deepseek/chat","ollama/<model>"]`.
+
+## Model Fusion & Auto-Routing (`fusion.py`, `complexity.py`)
+
+Thought-level fusion (OpenRouter-Fusion / FusionFactory style): combine a panel of
+models into one answer that beats any single model.
+
+- **`fusion` model slug** on `/v1/messages` (`{"model":"fusion"}`): runs the
+  panel→judge→synthesis pipeline and returns a single Anthropic response (JSON or
+  SSE), so any client treats it like one model. Recursion is blocked (a panel/judge
+  member cannot be `fusion`/`auto`).
+- **`auto` model slug**: `complexity.estimate_complexity()` scores the prompt; if
+  it clears `fusion_auto_threshold` (default 0.6) the request escalates to fusion,
+  otherwise it routes to a single capable model (`fusion_judge`). This is the
+  "selective invocation" — don't pay 2–3× latency for simple prompts.
+- **Pipeline**: panel dispatched in parallel (reuses the council query path, each
+  sub-call recorded for accurate cost), then ONE judge call yields the structured
+  analysis + a `===FINAL ANSWER===` section. Cost = Σ panel + judge.
+- **Settings**: `fusion_panel` (list), `fusion_judge` (alias), `fusion_auto_threshold`.
+  Default panel is free/authenticated backends; unavailable members degrade
+  gracefully.
 
 ## Telemetry (Langfuse + OCI APM)
 
