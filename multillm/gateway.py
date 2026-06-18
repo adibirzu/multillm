@@ -68,7 +68,7 @@ from .tracking import (
     record_usage, get_usage_summary, get_project_summary,
     get_sessions, get_session_detail, get_dashboard_stats, get_active_sessions,
     init_otel, trace_llm_call, finalize_llm_span, record_otel_metrics,
-    get_recent_backend_latency,
+    get_recent_backend_latency, _estimate_cost,
 )
 from .langfuse_integration import (
     init_langfuse, shutdown_langfuse, trace_llm_generation, get_langfuse_status,
@@ -1682,6 +1682,94 @@ async def cost_estimate_api(body: dict | None = None):
         candidates=candidates,
         expected_output_tokens=expected_output,
     )
+
+
+async def _council_query_one(alias: str, prompt: str, max_tokens: int, temperature: float) -> dict:
+    """Query one model for the council; never raises — errors are captured."""
+    body = {
+        "model": alias,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    t0 = time.time()
+    try:
+        result = await route_request(body)
+        usage = _extract_usage_metrics(result)
+        content = result.get("content", []) or []
+        text = next((b.get("text", "") for b in content if b.get("type") == "text"), "")
+        route = ROUTES.get(alias, {})
+        backend = route.get("backend", "")
+        cost = _estimate_cost(
+            backend, usage["input_tokens"], usage["output_tokens"],
+            usage["cache_read_input_tokens"], usage["cache_creation_input_tokens"],
+        )
+        return {
+            "alias": alias,
+            "backend": backend,
+            "text": text,
+            "inputTokens": usage["input_tokens"],
+            "outputTokens": usage["output_tokens"],
+            "actualCostUSD": round(cost, 6),
+            "latencyMs": round((time.time() - t0) * 1000, 1),
+            "error": None,
+        }
+    except HTTPException as e:
+        return {"alias": alias, "text": "", "error": f"{e.status_code}: {e.detail}",
+                "actualCostUSD": 0.0, "latencyMs": round((time.time() - t0) * 1000, 1)}
+    except Exception as e:  # noqa: BLE001 — one model failing must not sink the council
+        return {"alias": alias, "text": "", "error": str(e),
+                "actualCostUSD": 0.0, "latencyMs": round((time.time() - t0) * 1000, 1)}
+
+
+@app.post("/api/council")
+async def council_api(body: dict | None = None):
+    """Query several models in parallel, with pre-flight cost estimates.
+
+    Body: ``{"prompt": "...", "models": ["ollama/qwen3-30b", "openai/gpt-4o"],
+    "max_tokens": 2048, "temperature": 0.7}``. Returns a cheapest-first cost
+    estimate for the panel *before* spending, then each model's response with its
+    actual token cost, plus combined totals — so multi-model opinions are
+    cost-aware (the user can see projected vs actual spend).
+    """
+    body = body or {}
+    prompt = body.get("prompt", "")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Missing 'prompt'")
+
+    from .memory import get_setting
+
+    models = body.get("models") or get_setting(
+        "auto_council_models", ["ollama/qwen3-30b", "oca/gpt5", "gemini/flash"]
+    )
+    max_tokens = int(body.get("max_tokens", 2048))
+    temperature = float(body.get("temperature", 0.7))
+
+    # Pre-flight: what will this cost across the chosen models?
+    estimate = cost_forecast.estimate_prompt_cost(
+        prompt=prompt, routes=ROUTES, candidates=models,
+        expected_output_tokens=max_tokens,
+    )
+
+    # Query all models concurrently; one failure does not sink the rest.
+    responses = await asyncio.gather(
+        *[_council_query_one(m, prompt, max_tokens, temperature) for m in models]
+    )
+
+    succeeded = [r for r in responses if not r.get("error")]
+    total_actual = round(sum(r["actualCostUSD"] for r in succeeded), 6)
+    return {
+        "prompt": prompt,
+        "models": models,
+        "preflightEstimate": estimate,
+        "responses": responses,
+        "totals": {
+            "estimatedCostUSD": round(sum(e["estimatedCostUSD"] for e in estimate["estimates"]), 6),
+            "actualCostUSD": total_actual,
+            "modelsQueried": len(responses),
+            "modelsSucceeded": len(succeeded),
+        },
+    }
 
 
 @app.get("/api/budgets")

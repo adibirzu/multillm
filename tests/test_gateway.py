@@ -590,6 +590,76 @@ class TestObservabilityEndpoints:
         assert claude_source["tokens"] == 1500
 
 
+class TestCouncilEndpoint:
+    """POST /api/council: pre-flight estimate + parallel query + per-model cost."""
+
+    def test_council_returns_estimate_responses_and_totals(self):
+        routes = {
+            "ollama/llama3": {"backend": "ollama", "model": "llama3"},
+            "openai/gpt-4o": {"backend": "openai", "model": "gpt-4o"},
+        }
+
+        async def fake_route_request(body, model_alias=None, route=None):
+            return {
+                "content": [{"type": "text", "text": f"answer from {body['model']}"}],
+                "usage": {"input_tokens": 10, "output_tokens": 20},
+            }
+
+        with (
+            patch.dict("multillm.gateway.ROUTES", routes, clear=True),
+            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=fake_route_request)),
+        ):
+            response = client.post("/api/council", json={
+                "prompt": "Compare REST vs gRPC for our gateway.",
+                "models": ["ollama/llama3", "openai/gpt-4o"],
+                "max_tokens": 100,
+            })
+
+        assert response.status_code == 200
+        data = response.json()
+        # Pre-flight estimate present and cheapest-first
+        assert data["preflightEstimate"]["estimates"][0]["isFree"] is True
+        # Both models answered
+        assert data["totals"]["modelsSucceeded"] == 2
+        texts = {r["alias"]: r["text"] for r in data["responses"]}
+        assert "answer from ollama/llama3" in texts["ollama/llama3"]
+        # openai response carries a non-zero actual cost; ollama is free
+        costs = {r["alias"]: r["actualCostUSD"] for r in data["responses"]}
+        assert costs["ollama/llama3"] == 0.0
+        assert costs["openai/gpt-4o"] > 0.0
+
+    def test_council_one_model_failure_does_not_sink_others(self):
+        routes = {
+            "ollama/llama3": {"backend": "ollama", "model": "llama3"},
+            "openai/gpt-4o": {"backend": "openai", "model": "gpt-4o"},
+        }
+
+        async def fake_route_request(body, model_alias=None, route=None):
+            if body["model"].startswith("openai"):
+                raise RuntimeError("backend exploded")
+            return {"content": [{"type": "text", "text": "ok"}],
+                    "usage": {"input_tokens": 1, "output_tokens": 1}}
+
+        with (
+            patch.dict("multillm.gateway.ROUTES", routes, clear=True),
+            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=fake_route_request)),
+        ):
+            response = client.post("/api/council", json={
+                "prompt": "hi", "models": ["ollama/llama3", "openai/gpt-4o"], "max_tokens": 10,
+            })
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["totals"]["modelsSucceeded"] == 1
+        errored = [r for r in data["responses"] if r["error"]]
+        assert len(errored) == 1
+        assert "exploded" in errored[0]["error"]
+
+    def test_council_requires_prompt(self):
+        response = client.post("/api/council", json={"models": ["ollama/llama3"]})
+        assert response.status_code == 400
+
+
 class TestQuotaAwareFailover:
     """A 429 / quota error must transparently continue on the next provider."""
 

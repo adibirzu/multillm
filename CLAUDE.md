@@ -169,6 +169,7 @@ curl -X DELETE http://localhost:8080/api/memory/{id}
 ### Cost Prediction & Budgets
 - `GET /api/cost/forecast?hours=168&project=name` — Burn-rate (gateway live + per-source window avg), projected spend per day/week/month, and quota-exhaustion ETA per usage limit. Reuses the cached bundle (no extra scan).
 - `POST /api/cost/estimate` — Pre-flight prompt pricing across candidate model aliases. Body: `{"prompt":"...","models":["openai/gpt-4o",...],"expected_output_tokens":500}`. Returns estimates sorted cheapest-first (tiktoken `cl100k_base`), flags free local models.
+- `POST /api/council` — Query several models in parallel, cost-aware. Body: `{"prompt":"...","models":[...],"max_tokens":2048,"temperature":0.7}`. Returns a pre-flight cheapest-first cost estimate, each model's response with its **actual** token cost, and combined totals. One model failing does not sink the rest. Backs the `/llm-council` command.
 - `GET /api/budgets` — Budget status: caps, gateway-metered spend (rolling 24h/30d), %used, alert states (`ok|warn|exceeded`), enforcement flag.
 - `PUT /api/budgets` — Set budget config. Body: `{"enabled":true,"daily_usd":10,"monthly_usd":200,"alert_thresholds":[0.8,1.0],"per_project":{"name":{"daily_usd":5}}}`. When `enabled`, an exceeded global/project cap blocks new **cloud** requests with HTTP 402 (local backends are free, never blocked).
 

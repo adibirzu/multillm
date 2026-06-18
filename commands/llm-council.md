@@ -1,31 +1,44 @@
 ---
-description: Query multiple LLMs in parallel for diverse perspectives
+description: Query multiple LLMs in parallel for diverse perspectives (cost-aware)
 allowed-tools: Bash
 ---
 
 Query 2-5 LLMs simultaneously with the user's prompt. Parse the user's input for the prompt and optionally specific models.
 
-Default model set (use these unless user specifies others): ollama/qwen3-30b, oca/gpt5, gemini/flash
+The gateway's `/api/council` endpoint does this in one call: it returns a
+**pre-flight cost estimate** for the chosen models, queries them in parallel, and
+reports each model's response with its **actual token cost** plus combined totals.
+One model failing never sinks the rest.
 
-First check which models are available:
-```bash
-curl -s http://localhost:8080/health | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d.get('backends',{}), indent=2))"
-```
+Default model set (omit `models` to use gateway settings `auto_council_models`):
+`ollama/qwen3-30b`, `oca/gpt5`, `gemini/flash`.
 
-Then send parallel requests. For each model, run this (replace MODEL and PROMPT):
+Send the council request (replace PROMPT; optionally set models/max_tokens):
 ```bash
-curl -s http://localhost:8080/v1/messages \
+curl -s http://localhost:8080/api/council \
   -H 'Content-Type: application/json' \
-  -d '{"model": "MODEL", "messages": [{"role": "user", "content": "PROMPT"}], "max_tokens": 2048, "temperature": 0.7}' \
+  -d '{"prompt": "PROMPT", "models": ["ollama/qwen3-30b", "oca/gpt5", "gemini/flash"], "max_tokens": 2048, "temperature": 0.7}' \
   | python3 -c "
 import sys, json
-data = json.load(sys.stdin)
-content = data.get('content', [])
-text = next((b['text'] for b in content if b.get('type') == 'text'), '')
-usage = data.get('usage', {})
-print(text)
-print(f'\n[Tokens: {usage.get(\"input_tokens\",0)} in / {usage.get(\"output_tokens\",0)} out]')
+d = json.load(sys.stdin)
+est = d['preflightEstimate']
+print('### Pre-flight cost estimate')
+for e in est['estimates']:
+    tag = 'FREE' if e['isFree'] else f\"\${e['estimatedCostUSD']:.4f}\"
+    print(f\"  {e['alias']:30} {tag}\")
+print()
+for r in d['responses']:
+    print(f\"## {r['alias']}\")
+    if r['error']:
+        print(f\"  ⚠ error: {r['error']}\")
+    else:
+        print(r['text'])
+        print(f\"\n[in {r['inputTokens']} / out {r['outputTokens']} tok · actual \${r['actualCostUSD']:.4f} · {r['latencyMs']:.0f}ms]\")
+    print()
+t = d['totals']
+print(f\"--- Total actual spend: \${t['actualCostUSD']:.4f} across {t['modelsSucceeded']}/{t['modelsQueried']} models ---\")
 "
 ```
 
-Run the requests in parallel (multiple Bash calls at once) and present each model's response clearly labeled with a header like `## [model-name]`. After all responses, provide a brief synthesis of where the models agree and disagree.
+After presenting each model's response, provide a brief synthesis of where the
+models agree and disagree, and note the cheapest model that gave a strong answer.
