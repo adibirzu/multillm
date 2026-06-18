@@ -590,6 +590,84 @@ class TestObservabilityEndpoints:
         assert claude_source["tokens"] == 1500
 
 
+class TestQuotaAwareFailover:
+    """A 429 / quota error must transparently continue on the next provider."""
+
+    def _settings(self, chain):
+        def _get_setting(key, default=None):
+            return {
+                "fallback_chain": chain,
+                "local_autostart": False,
+                "local_first": False,
+            }.get(key, default)
+        return _get_setting
+
+    def test_quota_429_fails_over_to_next_chain_provider(self):
+        from fastapi import HTTPException
+        from multillm import gateway
+
+        routes = {
+            "openai/gpt-4o": {"backend": "openai", "model": "gpt-4o"},
+            "anthropic/sonnet": {"backend": "anthropic", "model": "claude-sonnet-4-6"},
+        }
+
+        async def fake_route_request(body, model_alias=None, route=None):
+            if body["model"].startswith("openai"):
+                raise HTTPException(status_code=429, detail="insufficient_quota")
+            return {
+                "content": [{"type": "text", "text": "answer from anthropic"}],
+                "usage": {"input_tokens": 5, "output_tokens": 7},
+            }
+
+        with (
+            patch.dict("multillm.gateway.ROUTES", routes, clear=True),
+            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=fake_route_request)),
+            patch("multillm.memory.get_setting", side_effect=self._settings(["anthropic/sonnet"])),
+            patch("multillm.gateway.ensure_any_local_backend", new=AsyncMock(return_value=None)),
+        ):
+            response = client.post("/v1/messages", json={
+                "model": "openai/gpt-4o",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            })
+
+        assert response.status_code == 200
+        data = response.json()
+        text = data["content"][0]["text"]
+        assert "answer from anthropic" in text
+        assert "Failover" in text  # the failover notice is appended
+
+    def test_400_bad_request_does_not_fail_over(self):
+        from fastapi import HTTPException
+        from multillm import gateway
+
+        routes = {
+            "openai/gpt-4o": {"backend": "openai", "model": "gpt-4o"},
+            "anthropic/sonnet": {"backend": "anthropic", "model": "claude-sonnet-4-6"},
+        }
+        calls = {"n": 0}
+
+        async def fake_route_request(body, model_alias=None, route=None):
+            calls["n"] += 1
+            raise HTTPException(status_code=400, detail="invalid request parameter")
+
+        with (
+            patch.dict("multillm.gateway.ROUTES", routes, clear=True),
+            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=fake_route_request)),
+            patch("multillm.memory.get_setting", side_effect=self._settings(["anthropic/sonnet"])),
+            patch("multillm.gateway.ensure_any_local_backend", new=AsyncMock(return_value=None)),
+        ):
+            response = client.post("/v1/messages", json={
+                "model": "openai/gpt-4o",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            })
+
+        # A 400 client error is surfaced, not failed over (only one dispatch).
+        assert response.status_code == 400
+        assert calls["n"] == 1
+
+
 class TestInstalledAwareFallback:
     """Codex review regression fence: fallback must prefer installed local models."""
 

@@ -93,6 +93,7 @@ from .codex_stats import get_codex_stats
 from .gemini_stats import get_gemini_stats
 from . import bundle_cache
 from . import cost_forecast
+from . import failover
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
 from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker, calculate_backend_score
@@ -718,53 +719,82 @@ async def messages(request: Request):
             return JSONResponse(result)
 
         except (HTTPException, *FALLBACK_ERRORS, httpx.HTTPStatusError) as primary_error:
-            # Determine if we should try fallback to local LLM
+            # Quota / credit / rate-limit exhaustion ("out of tokens") is the
+            # signal to transparently continue on the next provider rather than
+            # surface an error — even though it is a 4xx status.
+            quota_err = failover.is_quota_error(primary_error)
+
+            # Determine if we should try fallback
             should_fallback = (
                 backend in CLOUD_BACKENDS
                 and not used_fallback
                 and isinstance(primary_error, (*FALLBACK_ERRORS, httpx.HTTPStatusError, HTTPException))
             )
 
-            # Don't fallback on 400-level client errors (bad request, not cloud issues)
+            # Don't fallback on 400-level client errors (bad request, not cloud
+            # issues) — but auth errors (401/403) and quota errors (429/402) DO
+            # fall over so the user keeps working.
             if isinstance(primary_error, HTTPException) and 400 <= primary_error.status_code < 500:
-                if primary_error.status_code not in (401, 403):  # Auth errors DO fallback
+                if primary_error.status_code not in (401, 403) and not quota_err:
                     should_fallback = False
 
-            # Start an installed-but-stopped local daemon on demand so fallback
-            # has a target even when the user's local LLM isn't running.
+            # Build an ordered list of failover candidates. For quota/credit
+            # exhaustion we walk the whole configured chain (cloud + local) so
+            # the user keeps working on another provider; for connection errors
+            # we fall back to the best installed local model as before. The
+            # local model is always appended as a last resort.
+            candidates: list[tuple[str, dict]] = []
             if should_fallback:
                 from .memory import get_setting
+
+                chain = get_setting("fallback_chain", ["ollama/qwen3-30b", "ollama/llama3"])
+                if quota_err:
+                    candidates = failover.build_failover_candidates(
+                        routes=ROUTES, chain=chain, failed_backend=backend,
+                        exclude_aliases={requested_alias, effective_alias},
+                    )
+
+                # Start an installed-but-stopped local daemon on demand so a
+                # local fallback has a target even when it isn't running.
                 if get_setting("local_autostart", True):
                     started = await ensure_any_local_backend()
                     if started:
-                        # Reflect reality immediately: the background health probe
-                        # still has the daemon marked unhealthy, which would make
-                        # the fallback dispatch's health gate reject the daemon we
-                        # just confirmed is up.
+                        # The background health probe still has the daemon marked
+                        # unhealthy; reflect the reality we just confirmed.
                         get_health(started).mark_healthy(0.0)
-                        await _run_discovery()  # refresh cache + ROUTES
+                        await _run_discovery()
 
-            # Resolve the candidate first, then probe *its* backend — so a user
-            # running only LM Studio (no Ollama) still gets a local fallback.
-            fb_alias, fb_route = _get_fallback_model() if should_fallback else ("", {})
-            if should_fallback and await _check_local_backend_available(fb_route.get("backend", "")):
+                fb_local = _get_fallback_model()
+                if fb_local and all(
+                    fb_local[1].get("backend") != r.get("backend") for _, r in candidates
+                ):
+                    candidates.append(fb_local)
+
+            for cand_alias, cand_route in candidates:
+                cand_backend = cand_route.get("backend", "")
+                # Local candidates must be reachable; cloud candidates are tried
+                # directly (a fresh provider has no local daemon to probe).
+                if cand_backend in LOCAL_DISCOVERABLE_BACKENDS and not await _check_local_backend_available(cand_backend):
+                    continue
+
                 log.warning(
-                    "rid=%s backend '%s' failed (%s), falling back to '%s'",
-                    request_id, backend, type(primary_error).__name__, fb_alias,
+                    "rid=%s backend '%s' failed (%s%s), failing over to '%s'",
+                    request_id, backend, type(primary_error).__name__,
+                    ", quota" if quota_err else "", cand_alias,
                 )
                 used_fallback = True
-                effective_alias = fb_alias
-                effective_backend = fb_route["backend"]
-                effective_route = fb_route
+                effective_alias = cand_alias
+                effective_backend = cand_backend
+                effective_route = cand_route
 
                 try:
-                    fallback_body = {**body, "model": fb_alias}
+                    fallback_body = {**body, "model": cand_alias}
                     if is_streaming:
-                        response = await route_streaming(fallback_body, fb_route, fb_alias)
+                        response = await route_streaming(fallback_body, cand_route, cand_alias)
                         elapsed_ms = (time.time() - t0) * 1000
                         record_usage(
-                            project=PROJECT, model_alias=fb_alias, backend=effective_backend,
-                            real_model=fb_route["model"],
+                            project=PROJECT, model_alias=cand_alias, backend=cand_backend,
+                            real_model=cand_route.get("model", cand_alias),
                             input_tokens=0, output_tokens=0,
                             latency_ms=elapsed_ms, status="fallback_streaming",
                         )
@@ -777,16 +807,16 @@ async def messages(request: Request):
                     # Add fallback notice to response
                     content = result.get("content", [])
                     if content and content[0].get("type") == "text":
-                        notice = f"\n\n---\n*[Fallback: {requested_alias} unavailable, used {fb_alias}]*"
+                        notice = f"\n\n---\n*[Failover: {requested_alias} unavailable, used {cand_alias}]*"
                         content[0]["text"] += notice
 
                     log.info(
-                        "rid=%s fallback model=%s backend=%s ms=%.0f",
-                        request_id, fb_alias, effective_backend, elapsed_ms,
+                        "rid=%s failover model=%s backend=%s ms=%.0f",
+                        request_id, cand_alias, cand_backend, elapsed_ms,
                     )
                     record_usage(
-                        project=PROJECT, model_alias=fb_alias, backend=effective_backend,
-                        real_model=fb_route["model"],
+                        project=PROJECT, model_alias=cand_alias, backend=cand_backend,
+                        real_model=cand_route.get("model", cand_alias),
                         input_tokens=usage["input_tokens"],
                         output_tokens=usage["output_tokens"],
                         cache_read_input_tokens=usage["cache_read_input_tokens"],
@@ -796,10 +826,14 @@ async def messages(request: Request):
                     return JSONResponse(result)
 
                 except Exception as fallback_error:
-                    log.error("Fallback also failed: %s", fallback_error)
-                    # Fall through to original error handling
+                    # This candidate also failed — keep walking the chain.
+                    log.warning(
+                        "rid=%s failover candidate '%s' failed: %s",
+                        request_id, cand_alias, fallback_error,
+                    )
+                    continue
 
-            # No fallback possible — raise the original error
+            # No fallback possible or all candidates exhausted — raise the error
             elapsed_ms = (time.time() - t0) * 1000
             record_usage(
                 project=PROJECT, model_alias=effective_alias, backend=backend,
