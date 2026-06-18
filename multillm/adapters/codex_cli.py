@@ -154,7 +154,13 @@ class CodexCLIAdapter(BaseAdapter):
                 returncode, text, stderr = await _run_codex_exec(prompt, sandbox, ["-m", resolved_model])
 
             if returncode != 0 and not text:
-                text = f"Codex CLI error (rc={returncode}): {stderr[:500]}"
+                # Surface a genuine failure as an error rather than returning the
+                # stderr as if it were the model's answer — otherwise council /
+                # fusion treat the failure as a successful response.
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Codex CLI error (rc={returncode}): {stderr[:300]}",
+                )
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="Codex CLI timed out after 180s")
         except FileNotFoundError:

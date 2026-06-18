@@ -77,7 +77,13 @@ class GeminiCLIAdapter(BaseAdapter):
                 output_tokens = len(text) // 4
 
             if proc.returncode != 0 and not text:
-                text = f"Gemini CLI error (rc={proc.returncode}): {stderr.decode('utf-8', errors='replace')[:500]}"
+                # Surface a genuine failure as an error rather than returning the
+                # stderr as if it were the model's answer — otherwise council /
+                # fusion treat the failure as a successful response.
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Gemini CLI error (rc={proc.returncode}): {stderr.decode('utf-8', errors='replace')[:300]}",
+                )
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="Gemini CLI timed out after 180s")
         except FileNotFoundError:
