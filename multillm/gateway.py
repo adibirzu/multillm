@@ -205,7 +205,7 @@ async def lifespan(application: FastAPI):
     # Warm the dashboard bundle from disk so the first page load is instant even
     # right after a restart, then prime the default range in the background so
     # the persisted copy refreshes without anyone waiting on a cold scan.
-    bundle_cache.warm_load()
+    await asyncio.to_thread(bundle_cache.warm_load)
     asyncio.create_task(_prime_dashboard_bundle())
     yield
     stop_health_checks()
@@ -614,13 +614,21 @@ async def messages(request: Request):
     from .memory import get_setting as _get_setting
     budget_cfg = _get_setting("budgets", {}) or {}
     if budget_cfg.get("enabled") and backend in CLOUD_BACKENDS:
-        snap = _gateway_spend_snapshot(None)
-        proj_spend = {PROJECT: _gateway_spend_snapshot(PROJECT)} if PROJECT else {}
-        allowed, reason = budgets.check_request_allowed(
-            config=budget_cfg, project=PROJECT,
-            spent_today=snap["today"], spent_month=snap["month"],
-            project_spend=proj_spend,
-        )
+        try:
+            snap = _gateway_spend_snapshot(None)
+            proj_spend = {PROJECT: _gateway_spend_snapshot(PROJECT)} if PROJECT else {}
+            allowed, reason = budgets.check_request_allowed(
+                config=budget_cfg, project=PROJECT,
+                spent_today=snap["today"], spent_month=snap["month"],
+                project_spend=proj_spend,
+            )
+        except Exception:
+            # A spend-snapshot failure must not leak the concurrency slot. The
+            # finally: release_concurrent guard only covers the dispatch block
+            # below, which we have not entered yet.
+            if client_id:
+                release_concurrent(client_id)
+            raise
         if not allowed:
             if client_id:
                 release_concurrent(client_id)

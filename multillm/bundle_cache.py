@@ -115,12 +115,17 @@ def warm_load() -> int:
     return loaded
 
 
-def _persist() -> None:
-    """Write all in-memory entries to disk atomically."""
+def _persist(snapshot: Optional[dict] = None) -> None:
+    """Write entries to disk atomically.
+
+    ``snapshot`` (a copy of ``_mem`` taken under the lock) lets the caller run
+    this in a worker thread without holding the async lock during file I/O.
+    """
+    mem = snapshot if snapshot is not None else _mem
     try:
         payload = {
             "version": 1,
-            "entries": {k: {"data": e.data, "wall_time": e.wall_time} for k, e in _mem.items()},
+            "entries": {k: {"data": e.data, "wall_time": e.wall_time} for k, e in mem.items()},
         }
         tmp = _CACHE_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload))
@@ -135,7 +140,9 @@ async def _compute_and_store(key: str, compute_fn: ComputeFn) -> _Entry:
     entry = _Entry(data=data, wall_time=time.time())
     async with _lock:
         _mem[key] = entry
-        _persist()
+        snapshot = dict(_mem)  # copy under lock; persist outside it
+    # Serialize + write off the event loop so we never block it holding state.
+    await asyncio.to_thread(_persist, snapshot)
     return entry
 
 
