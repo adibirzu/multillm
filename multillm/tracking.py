@@ -19,7 +19,26 @@ from typing import Optional
 from .config import (
     DATA_DIR, OTEL_ENABLED, OTEL_SERVICE_NAME,
     OCI_APM_DOMAIN_ID, OCI_APM_DATA_KEY, OCI_APM_ENDPOINT,
+    OCI_APM_DATA_KEY_TYPE, OCI_APM_METRICS_ENABLED,
 )
+
+
+def _oci_apm_signal_endpoint(signal: str) -> str:
+    """Build the correct OCI APM OTLP endpoint for a signal.
+
+    OCI APM signal paths (authoritative, per OCI docs):
+      - traces:  /20200101/opentelemetry/{private|public}/v1/traces
+      - metrics: /20200101/opentelemetry/v1/metrics
+
+    ``OCI_APM_ENDPOINT`` ends with ``/opentelemetry/``. The previous code posted
+    traces to the bare base and rewrote metrics to a non-existent ``/metrics/``
+    path, which returned 404 on every export.
+    """
+    base = OCI_APM_ENDPOINT if OCI_APM_ENDPOINT.endswith("/") else OCI_APM_ENDPOINT + "/"
+    if signal == "traces":
+        key_type = OCI_APM_DATA_KEY_TYPE if OCI_APM_DATA_KEY_TYPE in ("private", "public") else "private"
+        return f"{base}{key_type}/v1/traces"
+    return f"{base}v1/metrics"
 
 log = logging.getLogger("multillm.tracking")
 
@@ -663,14 +682,15 @@ def _build_otel_exporter_kwargs() -> dict:
     kwargs: dict = {}
 
     if OCI_APM_ENDPOINT and OCI_APM_DATA_KEY:
-        # OCI APM requires the data key in the Authorization header
-        # and uses a specific OTLP HTTP endpoint per APM domain.
-        kwargs["endpoint"] = OCI_APM_ENDPOINT
+        # OCI APM requires the data key in the Authorization header. The
+        # per-signal endpoint (traces vs metrics) is set by the caller via
+        # _oci_apm_signal_endpoint(); we only supply the auth header here.
         kwargs["headers"] = {
             "Authorization": f"dataKey {OCI_APM_DATA_KEY}",
         }
-        log.info("OCI APM configured: endpoint=%s domain=%s",
-                 OCI_APM_ENDPOINT, OCI_APM_DOMAIN_ID[:30] + "..." if OCI_APM_DOMAIN_ID else "?")
+        log.info("OCI APM configured: base=%s domain=%s key_type=%s",
+                 OCI_APM_ENDPOINT, OCI_APM_DOMAIN_ID[:30] + "..." if OCI_APM_DOMAIN_ID else "?",
+                 OCI_APM_DATA_KEY_TYPE)
     # Otherwise, fall back to standard OTEL_EXPORTER_OTLP_ENDPOINT env var
     return kwargs
 
@@ -708,25 +728,36 @@ def init_otel(app=None):
             "service.namespace": "llm-coding",
         })
 
-        # Tracing — export to OCI APM or standard OTLP endpoint
-        trace_exporter = OTLPSpanExporter(**exporter_kwargs)
+        # Tracing — OCI APM needs the explicit /…/v1/traces path; a standard
+        # OTLP collector derives it from the base endpoint env var itself.
+        trace_kwargs = dict(exporter_kwargs)
+        if OCI_APM_ENDPOINT:
+            trace_kwargs["endpoint"] = _oci_apm_signal_endpoint("traces")
+        trace_exporter = OTLPSpanExporter(**trace_kwargs)
         tp = TracerProvider(resource=resource)
         tp.add_span_processor(BatchSpanProcessor(trace_exporter))
         trace.set_tracer_provider(tp)
         _tracer = trace.get_tracer("multillm")
 
-        # Metrics — OCI APM uses a separate metrics endpoint
-        metrics_kwargs = dict(exporter_kwargs)
-        if OCI_APM_ENDPOINT:
-            # OCI APM metrics endpoint pattern
-            metrics_kwargs["endpoint"] = OCI_APM_ENDPOINT.replace(
-                "/opentelemetry/", "/opentelemetry/metrics/"
-            ) if "/opentelemetry/" in OCI_APM_ENDPOINT else OCI_APM_ENDPOINT
-        metric_exporter = OTLPMetricExporter(**metrics_kwargs)
-        reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=30000)
-        mp = MeterProvider(resource=resource, metric_readers=[reader])
-        metrics.set_meter_provider(mp)
-        _meter = metrics.get_meter("multillm")
+        # Metrics — OCI APM uses /…/v1/metrics. Skippable for domains that don't
+        # ingest metrics (avoids the 404 export-loop) while traces still flow.
+        export_metrics = (not OCI_APM_ENDPOINT) or OCI_APM_METRICS_ENABLED
+        if export_metrics:
+            metrics_kwargs = dict(exporter_kwargs)
+            if OCI_APM_ENDPOINT:
+                metrics_kwargs["endpoint"] = _oci_apm_signal_endpoint("metrics")
+            metric_exporter = OTLPMetricExporter(**metrics_kwargs)
+            reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=30000)
+            mp = MeterProvider(resource=resource, metric_readers=[reader])
+            metrics.set_meter_provider(mp)
+            _meter = metrics.get_meter("multillm")
+        else:
+            # In-process meter with no exporter so /api/otel still reports metrics
+            # are wired without shipping them to an endpoint that rejects them.
+            mp = MeterProvider(resource=resource)
+            metrics.set_meter_provider(mp)
+            _meter = metrics.get_meter("multillm")
+            log.info("OCI APM metrics export disabled (OCI_APM_METRICS_ENABLED=false)")
 
         _token_counter = _meter.create_counter(
             "llm.tokens",

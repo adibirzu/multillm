@@ -109,13 +109,39 @@ OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "multillm-gateway")
 OCI_APM_DOMAIN_ID = os.getenv("OCI_APM_DOMAIN_ID", "")
 OCI_APM_DATA_KEY = os.getenv("OCI_APM_DATA_KEY", "")
 OCI_APM_REGION = os.getenv("OCI_APM_REGION", "eu-frankfurt-1")
-# The OTLP endpoint is derived from the APM domain:
-# https://apm-trace.{region}.oci.oraclecloud.com/20200101/opentelemetry/
-OCI_APM_ENDPOINT = os.getenv(
-    "OCI_APM_ENDPOINT",
-    f"https://apm-trace.{OCI_APM_REGION}.oci.oraclecloud.com/20200101/opentelemetry/"
-    if OCI_APM_DOMAIN_ID else "",
-)
+# The APM domain's *data upload endpoint* — a domain-specific host with a unique
+# prefix, e.g. https://aaaa<id>.apm-agt.{region}.oci.oraclecloud.com. Find it in
+# the OCI Console (APM domain detail) or via:
+#   oci apm-control-plane apm-domain get --apm-domain-id <ocid> \
+#       --query 'data."data-upload-endpoint"' --raw-output
+# This is REQUIRED for APM ingestion to work — the generic apm-trace.<region>
+# host has no per-domain ingestion paths and returns 404 for every export.
+OCI_APM_DATA_UPLOAD_ENDPOINT = os.getenv("OCI_APM_DATA_UPLOAD_ENDPOINT", "").rstrip("/")
+
+
+def _derive_apm_otlp_base() -> str:
+    explicit = os.getenv("OCI_APM_ENDPOINT", "")
+    if explicit:
+        return explicit
+    if OCI_APM_DATA_UPLOAD_ENDPOINT:
+        return f"{OCI_APM_DATA_UPLOAD_ENDPOINT}/20200101/opentelemetry/"
+    # Last-resort regional guess — almost always wrong (no per-domain prefix);
+    # kept only so a partial config does not crash. Set the data upload endpoint.
+    if OCI_APM_DOMAIN_ID:
+        return f"https://apm-trace.{OCI_APM_REGION}.oci.oraclecloud.com/20200101/opentelemetry/"
+    return ""
+
+
+OCI_APM_ENDPOINT = _derive_apm_otlp_base()
+# OCI APM signal paths depend on the data-key type: traces use
+# /opentelemetry/{private|public}/v1/traces, metrics always use
+# /opentelemetry/v1/metrics. Default to a private ingestion key.
+OCI_APM_DATA_KEY_TYPE = os.getenv("OCI_APM_DATA_KEY_TYPE", "private").lower()
+# Whether to export OTLP metrics to OCI APM. Off by default: many APM domains
+# ingest OTLP traces but not OTLP metrics (the metrics endpoint returns 404),
+# and LLM metrics are already covered by the dashboard and Langfuse. Traces
+# (spans with token/cost attributes) always flow regardless of this flag.
+OCI_APM_METRICS_ENABLED = os.getenv("OCI_APM_METRICS_ENABLED", "false").lower() in ("true", "1", "yes")
 
 # ── Langfuse (LLM Observability) ─────────────────────────────────────────────
 LANGFUSE_ENABLED = os.getenv("LANGFUSE_ENABLED", "false").lower() in ("true", "1", "yes")
