@@ -91,6 +91,7 @@ from .caching import cache_search, cache_store, get_cache_stats, LANGCACHE_ENABL
 from .claude_stats import get_claude_code_stats
 from .codex_stats import get_codex_stats
 from .gemini_stats import get_gemini_stats
+from . import bundle_cache
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
 from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker, calculate_backend_score
@@ -197,6 +198,11 @@ async def lifespan(application: FastAPI):
         log.info("API key authentication disabled (set MULTILLM_API_KEY to enable)")
     await _run_discovery()
     start_health_checks()
+    # Warm the dashboard bundle from disk so the first page load is instant even
+    # right after a restart, then prime the default range in the background so
+    # the persisted copy refreshes without anyone waiting on a cold scan.
+    bundle_cache.warm_load()
+    asyncio.create_task(_prime_dashboard_bundle())
     yield
     stop_health_checks()
     shutdown_langfuse()
@@ -1454,14 +1460,15 @@ def _limit_direct_sessions(payload: dict, *, limit: int) -> dict:
     return payload
 
 
-@app.get("/api/dashboard-bundle")
-async def dashboard_bundle_api(
-    hours: int = Query(720, ge=1, le=43800),
-    project: Optional[str] = None,
-    session_limit: int = Query(50, ge=1, le=500),
-    direct_session_limit: int = Query(100, ge=1, le=1000),
-):
-    """Dashboard payload with expensive direct-client stats computed once per period."""
+def _compute_dashboard_bundle(
+    *, hours: int, project: Optional[str], session_limit: int, direct_session_limit: int
+) -> dict:
+    """Blocking single-pass bundle compute (gateway SQL + direct-history scans).
+
+    Runs off the event loop via ``asyncio.to_thread`` — every call here is
+    synchronous, CPU/IO-bound, and safe to execute in a worker thread because
+    each stats function opens and closes its own SQLite connection.
+    """
     started = time.perf_counter()
     gw = get_dashboard_stats(hours=hours, project=project)
     sessions = get_sessions(hours=hours, project=project, limit=session_limit)
@@ -1485,14 +1492,70 @@ async def dashboard_bundle_api(
         "unified": unified,
         "performance": {
             "elapsedMs": round((time.perf_counter() - started) * 1000, 2),
-            "strategy": "bundled_single_pass",
-            "cacheTtlSeconds": 15,
+            "strategy": "swr_bundled_single_pass",
+            "cacheTtlSeconds": bundle_cache.FRESH_TTL_SECONDS,
             "costCalculation": "gateway_sql_plus_cached_direct_client_scans",
             "gatewaySessionLimit": session_limit,
             "directSessionLimit": direct_session_limit,
             "longRange": hours >= 8760,
         },
     }
+
+
+async def _prime_dashboard_bundle() -> None:
+    """Background-compute the dashboard's default range (Last 7 days) at startup.
+
+    Keeps the persisted cache fresh so the very first page load after a restart
+    renders current data without a cold 20s scan. Failures are non-fatal.
+    """
+    hours, session_limit, direct_session_limit = 168, 50, 100
+    key = bundle_cache.make_key(
+        hours=hours, project=None,
+        session_limit=session_limit, direct_session_limit=direct_session_limit,
+    )
+
+    async def _compute() -> dict:
+        return await asyncio.to_thread(
+            _compute_dashboard_bundle,
+            hours=hours, project=None,
+            session_limit=session_limit, direct_session_limit=direct_session_limit,
+        )
+
+    try:
+        await bundle_cache.get_bundle(key, _compute, force=True)
+        log.info("dashboard bundle primed for default range (last 7 days)")
+    except Exception as exc:
+        log.warning("dashboard bundle prime failed: %s", exc)
+
+
+@app.get("/api/dashboard-bundle")
+async def dashboard_bundle_api(
+    hours: int = Query(720, ge=1, le=43800),
+    project: Optional[str] = None,
+    session_limit: int = Query(50, ge=1, le=500),
+    direct_session_limit: int = Query(100, ge=1, le=1000),
+    refresh: bool = False,
+):
+    """Dashboard payload served with stale-while-revalidate caching.
+
+    The cold compute scans Claude/Codex/Gemini history and can take 20s+. With
+    SWR the page gets an instant response from the persisted cache and the slow
+    recompute happens in the background. ``refresh=true`` forces a fresh compute
+    (the dashboard "Refresh" button) and waits for it.
+    """
+    key = bundle_cache.make_key(
+        hours=hours, project=project,
+        session_limit=session_limit, direct_session_limit=direct_session_limit,
+    )
+
+    async def _compute() -> dict:
+        return await asyncio.to_thread(
+            _compute_dashboard_bundle,
+            hours=hours, project=project,
+            session_limit=session_limit, direct_session_limit=direct_session_limit,
+        )
+
+    return await bundle_cache.get_bundle(key, _compute, force=refresh)
 
 
 @app.get("/api/cache")

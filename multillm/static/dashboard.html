@@ -1732,7 +1732,22 @@ function renderDashboard(payload) {
   renderUnifiedLedger(payload.unified);
   renderRoutingReliability(payload.stats);
 
-  document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  document.getElementById('lastUpdate').textContent = freshnessLabel(payload.performance);
+}
+
+// Translate the bundle's SWR cache metadata into a short status the user reads.
+// stale-refreshing → data is showing now but a background recompute is running.
+function freshnessLabel(perf) {
+  const now = new Date().toLocaleTimeString();
+  if (!perf || !perf.cacheState) return 'Updated ' + now;
+  const age = perf.ageSeconds != null ? Math.round(perf.ageSeconds) : null;
+  const asOf = age != null && age > 2 ? ` (data ${age < 90 ? age + 's' : Math.round(age / 60) + 'm'} old)` : '';
+  switch (perf.cacheState) {
+    case 'stale-refreshing': return `Updated ${now} · refreshing in background${asOf}`;
+    case 'cold': return `Updated ${now} · first scan${asOf}`;
+    case 'forced': return `Updated ${now} · fresh scan`;
+    default: return `Updated ${now}${asOf}`;
+  }
 }
 
 // Routing & Reliability: live adaptive scores + status/error mix from collected data.
@@ -1817,8 +1832,9 @@ async function loadDashboard(force = false) {
     const projectParam = currentProjectParam();
     setCalculationState(hours);
 
+    const refreshParam = force ? '&refresh=true' : '';
     const [bundle, backends, cacheStats, active, otelStatus, status] = await Promise.all([
-      fetchJSON(`${API}/api/dashboard-bundle?hours=${hours}&session_limit=50${projectParam}`, options),
+      fetchJSON(`${API}/api/dashboard-bundle?hours=${hours}&session_limit=50${projectParam}${refreshParam}`, options),
       optionalFetchJSON(`${API}/api/backends?refresh=false`, {backends: {}}, options),
       optionalFetchJSON(`${API}/api/cache`, {}, options),
       optionalFetchJSON(`${API}/api/active-sessions`, [], options),

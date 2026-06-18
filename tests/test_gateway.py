@@ -442,6 +442,10 @@ class TestObservabilityEndpoints:
         mock_codex_stats.return_value["sessions"] = [{"id": "codex-1"}, {"id": "codex-2"}]
         mock_gemini_stats.return_value["sessions"] = [{"id": "gemini-1"}, {"id": "gemini-2"}]
 
+        # Ensure the SWR cache does not short-circuit the compute under test.
+        from multillm import bundle_cache
+        bundle_cache.cache_clear()
+
         response = client.get(
             "/api/dashboard-bundle?hours=8760&project=multillm&session_limit=25&direct_session_limit=1"
         )
@@ -455,8 +459,9 @@ class TestObservabilityEndpoints:
         assert data["codexStats"]["sessionsTruncated"] is True
         assert data["geminiStats"]["sessionsTruncated"] is True
         assert data["unified"]["hours"] == 8760
-        assert data["performance"]["strategy"] == "bundled_single_pass"
-        assert data["performance"]["cacheTtlSeconds"] == 15
+        assert data["performance"]["strategy"] == "swr_bundled_single_pass"
+        assert data["performance"]["cacheTtlSeconds"] == bundle_cache.FRESH_TTL_SECONDS
+        assert data["performance"]["cacheState"] == "cold"
         assert data["performance"]["directSessionLimit"] == 1
         assert data["performance"]["longRange"] is True
         mock_dashboard_stats.assert_called_once_with(hours=8760, project="multillm")
