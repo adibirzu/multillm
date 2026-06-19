@@ -683,6 +683,27 @@
     </div>
   </div>
 
+  <!-- Smart Routing -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <span>Smart Routing</span>
+      <span style="font-size:10px;color:var(--text-dim)">which model the router picks, and why</span>
+    </div>
+    <div class="panel-body" style="padding:14px 16px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input id="routePrompt" type="text" placeholder="Type a prompt to see which model the router would choose…"
+          style="flex:1;min-width:260px;background:var(--bg2,#15151f);color:var(--text);border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:9px 11px;font:inherit;font-size:13px">
+        <label style="font-size:11px;color:var(--text-dim)">bias
+          <input id="routeBias" type="range" min="0" max="1" step="0.1" value="0.5" style="vertical-align:middle">
+          <span id="routeBiasVal" style="color:var(--text)">0.5</span>
+        </label>
+        <button id="routeGo" type="button"
+          style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 18px;font:inherit;font-weight:600;cursor:pointer">Route</button>
+      </div>
+      <div id="routeResult" style="margin-top:12px"></div>
+    </div>
+  </div>
+
   <!-- Cost Forecast & Burn Rate -->
   <div class="panel" style="margin-bottom:24px">
     <div class="panel-header">
@@ -1781,6 +1802,62 @@ function wireCouncil() {
   if (!btn || btn._wired) return;
   btn._wired = true;
   btn.addEventListener('click', askCouncil);
+}
+
+// Smart Routing: show which model the log-driven router would pick for a prompt
+// at a given quality/cost bias, with the per-candidate breakdown.
+function wireRouting() {
+  const btn = document.getElementById('routeGo');
+  if (!btn || btn._wired) return;
+  btn._wired = true;
+  const slider = document.getElementById('routeBias');
+  const val = document.getElementById('routeBiasVal');
+  if (slider && val) slider.addEventListener('input', () => { val.textContent = slider.value; });
+  btn.addEventListener('click', runRouting);
+  document.getElementById('routePrompt').addEventListener('keydown', e => { if (e.key === 'Enter') runRouting(); });
+}
+
+async function runRouting() {
+  const out = document.getElementById('routeResult');
+  const prompt = (document.getElementById('routePrompt').value || '').trim();
+  if (!prompt) { out.innerHTML = '<div style="color:var(--accent4);font-size:12px">Enter a prompt first.</div>'; return; }
+  const bias = document.getElementById('routeBias').value;
+  out.innerHTML = '<div class="loading">Routing…</div>';
+  try {
+    const d = await fetchJSON(`${API}/api/routing/decision?prompt=${encodeURIComponent(prompt)}&bias=${bias}`);
+    out.innerHTML = renderRouting(d);
+  } catch (e) {
+    out.innerHTML = `<div style="color:var(--accent4);font-size:12px">Routing failed: ${e.message || e}</div>`;
+  }
+}
+
+function renderRouting(d) {
+  const reasons = (d.complexityReasons && d.complexityReasons.length) ? ` · ${d.complexityReasons.join(', ')}` : '';
+  const head = `<div style="margin-bottom:8px">
+    <span style="font-size:12px;color:var(--text-dim)">Picks</span>
+    <b style="color:var(--accent2);font-size:14px"> ${d.model || '—'}</b>
+    <span style="font-size:11px;color:var(--text-dim)"> · complexity ${d.complexity}, effective bias ${d.effectiveBias}${reasons}</span>
+  </div>`;
+  const rows = (d.candidates || []).map(c => {
+    const win = c.model === d.model;
+    return `<tr style="${win ? 'background:rgba(0,184,148,0.08)' : ''}">
+      <td style="padding:4px 8px;${win ? 'font-weight:600;color:var(--accent2)' : ''}">${c.model}</td>
+      <td style="padding:4px 8px;text-align:right">${c.score}</td>
+      <td style="padding:4px 8px;text-align:right">${c.reliability}</td>
+      <td style="padding:4px 8px;text-align:right">${c.health}</td>
+      <td style="padding:4px 8px;text-align:right">${c.speed}</td>
+      <td style="padding:4px 8px;text-align:right">${c.cost}</td>
+      <td style="padding:4px 8px;text-align:right;color:var(--text-dim)">${c.requests}</td>
+    </tr>`;
+  }).join('');
+  const table = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="color:var(--text-dim);text-align:left">
+      <th style="padding:4px 8px">Model</th><th style="padding:4px 8px;text-align:right">Score</th>
+      <th style="padding:4px 8px;text-align:right">Reliab.</th><th style="padding:4px 8px;text-align:right">Health</th>
+      <th style="padding:4px 8px;text-align:right">Speed</th><th style="padding:4px 8px;text-align:right">Cost</th>
+      <th style="padding:4px 8px;text-align:right">Reqs</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  return head + table;
 }
 
 async function askCouncil() {
@@ -3458,6 +3535,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 
 updateLiveToggle();
 wireCouncil();
+wireRouting();
 loadDashboard(true);
 startLiveTicker();
 </script>

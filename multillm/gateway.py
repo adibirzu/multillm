@@ -110,8 +110,11 @@ from .stats_cache import ttl_cache
 # Default fusion panel/judge — free/authenticated backends. Unavailable members
 # degrade gracefully (they error and are dropped). Override via the
 # fusion_panel / fusion_judge settings.
-_DEFAULT_FUSION_PANEL = ["codex/gpt-5-4", "gemini-cli/pro", "ollama/llama3"]
-_DEFAULT_FUSION_JUDGE = "gemini-cli/pro"
+# Default fusion panel/judge — Codex CLI + OCI GenAI (Meta Llama + Google
+# Gemini), three reliable, diverse model families. OCI GenAI replaces the
+# gemini-cli backend (which depends on a separately-authenticated CLI tier).
+_DEFAULT_FUSION_PANEL = ["codex/gpt-5-4", "oci/llama-3.3-70b", "oci/gemini-2.5-pro"]
+_DEFAULT_FUSION_JUDGE = "oci/llama-3.3-70b"
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
 from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker, calculate_backend_score
