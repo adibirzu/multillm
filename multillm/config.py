@@ -82,6 +82,17 @@ AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
 AWS_BEDROCK_REGION = os.getenv("AWS_BEDROCK_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
 AWS_BEDROCK_PROFILE = os.getenv("AWS_BEDROCK_PROFILE", "")
 
+# OCI Generative AI (Oracle's managed inference: Cohere, Meta Llama, Google
+# Gemini, OpenAI gpt-oss). Auth via an OCI config-file profile; compartment
+# defaults to the profile's tenancy; endpoint is derived from the region.
+OCI_GENAI_PROFILE = os.getenv("OCI_GENAI_PROFILE", "DEFAULT")
+OCI_GENAI_REGION = os.getenv("OCI_GENAI_REGION", "eu-frankfurt-1")
+OCI_GENAI_COMPARTMENT_ID = os.getenv("OCI_GENAI_COMPARTMENT_ID", "")
+OCI_GENAI_ENDPOINT = os.getenv(
+    "OCI_GENAI_ENDPOINT",
+    f"https://inference.generativeai.{OCI_GENAI_REGION}.oci.oraclecloud.com",
+)
+
 # ── OpenTelemetry / OCI APM ──────────────────────────────────────────────────
 OTEL_ENABLED = os.getenv("OTEL_ENABLED", "false").lower() in ("true", "1", "yes")
 OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "multillm-gateway")
@@ -215,6 +226,16 @@ DEFAULT_ROUTES: dict[str, dict] = {
     "bedrock/claude-haiku":    {"backend": "bedrock", "model": "anthropic.claude-haiku-4-5-20251001-v1:0"},
     "bedrock/llama-3.3-70b":   {"backend": "bedrock", "model": "meta.llama3-3-70b-instruct-v1:0"},
     "bedrock/mistral-large":   {"backend": "bedrock", "model": "mistral.mistral-large-2411-v1:0"},
+    # OCI Generative AI (managed; model id = OCI on-demand foundational model name)
+    "oci/llama-3.3-70b":       {"backend": "oci_genai", "model": "meta.llama-3.3-70b-instruct"},
+    "oci/llama-3.1-405b":      {"backend": "oci_genai", "model": "meta.llama-3.1-405b-instruct"},
+    "oci/llama-3.1-70b":       {"backend": "oci_genai", "model": "meta.llama-3.1-70b-instruct"},
+    "oci/cohere-command-r-plus": {"backend": "oci_genai", "model": "cohere.command-r-plus-08-2024"},
+    "oci/cohere-command-a":    {"backend": "oci_genai", "model": "cohere.command-a-03-2025"},
+    "oci/gemini-2.5-pro":      {"backend": "oci_genai", "model": "google.gemini-2.5-pro"},
+    "oci/gemini-2.5-flash":    {"backend": "oci_genai", "model": "google.gemini-2.5-flash"},
+    "oci/gpt-oss-120b":        {"backend": "oci_genai", "model": "openai.gpt-oss-120b"},
+    "oci/gpt-oss-20b":         {"backend": "oci_genai", "model": "openai.gpt-oss-20b"},
 }
 
 

@@ -27,7 +27,7 @@ class TestHealthEndpoint:
     def test_health_shows_all_backends(self):
         response = client.get("/health")
         backends = response.json()["backends"]
-        expected = {"ollama", "lmstudio", "gemini", "openai", "anthropic", "openrouter", "codex_cli", "gemini_cli"}
+        expected = {"ollama", "lmstudio", "gemini", "openai", "anthropic", "openrouter", "codex_cli", "gemini_cli", "oci_genai"}
         assert expected == set(backends.keys())
 
 

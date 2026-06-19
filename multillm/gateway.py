@@ -264,7 +264,7 @@ _register_team_usage(app)
 CLOUD_BACKENDS = {
     "openrouter", "openai", "anthropic", "gemini",
     "groq", "deepseek", "mistral", "together", "xai", "fireworks",
-    "azure_openai", "bedrock",
+    "azure_openai", "bedrock", "oci_genai",
 }
 # Backends that work offline
 LOCAL_BACKENDS = {"ollama", "lmstudio", "codex_cli", "gemini_cli"}
@@ -964,6 +964,11 @@ async def health():
     backends["openai"] = "configured" if OPENAI_KEY else "not set"
     backends["anthropic"] = "configured" if ANTHROPIC_KEY else "not set"
     backends["openrouter"] = "configured" if OPENROUTER_KEY else "not set"
+    try:
+        from .adapters.oci_genai import OCIGenAIAdapter
+        backends["oci_genai"] = "configured" if OCIGenAIAdapter().is_configured() else "not set"
+    except Exception:
+        backends["oci_genai"] = "not set"
 
     # Check codex CLI
     try:

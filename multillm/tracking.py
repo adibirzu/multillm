@@ -64,6 +64,7 @@ COST_TABLE = {
     "fireworks":    {"input": 0.90,   "output": 0.90},   # Llama 70B
     "azure_openai": {"input": 2.50,   "output": 10.0},   # Same as OpenAI
     "bedrock":      {"input": 3.0,    "output": 15.0},   # Claude Sonnet pricing
+    "oci_genai":    {"input": 0.10,   "output": 0.10},   # OCI GenAI (approx; Llama-class)
 }
 
 
