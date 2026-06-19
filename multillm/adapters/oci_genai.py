@@ -22,7 +22,10 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from ..config import (
-    OCI_GENAI_PROFILE, OCI_GENAI_REGION, OCI_GENAI_COMPARTMENT_ID, OCI_GENAI_ENDPOINT,
+    OCI_GENAI_PROFILE,
+    OCI_GENAI_REGION,
+    OCI_GENAI_COMPARTMENT_ID,
+    OCI_GENAI_ENDPOINT,
 )
 from ..converters import extract_text_from_anthropic, make_anthropic_response
 from .base import BaseAdapter
@@ -47,17 +50,24 @@ def _ensure_client():
         cfg["region"] = OCI_GENAI_REGION
         _compartment = OCI_GENAI_COMPARTMENT_ID or cfg.get("tenancy")
         _client = GenerativeAiInferenceClient(cfg, service_endpoint=OCI_GENAI_ENDPOINT)
-        log.info("OCI GenAI ready: profile=%s region=%s", OCI_GENAI_PROFILE, OCI_GENAI_REGION)
+        log.info(
+            "OCI GenAI ready: profile=%s region=%s", OCI_GENAI_PROFILE, OCI_GENAI_REGION
+        )
     except Exception as exc:  # missing SDK, bad profile, no endpoint, etc.
         _init_error = str(exc)
         log.warning("OCI GenAI not configured: %s", exc)
     return _client
 
 
-def _build_request(model: str, prompt_messages: list[dict], max_tokens: int, temperature: float):
+def _build_request(
+    model: str, prompt_messages: list[dict], max_tokens: int, temperature: float
+):
     """Build the vendor-appropriate OCI chat request from Anthropic messages."""
     from oci.generative_ai_inference.models import (
-        CohereChatRequest, GenericChatRequest, Message, TextContent,
+        CohereChatRequest,
+        GenericChatRequest,
+        Message,
+        TextContent,
     )
 
     if model.startswith("cohere."):
@@ -83,13 +93,18 @@ def _build_request(model: str, prompt_messages: list[dict], max_tokens: int, tem
     # Generic (Meta / Google / OpenAI) shape: OpenAI-style messages.
     role_map = {"user": "USER", "assistant": "ASSISTANT", "system": "SYSTEM"}
     messages = [
-        Message(role=role_map.get(m.get("role"), "USER"), content=[TextContent(text=_text_of(m))])
+        Message(
+            role=role_map.get(m.get("role"), "USER"),
+            content=[TextContent(text=_text_of(m))],
+        )
         for m in prompt_messages
         if _text_of(m)
     ]
     return GenericChatRequest(
-        api_format="GENERIC", messages=messages,
-        max_tokens=max_tokens, temperature=temperature,
+        api_format="GENERIC",
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
     )
 
 
@@ -99,7 +114,11 @@ def _text_of(message: dict) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+        return " ".join(
+            b.get("text", "")
+            for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
     return str(content)
 
 
@@ -130,9 +149,13 @@ class OCIGenAIAdapter(BaseAdapter):
     async def send(self, body: dict, model: str, model_alias: str) -> dict:
         client = _ensure_client()
         if client is None:
-            raise HTTPException(status_code=503, detail=f"OCI GenAI not configured: {_init_error}")
+            raise HTTPException(
+                status_code=503, detail=f"OCI GenAI not configured: {_init_error}"
+            )
 
-        messages = body.get("messages") or [{"role": "user", "content": extract_text_from_anthropic(body)}]
+        messages = body.get("messages") or [
+            {"role": "user", "content": extract_text_from_anthropic(body)}
+        ]
         max_tokens = int(body.get("max_tokens", 1024))
         temperature = float(body.get("temperature", 0.7))
 
@@ -146,13 +169,17 @@ class OCIGenAIAdapter(BaseAdapter):
         try:
             resp = await asyncio.to_thread(client.chat, detail)
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"OCI GenAI error: {str(exc)[:300]}")
+            raise HTTPException(
+                status_code=502, detail=f"OCI GenAI error: {str(exc)[:300]}"
+            )
 
         text = _extract_response_text(resp.data.chat_response)
         prompt_text = _join(messages)
         return make_anthropic_response(
-            text=text, model=model_alias,
-            input_tokens=len(prompt_text) // 4, output_tokens=len(text) // 4,
+            text=text,
+            model=model_alias,
+            input_tokens=len(prompt_text) // 4,
+            output_tokens=len(text) // 4,
         )
 
     async def stream(self, body: dict, model: str, model_alias: str):

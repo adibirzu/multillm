@@ -25,7 +25,9 @@ def test_long_analytical_prompt_scores_high():
 
 def test_code_prompt_adds_signal():
     plain = complexity.estimate_complexity("rename this variable")
-    coded = complexity.estimate_complexity("```python\ndef f(x):\n    return x\n```\nrefactor this")
+    coded = complexity.estimate_complexity(
+        "```python\ndef f(x):\n    return x\n```\nrefactor this"
+    )
     assert coded["score"] > plain["score"]
     assert "contains code" in coded["reasons"]
 

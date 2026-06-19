@@ -134,6 +134,8 @@ jobs:
         uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc
         env:
           GITLEAKS_CONFIG: .gitleaks.toml
+          # gitleaks-action now requires a token to scan PRs (breaking change).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # trufflesecurity/trufflehog v3.85.x — pinned per OSS-13.
       # action v3.85.0

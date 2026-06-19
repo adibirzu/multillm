@@ -45,6 +45,9 @@ langfuse = [
 cache = [
     "langcache>=0.1.0",
 ]
+oci = [
+    "oci>=2.140.0",
+]
 test = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",

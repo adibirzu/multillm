@@ -75,8 +75,13 @@ def choose_model(
     # Complexity raises the effective bias toward quality (hard → reliable model).
     eff_bias = max(0.0, min(1.0, bias + prompt_complexity * 0.3))
 
-    latencies = {m: (stats.get(m, {}).get("avgLatencyMs") or _DEFAULT_LATENCY_MS) for m in pool}
-    costs = {m: (stats.get(m, {}).get("avgCostUSD") or cost_fn(m) or _DEFAULT_COST) for m in pool}
+    latencies = {
+        m: (stats.get(m, {}).get("avgLatencyMs") or _DEFAULT_LATENCY_MS) for m in pool
+    }
+    costs = {
+        m: (stats.get(m, {}).get("avgCostUSD") or cost_fn(m) or _DEFAULT_COST)
+        for m in pool
+    }
     speed_score = _normalize_inverse(latencies)
     cost_score = _normalize_inverse(costs)
 
@@ -89,16 +94,18 @@ def choose_model(
         quality = reliability * 0.6 + health * 0.4
         efficiency = speed_score[m] * 0.5 + cost_score[m] * 0.5
         score = eff_bias * quality + (1.0 - eff_bias) * efficiency
-        candidates.append({
-            "model": m,
-            "backend": backend,
-            "score": round(score, 4),
-            "reliability": round(reliability, 3),
-            "health": round(health, 3),
-            "speed": round(speed_score[m], 3),
-            "cost": round(cost_score[m], 3),
-            "requests": s.get("requests", 0),
-        })
+        candidates.append(
+            {
+                "model": m,
+                "backend": backend,
+                "score": round(score, 4),
+                "reliability": round(reliability, 3),
+                "health": round(health, 3),
+                "speed": round(speed_score[m], 3),
+                "cost": round(cost_score[m], 3),
+                "requests": s.get("requests", 0),
+            }
+        )
 
     candidates.sort(key=lambda c: c["score"], reverse=True)
     best = candidates[0]
@@ -109,7 +116,7 @@ def choose_model(
         "effectiveBias": round(eff_bias, 3),
         "complexity": round(prompt_complexity, 3),
         "candidates": candidates,
-        "reason": f"highest blended score at bias={round(eff_bias,2)} "
-                  f"(reliability {best['reliability']}, health {best['health']}, "
-                  f"speed {best['speed']}, cost {best['cost']})",
+        "reason": f"highest blended score at bias={round(eff_bias, 2)} "
+        f"(reliability {best['reliability']}, health {best['health']}, "
+        f"speed {best['speed']}, cost {best['cost']})",
     }

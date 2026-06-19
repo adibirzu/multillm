@@ -36,7 +36,11 @@ QueryFn = Callable[[str, str, int, float], Awaitable[dict]]
 
 
 def _is_recursive(alias: str) -> bool:
-    return alias in _RECURSIVE_ALIASES or alias.startswith("fusion/") or alias.startswith("auto/")
+    return (
+        alias in _RECURSIVE_ALIASES
+        or alias.startswith("fusion/")
+        or alias.startswith("auto/")
+    )
 
 
 def sanitize_panel(panel: list[str], judge: str) -> tuple[list[str], str]:
@@ -54,7 +58,9 @@ def build_judge_prompt(user_prompt: str, panel: list[dict]) -> str:
     """
     blocks = []
     for i, r in enumerate(panel, 1):
-        blocks.append(f"--- Response {i} (from {r.get('alias','?')}) ---\n{r.get('text','').strip()}")
+        blocks.append(
+            f"--- Response {i} (from {r.get('alias', '?')}) ---\n{r.get('text', '').strip()}"
+        )
     responses = "\n\n".join(blocks)
     return (
         "You are the judge of a multi-model panel. Several models independently "
@@ -111,23 +117,42 @@ async def run_fusion(
     """
     panel, judge = sanitize_panel(panel, judge)
     if not panel:
-        return {"status": "no_panel", "finalAnswer": "", "panel": [], "judge": judge,
-                "analysis": "", "totals": {"costUSD": 0.0, "panelSucceeded": 0}}
+        return {
+            "status": "no_panel",
+            "finalAnswer": "",
+            "panel": [],
+            "judge": judge,
+            "analysis": "",
+            "totals": {"costUSD": 0.0, "panelSucceeded": 0},
+        }
 
-    panel_results = list(await asyncio.gather(
-        *[query_fn(m, prompt, max_tokens, temperature) for m in panel]
-    ))
-    succeeded = [r for r in panel_results if not r.get("error") and (r.get("text") or "").strip()]
+    panel_results = list(
+        await asyncio.gather(
+            *[query_fn(m, prompt, max_tokens, temperature) for m in panel]
+        )
+    )
+    succeeded = [
+        r for r in panel_results if not r.get("error") and (r.get("text") or "").strip()
+    ]
 
     if not succeeded:
-        return {"status": "no_panel", "finalAnswer": "", "panel": panel_results, "judge": judge,
-                "analysis": "", "totals": {"costUSD": _sum_cost(*panel_results), "panelSucceeded": 0}}
+        return {
+            "status": "no_panel",
+            "finalAnswer": "",
+            "panel": panel_results,
+            "judge": judge,
+            "analysis": "",
+            "totals": {"costUSD": _sum_cost(*panel_results), "panelSucceeded": 0},
+        }
 
     if len(succeeded) == 1:
         only = succeeded[0]
         return {
-            "status": "single", "finalAnswer": only["text"], "panel": panel_results,
-            "judge": None, "analysis": "",
+            "status": "single",
+            "finalAnswer": only["text"],
+            "panel": panel_results,
+            "judge": None,
+            "analysis": "",
             "totals": {"costUSD": _sum_cost(*panel_results), "panelSucceeded": 1},
         }
 
@@ -140,9 +165,15 @@ async def run_fusion(
         # still gets a real response rather than an error.
         best = max(succeeded, key=lambda r: len(r.get("text", "")))
         return {
-            "status": "judge_failed", "finalAnswer": best["text"], "panel": panel_results,
-            "judge": judge, "analysis": "",
-            "totals": {"costUSD": _sum_cost(*panel_results, judge_result), "panelSucceeded": len(succeeded)},
+            "status": "judge_failed",
+            "finalAnswer": best["text"],
+            "panel": panel_results,
+            "judge": judge,
+            "analysis": "",
+            "totals": {
+                "costUSD": _sum_cost(*panel_results, judge_result),
+                "panelSucceeded": len(succeeded),
+            },
         }
 
     analysis, final_answer = split_judge_output(judge_result["text"])

@@ -16,12 +16,38 @@ import re
 
 # Vocabulary that signals analysis/research/reasoning rather than a lookup.
 _REASONING_KEYWORDS = (
-    "analyze", "analyse", "compare", "contrast", "trade-off", "tradeoff",
-    "design", "architect", "evaluate", "prove", "derive", "why does",
-    "root cause", "debug", "optimize", "optimise", "strategy", "plan",
-    "pros and cons", "implications", "research", "investigate", "synthesize",
-    "synthesise", "comprehensive", "in depth", "in-depth", "step by step",
-    "explain why", "recommend", "should i", "best approach",
+    "analyze",
+    "analyse",
+    "compare",
+    "contrast",
+    "trade-off",
+    "tradeoff",
+    "design",
+    "architect",
+    "evaluate",
+    "prove",
+    "derive",
+    "why does",
+    "root cause",
+    "debug",
+    "optimize",
+    "optimise",
+    "strategy",
+    "plan",
+    "pros and cons",
+    "implications",
+    "research",
+    "investigate",
+    "synthesize",
+    "synthesise",
+    "comprehensive",
+    "in depth",
+    "in-depth",
+    "step by step",
+    "explain why",
+    "recommend",
+    "should i",
+    "best approach",
 )
 
 _CODE_RE = re.compile(r"```|\bdef \b|\bclass \b|\bfunction\b|=>|;\s*$", re.MULTILINE)
@@ -44,11 +70,11 @@ def estimate_complexity(prompt: str) -> dict:
     bullets = len(_BULLET_RE.findall(text))
 
     score = 0.0
-    score += min(0.30, words / 150 * 0.30)            # length
-    score += min(0.40, kw * 0.10)                     # reasoning vocabulary
+    score += min(0.30, words / 150 * 0.30)  # length
+    score += min(0.40, kw * 0.10)  # reasoning vocabulary
     score += min(0.15, max(0, questions - 1) * 0.10)  # multiple questions
-    score += min(0.15, bullets * 0.05)                # enumerated sub-asks
-    score += 0.10 if has_code else 0.0                # embedded code
+    score += min(0.15, bullets * 0.05)  # enumerated sub-asks
+    score += 0.10 if has_code else 0.0  # embedded code
     # Synergy: a substantial prompt that also uses reasoning vocabulary is the
     # clearest "needs multiple perspectives" signal — neither alone is enough.
     if kw >= 2 and words >= 20:
