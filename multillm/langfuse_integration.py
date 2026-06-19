@@ -168,6 +168,70 @@ def trace_llm_generation(
         log.debug("Langfuse trace failed: %s", e)
 
 
+def trace_fusion_run(
+    *,
+    kind: str,
+    prompt: str,
+    panel_results: list,
+    judge: Optional[str] = None,
+    analysis: str = "",
+    final_answer: str = "",
+    status: str = "",
+    project: str = "",
+    request_id: Optional[str] = None,
+) -> None:
+    """Record a fusion/council run as a parent span with child generations.
+
+    Reconstructs the panel→judge tree from the completed result, so the run is
+    visible as one trace (parent span) with a child generation per panel model
+    and the judge. Post-hoc (no live context threaded through the query fn).
+    """
+    if not _client:
+        return
+    try:
+        with _client.start_as_current_observation(
+            name=f"{kind}",
+            as_type="span",
+            input=(prompt or "")[:500],
+            output=(final_answer or "")[:500],
+            metadata={
+                "project": project,
+                "request_id": request_id or "",
+                "panelSize": len(panel_results),
+                "status": status,
+                "judge": judge or "",
+            },
+        ):
+            for r in panel_results or []:
+                gen = _client.start_observation(
+                    name=f"panel:{r.get('alias', '?')}",
+                    as_type="generation",
+                    model=r.get("alias"),
+                    input=(prompt or "")[:200],
+                    output=(r.get("text") or "")[:500],
+                    usage_details={
+                        "input": r.get("inputTokens", 0),
+                        "output": r.get("outputTokens", 0),
+                    },
+                    metadata={"role": "panel", "costUSD": r.get("actualCostUSD", 0)},
+                    level="ERROR" if r.get("error") else "DEFAULT",
+                    status_message=r.get("error") or None,
+                )
+                gen.end()
+            if judge:
+                jg = _client.start_observation(
+                    name=f"judge:{judge}",
+                    as_type="generation",
+                    model=judge,
+                    input="(panel responses → structured analysis)",
+                    output=(final_answer or "")[:500],
+                    metadata={"role": "judge", "analysis": (analysis or "")[:500]},
+                )
+                jg.end()
+    except Exception as e:
+        log.debug("Langfuse fusion trace failed: %s", e)
+
+
 def get_langfuse_status() -> dict:
     """Get Langfuse connection status for the dashboard."""
     return {

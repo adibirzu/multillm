@@ -115,6 +115,7 @@ from .langfuse_integration import (
     init_langfuse,
     shutdown_langfuse,
     trace_llm_generation,
+    trace_fusion_run,
     get_langfuse_status,
 )
 from .llm_observability import build_llm_observability_summary
@@ -142,6 +143,7 @@ from . import budgets
 from . import fusion
 from . import complexity
 from . import router as query_router
+from . import result_cache
 from .stats_cache import ttl_cache
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
@@ -174,7 +176,7 @@ from .health import (
 # gemini-cli backend (which depends on a separately-authenticated CLI tier).
 # Unavailable members degrade gracefully; override via the fusion_panel /
 # fusion_judge settings.
-_DEFAULT_FUSION_PANEL = ["codex/gpt-5-4", "oci/llama-3.3-70b", "oci/gemini-2.5-pro"]
+_DEFAULT_FUSION_PANEL = ["codex/gpt-5-4", "oci/llama-3.3-70b", "antigravity/flash"]
 _DEFAULT_FUSION_JUDGE = "oci/llama-3.3-70b"
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -356,7 +358,7 @@ CLOUD_BACKENDS = {
     "oci_genai",
 }
 # Backends that work offline
-LOCAL_BACKENDS = {"ollama", "lmstudio", "codex_cli", "gemini_cli"}
+LOCAL_BACKENDS = {"ollama", "lmstudio", "codex_cli", "gemini_cli", "antigravity"}
 
 # Errors that should trigger fallback to local
 FALLBACK_ERRORS = (
@@ -658,7 +660,7 @@ async def _dispatch_with_resilience(
     adapter = get_adapter(backend)
     if adapter is None:
         raise HTTPException(status_code=500, detail=f"Unknown backend: {backend}")
-    if backend in ("codex_cli", "gemini_cli"):
+    if backend in ("codex_cli", "gemini_cli", "antigravity"):
         return await adapter.send(body, model, model_alias)
     return await with_retry(
         lambda: adapter.send(body, model, model_alias),
@@ -1254,6 +1256,18 @@ async def health():
         backends["gemini_cli"] = "available" if stdout.strip() else "not found"
     except Exception:
         backends["gemini_cli"] = "not found"
+
+    # Antigravity CLI (agy)
+    try:
+        from .cli_tools import resolve_cli_binary
+
+        backends["antigravity"] = (
+            "available"
+            if resolve_cli_binary("agy", env_var="ANTIGRAVITY_CLI_PATH")
+            else "not found"
+        )
+    except Exception:
+        backends["antigravity"] = "not found"
 
     return {
         "status": "ok",
@@ -2160,6 +2174,16 @@ async def council_api(body: dict | None = None):
         expected_output_tokens=max_tokens,
     )
 
+    # Serve an identical repeat from the result cache (skip re-querying the panel).
+    cache_enabled, cache_ttl = _cache_enabled()
+    cache_key = result_cache.make_key(
+        kind="council", prompt=prompt, models=models, judge=None, max_tokens=max_tokens
+    )
+    if cache_enabled:
+        cached = result_cache.get(cache_key)
+        if cached is not None:
+            return {**cached, "cached": True}
+
     # Query all models concurrently; one failure does not sink the rest.
     responses = await asyncio.gather(
         *[_council_query_one(m, prompt, max_tokens, temperature) for m in models]
@@ -2167,7 +2191,7 @@ async def council_api(body: dict | None = None):
 
     succeeded = [r for r in responses if not r.get("error")]
     total_actual = round(sum(r["actualCostUSD"] for r in succeeded), 6)
-    return {
+    result = {
         "prompt": prompt,
         "models": models,
         "preflightEstimate": estimate,
@@ -2181,6 +2205,10 @@ async def council_api(body: dict | None = None):
             "modelsSucceeded": len(succeeded),
         },
     }
+    # Cache only when at least one model answered (don't cache total failures).
+    if cache_enabled and succeeded:
+        result_cache.set(cache_key, result, cache_ttl)
+    return result
 
 
 async def _fusion_query_fn(
@@ -2228,11 +2256,36 @@ def _resolve_fusion_config(body: dict) -> tuple[list, str, int, float]:
     return panel, judge, max_tokens, temperature
 
 
+def _cache_enabled() -> tuple[bool, float]:
+    """(enabled, ttl) for the council/fusion result cache, from settings."""
+    from .memory import get_setting
+
+    enabled = bool(get_setting("council_fusion_cache_enabled", True))
+    ttl = float(
+        get_setting("council_fusion_cache_ttl", result_cache.DEFAULT_TTL_SECONDS)
+    )
+    return enabled, ttl
+
+
 async def _run_fusion(body: dict) -> dict:
-    """Run the fusion pipeline for a request body and return the full result."""
+    """Run the fusion pipeline for a request body and return the full result.
+
+    Identical repeat requests are served from the result cache (exact prompt +
+    panel + judge), avoiding a full re-query of the panel.
+    """
     prompt = extract_text_from_anthropic(body)
     panel, judge, max_tokens, temperature = _resolve_fusion_config(body)
-    return await fusion.run_fusion(
+
+    enabled, ttl = _cache_enabled()
+    key = result_cache.make_key(
+        kind="fusion", prompt=prompt, models=panel, judge=judge, max_tokens=max_tokens
+    )
+    if enabled:
+        cached = result_cache.get(key)
+        if cached is not None:
+            return {**cached, "cached": True}
+
+    result = await fusion.run_fusion(
         prompt=prompt,
         panel=panel,
         judge=judge,
@@ -2240,6 +2293,21 @@ async def _run_fusion(body: dict) -> dict:
         max_tokens=max_tokens,
         temperature=temperature,
     )
+    # Langfuse: one parent span per fusion run with child generations (panel + judge).
+    trace_fusion_run(
+        kind="fusion",
+        prompt=prompt,
+        panel_results=result.get("panel", []),
+        judge=result.get("judge"),
+        analysis=result.get("analysis", ""),
+        final_answer=result.get("finalAnswer", ""),
+        status=result.get("status", ""),
+        project=PROJECT,
+    )
+    # Only cache real syntheses, not degraded/no-panel outcomes.
+    if enabled and result.get("status") in ("fused", "single"):
+        result_cache.set(key, result, ttl)
+    return result
 
 
 def _fusion_usage(result: dict) -> tuple[int, int]:

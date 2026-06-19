@@ -64,6 +64,7 @@ COST_TABLE = {
     "lmstudio": {"input": 0.0, "output": 0.0},
     "codex_cli": {"input": 0.0, "output": 0.0},
     "gemini_cli": {"input": 0.0, "output": 0.0},
+    "antigravity": {"input": 0.0, "output": 0.0},
     "openrouter": {"input": 2.50, "output": 10.0},
     "openai": {"input": 2.50, "output": 10.0},
     "anthropic": {"input": 3.0, "output": 15.0},

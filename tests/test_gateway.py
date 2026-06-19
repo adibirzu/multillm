@@ -37,6 +37,7 @@ class TestHealthEndpoint:
             "codex_cli",
             "gemini_cli",
             "oci_genai",
+            "antigravity",
         }
         assert expected == set(backends.keys())
 

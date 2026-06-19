@@ -220,6 +220,28 @@ DEFAULT_ROUTES: dict[str, dict] = {
         "backend": "gemini_cli",
         "model": "gemini-cli:gemini-2.5-flash-lite",
     },
+    # Antigravity CLI (`agy` — fronts Gemini 3.x, Claude 4.6, GPT-OSS). Model is
+    # the display name from `agy models`.
+    "antigravity/flash": {
+        "backend": "antigravity",
+        "model": "Gemini 3.5 Flash (Medium)",
+    },
+    "antigravity/flash-high": {
+        "backend": "antigravity",
+        "model": "Gemini 3.5 Flash (High)",
+    },
+    "antigravity/pro": {"backend": "antigravity", "model": "Gemini 3.1 Pro (High)"},
+    "antigravity/gpt-oss": {"backend": "antigravity", "model": "GPT-OSS 120B (Medium)"},
+    "antigravity/sonnet": {
+        "backend": "antigravity",
+        "model": "Claude Sonnet 4.6 (Thinking)",
+    },
+    "antigravity/opus": {
+        "backend": "antigravity",
+        "model": "Claude Opus 4.6 (Thinking)",
+    },
+    # Note: GPT 5.5 is NOT available in Antigravity — it's a Codex model
+    # (use the codex/* routes for GPT-5.x).
     # Codex CLI (subprocess, profile-based via ~/.codex/config.toml)
     "codex/cli": {"backend": "codex_cli", "model": "codex:"},
     "codex/gpt-5-4": {"backend": "codex_cli", "model": "codex:gpt-5-4"},
