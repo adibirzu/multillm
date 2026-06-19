@@ -61,7 +61,36 @@ if [[ -f "$PIDFILE" ]]; then
 fi
 
 cd "$GATEWAY_DIR" || exit 0
-nohup python -m multillm.gateway >> "$LOGFILE" 2>&1 &
+
+# Pick a Python that can actually run the gateway. Prefer an isolated venv under
+# MULTILLM_HOME (so a fresh plugin install doesn't depend on the user's global
+# packages). Fall back to system python if it already has the deps.
+VENV="$MULTILLM_HOME_DIR/venv"
+GW_PY=""
+if [[ -x "$VENV/bin/python" ]] && "$VENV/bin/python" -c "import fastapi, multillm.gateway" >/dev/null 2>&1; then
+    GW_PY="$VENV/bin/python"
+elif python3 -c "import fastapi, multillm.gateway" >/dev/null 2>&1; then
+    GW_PY="python3"
+fi
+
+if [[ -z "$GW_PY" ]]; then
+    # First run / missing deps: bootstrap an isolated venv and install the
+    # package (core deps only — OCI/Langfuse are opt-in extras the user adds),
+    # then start the gateway. Done in the background so the SessionStart hook
+    # returns promptly; the gateway comes up once install finishes.
+    nohup bash -c "
+        python3 -m venv '$VENV' >/dev/null 2>&1
+        '$VENV/bin/pip' install --quiet --upgrade pip >/dev/null 2>&1
+        '$VENV/bin/pip' install --quiet -e '$GATEWAY_DIR' >> '$LOGFILE' 2>&1
+        cd '$GATEWAY_DIR'
+        nohup '$VENV/bin/python' -m multillm.gateway >> '$LOGFILE' 2>&1 &
+        echo \$! > '$PIDFILE'
+    " >> "$LOGFILE" 2>&1 &
+    echo "MultiLLM: bootstrapping gateway on first run (installing into $VENV)…" >&2
+    exit 0
+fi
+
+nohup "$GW_PY" -m multillm.gateway >> "$LOGFILE" 2>&1 &
 echo "$!" > "$PIDFILE"
 
 for i in $(seq 1 10); do
