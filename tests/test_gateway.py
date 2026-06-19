@@ -238,12 +238,12 @@ class TestMessagesEndpoint:
 
     @patch("multillm.adapters.codex_cli.CodexCLIAdapter.send", new_callable=AsyncMock)
     def test_codex_cli_route_uses_adapter_resolution(self, mock_send):
-        mock_send.return_value = make_anthropic_response("OK", "codex/gpt-5-4", 4, 1)
+        mock_send.return_value = make_anthropic_response("OK", "codex/gpt-5-5", 4, 1)
 
         response = client.post(
             "/v1/messages",
             json={
-                "model": "codex/gpt-5-4",
+                "model": "codex/gpt-5-5",
                 "messages": [{"role": "user", "content": "Hi"}],
                 "max_tokens": 32,
             },
@@ -252,8 +252,8 @@ class TestMessagesEndpoint:
         assert response.status_code == 200
         assert response.json()["content"][0]["text"] == "OK"
         args = mock_send.await_args.args
-        assert args[1] == "codex:gpt-5-4"
-        assert args[2] == "codex/gpt-5-4"
+        assert args[1] == "codex:gpt-5-5"
+        assert args[2] == "codex/gpt-5-5"
 
     @patch("multillm.adapters.gemini_cli.GeminiCLIAdapter.send", new_callable=AsyncMock)
     def test_gemini_cli_route_uses_adapter_resolution(self, mock_send):
@@ -668,7 +668,7 @@ class TestFusionSlug:
 
     def _routes(self):
         return {
-            "codex/gpt-5-4": {"backend": "codex_cli", "model": "codex:gpt-5-4"},
+            "codex/gpt-5-5": {"backend": "codex_cli", "model": "codex:gpt-5-5"},
             "gemini-cli/pro": {
                 "backend": "gemini_cli",
                 "model": "gemini-cli:gemini-2.5-pro",
@@ -707,7 +707,7 @@ class TestFusionSlug:
                 "multillm.memory.get_setting",
                 side_effect=lambda k, d=None: {
                     "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
-                    "fusion_judge": "codex/gpt-5-4",
+                    "fusion_judge": "codex/gpt-5-5",
                 }.get(k, d),
             ),
         ):
@@ -744,7 +744,7 @@ class TestFusionSlug:
                 "multillm.memory.get_setting",
                 side_effect=lambda k, d=None: {
                     "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
-                    "fusion_judge": "codex/gpt-5-4",
+                    "fusion_judge": "codex/gpt-5-5",
                     "fusion_auto_threshold": 0.5,
                 }.get(k, d),
             ),
@@ -773,7 +773,7 @@ class TestFusionSlug:
             patch(
                 "multillm.memory.get_setting",
                 side_effect=lambda k, d=None: {
-                    "fusion_judge": "codex/gpt-5-4",
+                    "fusion_judge": "codex/gpt-5-5",
                     "fusion_auto_threshold": 0.6,
                 }.get(k, d),
             ),
@@ -803,7 +803,7 @@ class TestFusionSlug:
                 "multillm.memory.get_setting",
                 side_effect=lambda k, d=None: {
                     "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
-                    "fusion_judge": "codex/gpt-5-4",
+                    "fusion_judge": "codex/gpt-5-5",
                 }.get(k, d),
             ),
         ):

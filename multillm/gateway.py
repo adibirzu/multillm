@@ -176,7 +176,7 @@ from .health import (
 # gemini-cli backend (which depends on a separately-authenticated CLI tier).
 # Unavailable members degrade gracefully; override via the fusion_panel /
 # fusion_judge settings.
-_DEFAULT_FUSION_PANEL = ["codex/gpt-5-4", "oci/llama-3.3-70b", "antigravity/flash"]
+_DEFAULT_FUSION_PANEL = ["codex/gpt-5-5", "oci/llama-3.3-70b", "antigravity/flash"]
 _DEFAULT_FUSION_JUDGE = "oci/llama-3.3-70b"
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -2161,7 +2161,7 @@ async def council_api(body: dict | None = None):
     from .memory import get_setting
 
     models = body.get("models") or get_setting(
-        "auto_council_models", ["ollama/qwen3-30b", "codex/gpt-5-4", "gemini/flash"]
+        "auto_council_models", ["ollama/qwen3-30b", "codex/gpt-5-5", "gemini/flash"]
     )
     max_tokens = int(body.get("max_tokens", 2048))
     temperature = float(body.get("temperature", 0.7))

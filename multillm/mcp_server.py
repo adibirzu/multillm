@@ -120,7 +120,7 @@ class AskModelInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     model: str = Field(
         ...,
-        description="Model alias (e.g. 'ollama/llama3', 'codex/gpt-5-4', 'gemini/flash', 'codex/cli')",
+        description="Model alias (e.g. 'ollama/llama3', 'codex/gpt-5-5', 'gemini/flash', 'codex/cli')",
     )
     prompt: str = Field(..., description="The question or task", min_length=1)
     system: Optional[str] = Field(default=None, description="Optional system prompt")

@@ -28,6 +28,11 @@ STATE_DB = CODEX_DIR / "state_5.sqlite"
 
 # OpenAI list pricing per 1M tokens (USD) — source: openai.com/api/pricing (March 2026)
 OPENAI_LIST_PRICING: dict[str, dict[str, float]] = {
+    # GPT-5.5 family (current default)
+    "gpt-5.5-pro": {"input": 30.0, "output": 180.0, "cached_input": 0.0},
+    "gpt-5.5": {"input": 2.50, "output": 15.0, "cached_input": 0.25},
+    "gpt-5.5-mini": {"input": 0.75, "output": 4.50, "cached_input": 0.075},
+    "gpt-5.5-nano": {"input": 0.20, "output": 1.25, "cached_input": 0.02},
     # GPT-5.4 family
     "gpt-5.4-pro": {"input": 30.0, "output": 180.0, "cached_input": 0.0},
     "gpt-5.4": {"input": 2.50, "output": 15.0, "cached_input": 0.25},

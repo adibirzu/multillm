@@ -2,7 +2,7 @@
 
 ## Overview
 
-MultiLLM is a unified LLM gateway that proxies requests to 15+ backends through a single Anthropic-compatible API. It provides token tracking, cost estimation, shared cross-LLM memory, circuit breakers, health probes, and a real-time dashboard.
+MultiLLM is a unified LLM gateway that proxies requests to 18 backends through a single Anthropic-compatible API. It provides token tracking, **cost prediction** (burn-rate, projection, pre-flight estimate), **budgets + alerts**, **quota-aware failover**, **model fusion** (panel → judge → one synthesized answer), **log-driven smart routing**, council/2nd-opinion, shared cross-LLM memory, circuit breakers, health probes, **telemetry** (Langfuse + OCI APM), and a real-time dashboard.
 
 **Gateway URL**: `http://localhost:8080`
 **Dashboard**: `http://localhost:8080/dashboard`
@@ -28,12 +28,16 @@ Claude Code → HTTP requests → FastAPI Gateway (port 8080) → Backend adapte
 - **`multillm/discovery.py`** — Dynamic model discovery + installed-aware local routing (`resolve_local_target`)
 - **`multillm/service.py`** — OS-start service installer (launchd plist / systemd user unit)
 
-## Available Backends (15)
+## Available Backends (18)
 
 | Type | Backends |
 |------|----------|
-| Local | Ollama, LM Studio, Codex CLI, Gemini CLI |
-| Cloud | OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek, Mistral, Together, xAI, Fireworks, Azure OpenAI, AWS Bedrock |
+| Local / CLI | Ollama, LM Studio, Codex CLI, Gemini CLI, Antigravity (`agy`) |
+| Cloud (API key) | OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek, Mistral, Together, xAI, Fireworks, Azure OpenAI, AWS Bedrock |
+| OCI managed | OCI Generative AI (Cohere, Meta Llama, Google Gemini, OpenAI gpt-oss) |
+
+> Oracle Code Assist (OCA) was removed (deprecated). All backends are env-driven
+> and tenancy-agnostic — bring your own keys / OCI profile / CLI auth.
 
 ## Plugin Commands (Slash Commands)
 
@@ -299,23 +303,31 @@ Codex CLI and Gemini CLI support configurable sandbox modes:
 ## Example Model Aliases
 
 ```
+fusion                         # panel → judge → one synthesized answer
+auto                           # complexity-gated: fuse hard, route easy
 ollama/qwen3-30b, ollama/llama3.3
 openai/gpt-4o, openai/o1
 gemini/flash, gemini/pro
 groq/llama-3.3-70b
 deepseek/chat, deepseek/reasoner
-codex/cli, codex/gpt-5-4
+codex/cli, codex/gpt-5-5
 gemini-cli/default, gemini-cli/flash
+antigravity/flash, antigravity/pro, antigravity/gpt-oss
+oci/llama-3.3-70b, oci/cohere-command-a, oci/gemini-2.5-pro, oci/gpt-oss-120b
 ```
 
 ## Testing
 
 Run the test suite:
 ```bash
-python -m pytest tests/ -v
+python -m pytest tests/ -v        # 530+ tests
+# CI runs ruff format/check + pytest (coverage gate 70%) + secret scans
 ```
 
-Tests cover converters, gateway, memory, streaming, tracking, sessions, discovery, caching, http_pool, auth, resilience, health, rate_limit.
+Tests cover converters, gateway, memory, streaming, tracking, sessions, discovery,
+caching, http_pool, auth, resilience, health, rate_limit, plus the newer modules:
+bundle_cache (SWR), cost_forecast, failover, budgets, fusion, complexity, router,
+result_cache, oci_genai, and the antigravity adapter.
 
 ## Development Notes
 

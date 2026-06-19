@@ -1,6 +1,6 @@
 # MultiLLM Gateway
 
-> Open-source multi-tenant LLM gateway. Route one API to 15+ backends, ship `docker compose up`, own your data.
+> Open-source multi-tenant LLM gateway. Route one API to 18 backends, predict and cap costs, fail over when you run out of tokens, fuse models into one best answer, ship `docker compose up`, own your data.
 
 [![CI](https://github.com/adibirzu/multillm/actions/workflows/ci.yml/badge.svg)](https://github.com/adibirzu/multillm/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/multillm.svg)](https://pypi.org/project/multillm/)
@@ -10,8 +10,11 @@
 ## Why MultiLLM
 
 - **Self-hostable in one command.** `docker compose up` brings up the whole gateway. No vendor account, no per-seat pricing, no telemetry that leaves your network.
-- **Multi-tenant from day one.** API key issuance, per-tenant budgets, and quota tracking are built in (Phase 2b lands the full auth surface; the wizard provisions the first admin today).
-- **Built for multi-LLM workflows.** Cross-LLM shared memory (FTS5), council mode for parallel queries, side-by-side compare, LLM-as-judge for ranking answers — first-class capabilities, not bolt-ons.
+- **Cost-aware by default.** Real-time burn-rate, spend projection (day/week/month), quota-exhaustion ETA, pre-flight per-model estimates, and budget caps with alerts and optional auto-reject.
+- **Resilient.** Quota-aware failover continues on the next provider when one runs out of tokens; per-backend circuit breakers and health-aware routing.
+- **Beats-frontier fusion.** A `fusion` model slug runs a panel of models and a judge that synthesizes one answer better than any single model; `auto` fuses hard prompts and routes easy ones. Log-driven smart routing learns the best model per query from your own usage.
+- **Built for multi-LLM workflows.** Cross-LLM shared memory (FTS5), cost-aware council mode, side-by-side compare, LLM-as-judge — first-class capabilities, not bolt-ons.
+- **Multi-tenant from day one.** API-key issuance, per-tenant budgets, and quota tracking are built in (the wizard provisions the first admin today).
 
 ## Quickstart (5 minutes)
 
@@ -73,13 +76,18 @@ Claude Code / OpenAI SDK / curl
    │  ─ shared memory   │
    └────────┬───────────┘
             │
-   ┌────────┴───────────┐
-   │  15 backends       │
-   │  Ollama / LM Studio│
-   │  OpenAI / Anthropic│
-   │  Gemini / Groq …   │
-   └────────────────────┘
+   ┌────────┴────────────────────┐
+   │  18 backends                │
+   │  Ollama / LM Studio         │
+   │  Codex / Gemini / Antigravity (CLI agents) │
+   │  OpenAI / Anthropic / Gemini / Groq … │
+   │  OCI Generative AI          │
+   └─────────────────────────────┘
 ```
+
+`routing` (`router.py`), `fusion` (`fusion.py`), `cost_forecast`, `budgets`, and
+`failover` sit on the routing path; a stale-while-revalidate cache keeps the
+dashboard instant.
 
 Data lives in `MULTILLM_HOME` (defaults to `~/.multillm/` or the compose-mounted `./.multillm/`): SQLite tracking, FTS5 shared memory, automatic pre-migration backups. For production deployment recipes (Docker Compose, systemd, Kubernetes) see [docs/operations/deployment.md](docs/operations/deployment.md).
 
@@ -91,6 +99,7 @@ Data lives in `MULTILLM_HOME` (defaults to `~/.multillm/` or the compose-mounted
 | LM Studio     | Local      | —              | ✓ (SSE)   |
 | Codex CLI     | Local      | Local CLI      | ✓         |
 | Gemini CLI    | Local      | Local CLI      | ✓         |
+| Antigravity (`agy`) | Local CLI | Local CLI (Gemini 3.x / Claude 4.6 / GPT-OSS) | — (JSON) |
 | OpenAI        | Cloud      | API key        | ✓ (SSE)   |
 | Anthropic     | Cloud      | API key        | ✓ (SSE)   |
 | Gemini        | Cloud      | API key        | ✓ (SSE)   |
@@ -143,7 +152,13 @@ Open `http://localhost:8080/dashboard` once setup is complete. Real-time usage, 
 
 | Method     | Endpoint                    | Description                              |
 | ---------- | --------------------------- | ---------------------------------------- |
-| POST       | `/v1/messages`              | Anthropic Messages API proxy             |
+| POST       | `/v1/messages`              | Anthropic Messages API proxy (`fusion`/`auto` slugs work here) |
+| POST       | `/api/fusion`               | Panel → judge → synthesized answer (full breakdown) |
+| POST       | `/api/council`              | Parallel multi-model, cost-aware         |
+| POST       | `/api/cost/estimate`        | Pre-flight cost per model                |
+| GET        | `/api/cost/forecast`        | Burn-rate, spend projection, quota ETA   |
+| GET / PUT  | `/api/budgets`              | Budget caps, alerts, enforcement         |
+| GET        | `/api/routing/decision`     | Which model the router would pick + why  |
 | GET        | `/health`                   | Liveness check                           |
 | GET        | `/api/health`               | Per-backend health + breaker state       |
 | GET        | `/api/dashboard`            | Stats JSON                               |
@@ -160,7 +175,7 @@ pip install -e ".[test]"
 pytest tests/ -q
 ```
 
-Coverage gate is 80% (enforced in CI).
+Coverage gate is 70% (enforced in CI), plus ruff format/check and secret scans.
 
 ## Contributing
 

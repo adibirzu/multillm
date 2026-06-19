@@ -311,8 +311,8 @@ _DEFAULT_SETTINGS = {
     # on demand before falling back to it.
     "local_autostart": True,
     "auto_orchestration_enabled": True,
-    "auto_second_opinion_model": "codex/gpt-5-4",
-    "auto_council_models": ["ollama/qwen3-30b", "codex/gpt-5-4", "gemini/flash"],
+    "auto_second_opinion_model": "codex/gpt-5-5",
+    "auto_council_models": ["ollama/qwen3-30b", "codex/gpt-5-5", "gemini/flash"],
     "auto_share_context": True,
     "usage_limits": {
         "claude_opus": 35_000_000,
