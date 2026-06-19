@@ -1,0 +1,34 @@
+#cloud-config
+# Stand up Ollama on an OCI compute instance for the MultiLLM gateway.
+#
+# Installs Ollama, exposes it on 0.0.0.0:11434 (lock down with an NSG/security
+# list so only the gateway host can reach it), and pre-pulls a default model.
+# Works on Oracle Linux / Ubuntu. For GPU shapes, attach the NVIDIA driver
+# (Oracle Linux GPU images ship it) so Ollama uses CUDA automatically.
+
+write_files:
+  - path: /etc/systemd/system/ollama.service.d/override.conf
+    permissions: "0644"
+    content: |
+      [Service]
+      # Listen on all interfaces so the gateway can reach it (restrict at the
+      # network layer: OCI NSG/security list allowing only the gateway's IP).
+      Environment=OLLAMA_HOST=0.0.0.0:11434
+      Environment=OLLAMA_KEEP_ALIVE=30m
+
+runcmd:
+  # 1. Install Ollama (official script; detects GPU and installs CUDA runtime).
+  - curl -fsSL https://ollama.com/install.sh | sh
+  # 2. Apply the systemd override (bind address) and start.
+  - systemctl daemon-reload
+  - systemctl enable --now ollama
+  # 3. Open the host firewall for the gateway (OCI security list/NSG still
+  #    governs ingress — keep 11434 closed to the public internet).
+  - (firewall-cmd --permanent --add-port=11434/tcp && firewall-cmd --reload) || true
+  - (ufw allow 11434/tcp) || true
+  # 4. Pre-pull default models (edit to taste). Small first so it's usable fast.
+  - sleep 5
+  - ollama pull llama3.2:3b || true
+  - ollama pull qwen2.5:14b || true
+
+final_message: "Ollama ready on 11434 after $UPTIME. Restrict ingress to the gateway IP via OCI NSG/security list."
