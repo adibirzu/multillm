@@ -142,6 +142,7 @@ from . import budgets
 from . import fusion
 from . import complexity
 from . import router as query_router
+from . import result_cache
 from .stats_cache import ttl_cache
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
@@ -2172,6 +2173,16 @@ async def council_api(body: dict | None = None):
         expected_output_tokens=max_tokens,
     )
 
+    # Serve an identical repeat from the result cache (skip re-querying the panel).
+    cache_enabled, cache_ttl = _cache_enabled()
+    cache_key = result_cache.make_key(
+        kind="council", prompt=prompt, models=models, judge=None, max_tokens=max_tokens
+    )
+    if cache_enabled:
+        cached = result_cache.get(cache_key)
+        if cached is not None:
+            return {**cached, "cached": True}
+
     # Query all models concurrently; one failure does not sink the rest.
     responses = await asyncio.gather(
         *[_council_query_one(m, prompt, max_tokens, temperature) for m in models]
@@ -2179,7 +2190,7 @@ async def council_api(body: dict | None = None):
 
     succeeded = [r for r in responses if not r.get("error")]
     total_actual = round(sum(r["actualCostUSD"] for r in succeeded), 6)
-    return {
+    result = {
         "prompt": prompt,
         "models": models,
         "preflightEstimate": estimate,
@@ -2193,6 +2204,10 @@ async def council_api(body: dict | None = None):
             "modelsSucceeded": len(succeeded),
         },
     }
+    # Cache only when at least one model answered (don't cache total failures).
+    if cache_enabled and succeeded:
+        result_cache.set(cache_key, result, cache_ttl)
+    return result
 
 
 async def _fusion_query_fn(
@@ -2240,11 +2255,34 @@ def _resolve_fusion_config(body: dict) -> tuple[list, str, int, float]:
     return panel, judge, max_tokens, temperature
 
 
+def _cache_enabled() -> tuple[bool, float]:
+    """(enabled, ttl) for the council/fusion result cache, from settings."""
+    from .memory import get_setting
+
+    enabled = bool(get_setting("council_fusion_cache_enabled", True))
+    ttl = float(get_setting("council_fusion_cache_ttl", result_cache.DEFAULT_TTL_SECONDS))
+    return enabled, ttl
+
+
 async def _run_fusion(body: dict) -> dict:
-    """Run the fusion pipeline for a request body and return the full result."""
+    """Run the fusion pipeline for a request body and return the full result.
+
+    Identical repeat requests are served from the result cache (exact prompt +
+    panel + judge), avoiding a full re-query of the panel.
+    """
     prompt = extract_text_from_anthropic(body)
     panel, judge, max_tokens, temperature = _resolve_fusion_config(body)
-    return await fusion.run_fusion(
+
+    enabled, ttl = _cache_enabled()
+    key = result_cache.make_key(
+        kind="fusion", prompt=prompt, models=panel, judge=judge, max_tokens=max_tokens
+    )
+    if enabled:
+        cached = result_cache.get(key)
+        if cached is not None:
+            return {**cached, "cached": True}
+
+    result = await fusion.run_fusion(
         prompt=prompt,
         panel=panel,
         judge=judge,
@@ -2252,6 +2290,10 @@ async def _run_fusion(body: dict) -> dict:
         max_tokens=max_tokens,
         temperature=temperature,
     )
+    # Only cache real syntheses, not degraded/no-panel outcomes.
+    if enabled and result.get("status") in ("fused", "single"):
+        result_cache.set(key, result, ttl)
+    return result
 
 
 def _fusion_usage(result: dict) -> tuple[int, int]:
