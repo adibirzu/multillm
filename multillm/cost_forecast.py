@@ -86,7 +86,9 @@ def build_cost_forecast(
     """
     window_hours = max(1.0, float(window_hours))
     window_days = window_hours / 24.0
-    sources = {s.get("source"): s for s in (unified.get("sources") or []) if s.get("source")}
+    sources = {
+        s.get("source"): s for s in (unified.get("sources") or []) if s.get("source")
+    }
 
     # --- Gateway live burn-rate (proxied requests only) ---
     g1 = gw_recent_1h.get("totals", {}) or {}

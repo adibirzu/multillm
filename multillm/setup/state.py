@@ -97,9 +97,7 @@ def get_state(conn: sqlite3.Connection) -> SetupState:
     return SetupState.PENDING
 
 
-def _upsert_pane(
-    conn: sqlite3.Connection, pane: str, payload: dict[str, Any]
-) -> None:
+def _upsert_pane(conn: sqlite3.Connection, pane: str, payload: dict[str, Any]) -> None:
     """Insert or update a row in ``setup_state``."""
     conn.execute(
         """
@@ -129,9 +127,7 @@ def _upsert_admin_user(
     )
 
 
-def advance(
-    conn: sqlite3.Connection, pane: str, payload: dict[str, Any]
-) -> None:
+def advance(conn: sqlite3.Connection, pane: str, payload: dict[str, Any]) -> None:
     """Persist a wizard pane's payload and (for ``admin``) the admin user.
 
     Args:
@@ -144,9 +140,7 @@ def advance(
         ValueError: if ``pane`` is not recognised.
     """
     if pane not in _VALID_PANES:
-        raise ValueError(
-            f"unknown pane {pane!r}; expected one of {_VALID_PANES}"
-        )
+        raise ValueError(f"unknown pane {pane!r}; expected one of {_VALID_PANES}")
 
     _upsert_pane(conn, pane, payload)
 

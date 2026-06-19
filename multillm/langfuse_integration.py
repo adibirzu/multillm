@@ -18,7 +18,10 @@ import logging
 from typing import Optional
 
 from .config import (
-    LANGFUSE_ENABLED, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST,
+    LANGFUSE_ENABLED,
+    LANGFUSE_PUBLIC_KEY,
+    LANGFUSE_SECRET_KEY,
+    LANGFUSE_HOST,
 )
 
 log = logging.getLogger("multillm.langfuse")
@@ -35,7 +38,9 @@ def init_langfuse() -> bool:
         return False
 
     if not LANGFUSE_PUBLIC_KEY or not LANGFUSE_SECRET_KEY:
-        log.warning("Langfuse enabled but missing keys (LANGFUSE_PUBLIC_KEY/SECRET_KEY)")
+        log.warning(
+            "Langfuse enabled but missing keys (LANGFUSE_PUBLIC_KEY/SECRET_KEY)"
+        )
         return False
 
     try:
@@ -72,12 +77,21 @@ def shutdown_langfuse() -> None:
 
 # Backend → provider display name
 _PROVIDER_MAP = {
-    "ollama": "ollama", "lmstudio": "lmstudio", "openai": "openai",
-    "anthropic": "anthropic", "openrouter": "openrouter", "gemini": "google",
-    "groq": "groq", "deepseek": "deepseek", "mistral": "mistral",
-    "together": "together", "xai": "xai", "fireworks": "fireworks",
+    "ollama": "ollama",
+    "lmstudio": "lmstudio",
+    "openai": "openai",
+    "anthropic": "anthropic",
+    "openrouter": "openrouter",
+    "gemini": "google",
+    "groq": "groq",
+    "deepseek": "deepseek",
+    "mistral": "mistral",
+    "together": "together",
+    "xai": "xai",
+    "fireworks": "fireworks",
     "azure_openai": "azure-openai",
-    "bedrock": "aws-bedrock", "codex_cli": "openai-codex",
+    "bedrock": "aws-bedrock",
+    "codex_cli": "openai-codex",
     "gemini_cli": "google-gemini",
 }
 

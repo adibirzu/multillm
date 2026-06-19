@@ -20,4 +20,6 @@ class LMStudioAdapter(BaseAdapter):
         return openai_response_to_anthropic(oai, model_alias)
 
     async def stream(self, body: dict, model: str, model_alias: str):
-        return await stream_openai_compat(LMSTUDIO_URL, "", body, model, model_alias, backend="lmstudio")
+        return await stream_openai_compat(
+            LMSTUDIO_URL, "", body, model, model_alias, backend="lmstudio"
+        )

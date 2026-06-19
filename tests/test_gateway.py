@@ -2,6 +2,7 @@
 # Copyright 2026 MultiLLM contributors
 
 """Tests for the gateway HTTP endpoints."""
+
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -15,7 +16,6 @@ client = TestClient(app)
 
 
 class TestHealthEndpoint:
-
     def test_health_returns_ok(self):
         response = client.get("/health")
         assert response.status_code == 200
@@ -27,12 +27,21 @@ class TestHealthEndpoint:
     def test_health_shows_all_backends(self):
         response = client.get("/health")
         backends = response.json()["backends"]
-        expected = {"ollama", "lmstudio", "gemini", "openai", "anthropic", "openrouter", "codex_cli", "gemini_cli", "oci_genai"}
+        expected = {
+            "ollama",
+            "lmstudio",
+            "gemini",
+            "openai",
+            "anthropic",
+            "openrouter",
+            "codex_cli",
+            "gemini_cli",
+            "oci_genai",
+        }
         assert expected == set(backends.keys())
 
 
 class TestRoutesEndpoint:
-
     def test_routes_returns_dict(self):
         response = client.get("/routes")
         assert response.status_code == 200
@@ -49,9 +58,10 @@ class TestRoutesEndpoint:
 
 
 class TestBackendsEndpoint:
-
     @patch("multillm.gateway.discover_all_models", new_callable=AsyncMock)
-    def test_backends_marks_cached_catalog_as_not_runnable_without_key(self, mock_discover):
+    def test_backends_marks_cached_catalog_as_not_runnable_without_key(
+        self, mock_discover
+    ):
         mock_discover.return_value = {
             "openrouter": [
                 {
@@ -79,7 +89,6 @@ class TestBackendsEndpoint:
 
 
 class TestModelsEndpoint:
-
     def test_list_models(self):
         response = client.get("/v1/models")
         assert response.status_code == 200
@@ -95,7 +104,6 @@ class TestModelsEndpoint:
 
 
 class TestUsageEndpoint:
-
     def test_usage_returns_data(self):
         response = client.get("/usage")
         assert response.status_code == 200
@@ -109,7 +117,6 @@ class TestUsageEndpoint:
 
 
 class TestDashboardEndpoints:
-
     def test_root_redirects_to_dashboard(self):
         response = client.get("/", follow_redirects=False)
         assert response.status_code == 307
@@ -158,7 +165,6 @@ class TestDashboardEndpoints:
 
 
 class TestSettingsEndpoints:
-
     def test_get_settings(self):
         response = client.get("/settings")
         assert response.status_code == 200
@@ -175,7 +181,6 @@ class TestSettingsEndpoints:
 
 
 class TestMessagesEndpoint:
-
     @patch("multillm.adapters.ollama.OllamaAdapter.send", new_callable=AsyncMock)
     def test_non_streaming_request(self, mock_ollama):
         # Plan 02a-01 Task 5: ollama dispatches via the adapter registry, so
@@ -184,22 +189,28 @@ class TestMessagesEndpoint:
         mock_response = make_anthropic_response("Hello!", "ollama/llama3", 10, 5)
         mock_ollama.return_value = mock_response
 
-        response = client.post("/v1/messages", json={
-            "model": "ollama/llama3",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 100,
-        })
+        response = client.post(
+            "/v1/messages",
+            json={
+                "model": "ollama/llama3",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            },
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["type"] == "message"
         assert data["content"][0]["text"] == "Hello!"
 
     def test_unknown_model_returns_error(self):
-        response = client.post("/v1/messages", json={
-            "model": "nonexistent/model",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 100,
-        })
+        response = client.post(
+            "/v1/messages",
+            json={
+                "model": "nonexistent/model",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            },
+        )
         assert response.status_code == 400
 
     @patch("multillm.adapters.anthropic.AnthropicAdapter.send", new_callable=AsyncMock)
@@ -208,14 +219,19 @@ class TestMessagesEndpoint:
         # dispatches through the anthropic adapter, so the mock target is
         # AnthropicAdapter.send rather than the retired _call_anthropic_real
         # inline helper.
-        mock_response = make_anthropic_response("Hi from Claude", "claude-sonnet-4-6", 10, 5)
+        mock_response = make_anthropic_response(
+            "Hi from Claude", "claude-sonnet-4-6", 10, 5
+        )
         mock_send.return_value = mock_response
 
-        response = client.post("/v1/messages", json={
-            "model": "claude-sonnet-4-6",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 100,
-        })
+        response = client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            },
+        )
         assert response.status_code == 200
         assert response.json()["content"][0]["text"] == "Hi from Claude"
 
@@ -223,11 +239,14 @@ class TestMessagesEndpoint:
     def test_codex_cli_route_uses_adapter_resolution(self, mock_send):
         mock_send.return_value = make_anthropic_response("OK", "codex/gpt-5-4", 4, 1)
 
-        response = client.post("/v1/messages", json={
-            "model": "codex/gpt-5-4",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 32,
-        })
+        response = client.post(
+            "/v1/messages",
+            json={
+                "model": "codex/gpt-5-4",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 32,
+            },
+        )
 
         assert response.status_code == 200
         assert response.json()["content"][0]["text"] == "OK"
@@ -237,13 +256,18 @@ class TestMessagesEndpoint:
 
     @patch("multillm.adapters.gemini_cli.GeminiCLIAdapter.send", new_callable=AsyncMock)
     def test_gemini_cli_route_uses_adapter_resolution(self, mock_send):
-        mock_send.return_value = make_anthropic_response("OK", "gemini-cli/default", 4, 1)
+        mock_send.return_value = make_anthropic_response(
+            "OK", "gemini-cli/default", 4, 1
+        )
 
-        response = client.post("/v1/messages", json={
-            "model": "gemini-cli/default",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 32,
-        })
+        response = client.post(
+            "/v1/messages",
+            json={
+                "model": "gemini-cli/default",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 32,
+            },
+        )
 
         assert response.status_code == 200
         assert response.json()["content"][0]["text"] == "OK"
@@ -256,48 +280,69 @@ class TestMessagesEndpoint:
         mock_response = make_anthropic_response("Yes!", "ollama/llama3", 10, 5)
         mock_ollama.return_value = mock_response
 
-        response = client.post("/v1/messages", json={
-            "model": "ollama/llama3",
-            "system": "You are a helpful assistant.",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 100,
-        })
+        response = client.post(
+            "/v1/messages",
+            json={
+                "model": "ollama/llama3",
+                "system": "You are a helpful assistant.",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            },
+        )
         assert response.status_code == 200
 
     @patch("multillm.adapters.ollama.OllamaAdapter.send", new_callable=AsyncMock)
     def test_request_with_tools(self, mock_ollama):
         mock_response = make_anthropic_response(
-            "", "ollama/llama3",
+            "",
+            "ollama/llama3",
             content_blocks=[
-                {"type": "tool_use", "id": "t1", "name": "get_weather", "input": {"location": "London"}},
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "get_weather",
+                    "input": {"location": "London"},
+                },
             ],
             stop_reason="tool_use",
         )
         mock_ollama.return_value = mock_response
 
-        response = client.post("/v1/messages", json={
-            "model": "ollama/llama3",
-            "messages": [{"role": "user", "content": "Weather?"}],
-            "tools": [{
-                "name": "get_weather",
-                "description": "Get weather",
-                "input_schema": {"type": "object", "properties": {"location": {"type": "string"}}},
-            }],
-            "max_tokens": 100,
-        })
+        response = client.post(
+            "/v1/messages",
+            json={
+                "model": "ollama/llama3",
+                "messages": [{"role": "user", "content": "Weather?"}],
+                "tools": [
+                    {
+                        "name": "get_weather",
+                        "description": "Get weather",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"location": {"type": "string"}},
+                        },
+                    }
+                ],
+                "max_tokens": 100,
+            },
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["stop_reason"] == "tool_use"
 
     def test_streaming_request_returns_event_stream(self):
         async def fake_stream():
-            yield b"event: message_start\ndata: {\"type\":\"message_start\"}\n\n"
-            yield b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+            yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
 
         with (
             patch(
                 "multillm.gateway.route_streaming",
-                new=AsyncMock(return_value=StreamingResponse(fake_stream(), media_type="text/event-stream")),
+                new=AsyncMock(
+                    return_value=StreamingResponse(
+                        fake_stream(), media_type="text/event-stream"
+                    )
+                ),
             ),
             patch(
                 "multillm.gateway.StreamTokenCounter",
@@ -305,12 +350,15 @@ class TestMessagesEndpoint:
             ),
             patch("multillm.gateway.count_tokens", return_value=12),
         ):
-            response = client.post("/v1/messages", json={
-                "model": "ollama/llama3",
-                "messages": [{"role": "user", "content": "Hi"}],
-                "max_tokens": 100,
-                "stream": True,
-            })
+            response = client.post(
+                "/v1/messages",
+                json={
+                    "model": "ollama/llama3",
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 100,
+                    "stream": True,
+                },
+            )
 
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
@@ -318,9 +366,9 @@ class TestMessagesEndpoint:
 
 
 class TestMemorySearchEndpoint:
-
     def test_memory_search(self):
         from multillm.memory import store_memory, delete_memory
+
         mem_id = store_memory(title="Gateway Test", content="test content for gateway")
 
         response = client.get("/memory/search?q=gateway+test")
@@ -330,7 +378,6 @@ class TestMemorySearchEndpoint:
 
 
 class TestObservabilityEndpoints:
-
     @patch("multillm.gateway.get_langfuse_status")
     def test_otel_endpoint_includes_langfuse_status(self, mock_langfuse_status):
         mock_langfuse_status.return_value = {
@@ -348,7 +395,11 @@ class TestObservabilityEndpoints:
 
     @patch("multillm.gateway.get_gemini_stats")
     def test_gemini_stats_endpoint(self, mock_gemini_stats):
-        mock_gemini_stats.return_value = {"available": True, "totalSessions": 2, "totalTokens": 1000}
+        mock_gemini_stats.return_value = {
+            "available": True,
+            "totalSessions": 2,
+            "totalTokens": 1000,
+        }
 
         response = client.get("/api/gemini-stats?hours=24")
         assert response.status_code == 200
@@ -356,7 +407,11 @@ class TestObservabilityEndpoints:
 
     @patch("multillm.gateway.get_gemini_stats")
     def test_gemini_stats_endpoint_forwards_project_filter(self, mock_gemini_stats):
-        mock_gemini_stats.return_value = {"available": True, "totalSessions": 2, "totalTokens": 1000}
+        mock_gemini_stats.return_value = {
+            "available": True,
+            "totalSessions": 2,
+            "totalTokens": 1000,
+        }
 
         response = client.get("/api/gemini-stats?hours=24&project=testproject")
         assert response.status_code == 200
@@ -364,7 +419,11 @@ class TestObservabilityEndpoints:
 
     @patch("multillm.gateway.get_codex_stats")
     def test_codex_stats_endpoint(self, mock_codex_stats):
-        mock_codex_stats.return_value = {"available": True, "totalSessions": 2, "totalTokens": 1000}
+        mock_codex_stats.return_value = {
+            "available": True,
+            "totalSessions": 2,
+            "totalTokens": 1000,
+        }
 
         response = client.get("/api/codex-stats?hours=24")
         assert response.status_code == 200
@@ -372,7 +431,11 @@ class TestObservabilityEndpoints:
 
     @patch("multillm.gateway.get_codex_stats")
     def test_codex_stats_endpoint_forwards_project_filter(self, mock_codex_stats):
-        mock_codex_stats.return_value = {"available": True, "totalSessions": 2, "totalTokens": 1000}
+        mock_codex_stats.return_value = {
+            "available": True,
+            "totalSessions": 2,
+            "totalTokens": 1000,
+        }
 
         response = client.get("/api/codex-stats?hours=24&project=testproject")
         assert response.status_code == 200
@@ -380,7 +443,12 @@ class TestObservabilityEndpoints:
 
     @patch("multillm.gateway.get_claude_code_stats")
     def test_claude_stats_endpoint_forwards_filters(self, mock_claude_stats):
-        mock_claude_stats.return_value = {"available": True, "totalSessions": 1, "totalMessages": 2, "modelUsage": {}}
+        mock_claude_stats.return_value = {
+            "available": True,
+            "totalSessions": 1,
+            "totalMessages": 2,
+            "modelUsage": {},
+        }
 
         response = client.get("/api/claude-stats?hours=24&project=testproject")
         assert response.status_code == 200
@@ -438,11 +506,18 @@ class TestObservabilityEndpoints:
             "daily": [],
         }
 
-        mock_codex_stats.return_value["sessions"] = [{"id": "codex-1"}, {"id": "codex-2"}]
-        mock_gemini_stats.return_value["sessions"] = [{"id": "gemini-1"}, {"id": "gemini-2"}]
+        mock_codex_stats.return_value["sessions"] = [
+            {"id": "codex-1"},
+            {"id": "codex-2"},
+        ]
+        mock_gemini_stats.return_value["sessions"] = [
+            {"id": "gemini-1"},
+            {"id": "gemini-2"},
+        ]
 
         # Ensure the SWR cache does not short-circuit the compute under test.
         from multillm import bundle_cache
+
         bundle_cache.cache_clear()
 
         response = client.get(
@@ -487,7 +562,11 @@ class TestObservabilityEndpoints:
         mock_gemini_stats,
     ):
         mock_sessions.return_value = []
-        mock_dashboard_stats.return_value = {"totals": {}, "session_count": 0, "by_model": []}
+        mock_dashboard_stats.return_value = {
+            "totals": {},
+            "session_count": 0,
+            "by_model": [],
+        }
         mock_claude_stats.return_value = {"available": False}
         mock_codex_stats.return_value = {"available": False}
         mock_gemini_stats.return_value = {"available": False}
@@ -577,7 +656,9 @@ class TestObservabilityEndpoints:
         assert "gemini_cli" in limit_ids
         assert "codex_cli_external" in limit_ids
         assert "modelItems" in data["limits"]
-        claude_source = next(item for item in data["sources"] if item["source"] == "claude_code")
+        claude_source = next(
+            item for item in data["sources"] if item["source"] == "claude_code"
+        )
         assert claude_source["tokens"] == 1500
 
 
@@ -587,7 +668,10 @@ class TestFusionSlug:
     def _routes(self):
         return {
             "codex/gpt-5-4": {"backend": "codex_cli", "model": "codex:gpt-5-4"},
-            "gemini-cli/pro": {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-pro"},
+            "gemini-cli/pro": {
+                "backend": "gemini_cli",
+                "model": "gemini-cli:gemini-2.5-pro",
+            },
             "ollama/llama3": {"backend": "ollama", "model": "llama3"},
         }
 
@@ -595,69 +679,114 @@ class TestFusionSlug:
         async def fake(body, model_alias=None, route=None):
             m = body["model"]
             if m.startswith("codex"):  # judge produces analysis + final answer
-                return {"content": [{"type": "text",
-                        "text": f"Consensus: ok\n{__import__('multillm.fusion', fromlist=['FINAL_ANSWER_MARKER']).FINAL_ANSWER_MARKER}\nFused final answer."}],
-                        "usage": {"input_tokens": 30, "output_tokens": 12}}
-            return {"content": [{"type": "text", "text": f"panel answer from {m}"}],
-                    "usage": {"input_tokens": 8, "output_tokens": 9}}
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Consensus: ok\n{__import__('multillm.fusion', fromlist=['FINAL_ANSWER_MARKER']).FINAL_ANSWER_MARKER}\nFused final answer.",
+                        }
+                    ],
+                    "usage": {"input_tokens": 30, "output_tokens": 12},
+                }
+            return {
+                "content": [{"type": "text", "text": f"panel answer from {m}"}],
+                "usage": {"input_tokens": 8, "output_tokens": 9},
+            }
+
         return fake
 
     def test_fusion_slug_returns_single_synthesized_answer(self):
         with (
             patch.dict("multillm.gateway.ROUTES", self._routes(), clear=True),
-            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=self._fake_route_request())),
-            patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
-                "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
-                "fusion_judge": "codex/gpt-5-4",
-            }.get(k, d)),
+            patch(
+                "multillm.gateway.route_request",
+                new=AsyncMock(side_effect=self._fake_route_request()),
+            ),
+            patch(
+                "multillm.memory.get_setting",
+                side_effect=lambda k, d=None: {
+                    "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
+                    "fusion_judge": "codex/gpt-5-4",
+                }.get(k, d),
+            ),
         ):
-            r = client.post("/v1/messages", json={
-                "model": "fusion",
-                "messages": [{"role": "user", "content": "Compare REST vs gRPC and recommend one."}],
-                "max_tokens": 100,
-            })
+            r = client.post(
+                "/v1/messages",
+                json={
+                    "model": "fusion",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "Compare REST vs gRPC and recommend one.",
+                        }
+                    ],
+                    "max_tokens": 100,
+                },
+            )
         assert r.status_code == 200
         data = r.json()
         assert data["content"][0]["text"] == "Fused final answer."
         assert data["model"] == "fusion"
 
     def test_auto_slug_escalates_complex_prompt_to_fusion(self):
-        complex_prompt = ("Analyze and compare the trade-offs between REST and gRPC for our "
-                          "gateway. Why does one win under concurrency? Recommend and design a plan.")
+        complex_prompt = (
+            "Analyze and compare the trade-offs between REST and gRPC for our "
+            "gateway. Why does one win under concurrency? Recommend and design a plan."
+        )
         with (
             patch.dict("multillm.gateway.ROUTES", self._routes(), clear=True),
-            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=self._fake_route_request())),
-            patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
-                "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
-                "fusion_judge": "codex/gpt-5-4",
-                "fusion_auto_threshold": 0.5,
-            }.get(k, d)),
+            patch(
+                "multillm.gateway.route_request",
+                new=AsyncMock(side_effect=self._fake_route_request()),
+            ),
+            patch(
+                "multillm.memory.get_setting",
+                side_effect=lambda k, d=None: {
+                    "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
+                    "fusion_judge": "codex/gpt-5-4",
+                    "fusion_auto_threshold": 0.5,
+                }.get(k, d),
+            ),
         ):
-            r = client.post("/v1/messages", json={
-                "model": "auto",
-                "messages": [{"role": "user", "content": complex_prompt}],
-                "max_tokens": 100,
-            })
+            r = client.post(
+                "/v1/messages",
+                json={
+                    "model": "auto",
+                    "messages": [{"role": "user", "content": complex_prompt}],
+                    "max_tokens": 100,
+                },
+            )
         assert r.status_code == 200
         assert r.json()["content"][0]["text"] == "Fused final answer."
 
     def test_auto_slug_routes_simple_prompt_to_single_model(self):
         async def fake(body, model_alias=None, route=None):
-            return {"content": [{"type": "text", "text": "Paris."}],
-                    "usage": {"input_tokens": 4, "output_tokens": 2}}
+            return {
+                "content": [{"type": "text", "text": "Paris."}],
+                "usage": {"input_tokens": 4, "output_tokens": 2},
+            }
+
         with (
             patch.dict("multillm.gateway.ROUTES", self._routes(), clear=True),
             patch("multillm.gateway.route_request", new=AsyncMock(side_effect=fake)),
-            patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
-                "fusion_judge": "codex/gpt-5-4",
-                "fusion_auto_threshold": 0.6,
-            }.get(k, d)),
+            patch(
+                "multillm.memory.get_setting",
+                side_effect=lambda k, d=None: {
+                    "fusion_judge": "codex/gpt-5-4",
+                    "fusion_auto_threshold": 0.6,
+                }.get(k, d),
+            ),
         ):
-            r = client.post("/v1/messages", json={
-                "model": "auto",
-                "messages": [{"role": "user", "content": "What is the capital of France?"}],
-                "max_tokens": 50,
-            })
+            r = client.post(
+                "/v1/messages",
+                json={
+                    "model": "auto",
+                    "messages": [
+                        {"role": "user", "content": "What is the capital of France?"}
+                    ],
+                    "max_tokens": 50,
+                },
+            )
         assert r.status_code == 200
         # easy prompt → single model, plain answer (not the fused marker text)
         assert r.json()["content"][0]["text"] == "Paris."
@@ -665,13 +794,22 @@ class TestFusionSlug:
     def test_fusion_api_endpoint_returns_full_result(self):
         with (
             patch.dict("multillm.gateway.ROUTES", self._routes(), clear=True),
-            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=self._fake_route_request())),
-            patch("multillm.memory.get_setting", side_effect=lambda k, d=None: {
-                "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
-                "fusion_judge": "codex/gpt-5-4",
-            }.get(k, d)),
+            patch(
+                "multillm.gateway.route_request",
+                new=AsyncMock(side_effect=self._fake_route_request()),
+            ),
+            patch(
+                "multillm.memory.get_setting",
+                side_effect=lambda k, d=None: {
+                    "fusion_panel": ["gemini-cli/pro", "ollama/llama3"],
+                    "fusion_judge": "codex/gpt-5-4",
+                }.get(k, d),
+            ),
         ):
-            r = client.post("/api/fusion", json={"prompt": "Compare REST vs gRPC.", "max_tokens": 100})
+            r = client.post(
+                "/api/fusion",
+                json={"prompt": "Compare REST vs gRPC.", "max_tokens": 100},
+            )
         assert r.status_code == 200
         data = r.json()
         assert data["status"] == "fused"
@@ -699,13 +837,19 @@ class TestCouncilEndpoint:
 
         with (
             patch.dict("multillm.gateway.ROUTES", routes, clear=True),
-            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=fake_route_request)),
+            patch(
+                "multillm.gateway.route_request",
+                new=AsyncMock(side_effect=fake_route_request),
+            ),
         ):
-            response = client.post("/api/council", json={
-                "prompt": "Compare REST vs gRPC for our gateway.",
-                "models": ["ollama/llama3", "openai/gpt-4o"],
-                "max_tokens": 100,
-            })
+            response = client.post(
+                "/api/council",
+                json={
+                    "prompt": "Compare REST vs gRPC for our gateway.",
+                    "models": ["ollama/llama3", "openai/gpt-4o"],
+                    "max_tokens": 100,
+                },
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -729,16 +873,26 @@ class TestCouncilEndpoint:
         async def fake_route_request(body, model_alias=None, route=None):
             if body["model"].startswith("openai"):
                 raise RuntimeError("backend exploded")
-            return {"content": [{"type": "text", "text": "ok"}],
-                    "usage": {"input_tokens": 1, "output_tokens": 1}}
+            return {
+                "content": [{"type": "text", "text": "ok"}],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
 
         with (
             patch.dict("multillm.gateway.ROUTES", routes, clear=True),
-            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=fake_route_request)),
+            patch(
+                "multillm.gateway.route_request",
+                new=AsyncMock(side_effect=fake_route_request),
+            ),
         ):
-            response = client.post("/api/council", json={
-                "prompt": "hi", "models": ["ollama/llama3", "openai/gpt-4o"], "max_tokens": 10,
-            })
+            response = client.post(
+                "/api/council",
+                json={
+                    "prompt": "hi",
+                    "models": ["ollama/llama3", "openai/gpt-4o"],
+                    "max_tokens": 10,
+                },
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -762,11 +916,11 @@ class TestQuotaAwareFailover:
                 "local_autostart": False,
                 "local_first": False,
             }.get(key, default)
+
         return _get_setting
 
     def test_quota_429_fails_over_to_next_chain_provider(self):
         from fastapi import HTTPException
-        from multillm import gateway
 
         routes = {
             "openai/gpt-4o": {"backend": "openai", "model": "gpt-4o"},
@@ -783,15 +937,27 @@ class TestQuotaAwareFailover:
 
         with (
             patch.dict("multillm.gateway.ROUTES", routes, clear=True),
-            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=fake_route_request)),
-            patch("multillm.memory.get_setting", side_effect=self._settings(["anthropic/sonnet"])),
-            patch("multillm.gateway.ensure_any_local_backend", new=AsyncMock(return_value=None)),
+            patch(
+                "multillm.gateway.route_request",
+                new=AsyncMock(side_effect=fake_route_request),
+            ),
+            patch(
+                "multillm.memory.get_setting",
+                side_effect=self._settings(["anthropic/sonnet"]),
+            ),
+            patch(
+                "multillm.gateway.ensure_any_local_backend",
+                new=AsyncMock(return_value=None),
+            ),
         ):
-            response = client.post("/v1/messages", json={
-                "model": "openai/gpt-4o",
-                "messages": [{"role": "user", "content": "Hi"}],
-                "max_tokens": 100,
-            })
+            response = client.post(
+                "/v1/messages",
+                json={
+                    "model": "openai/gpt-4o",
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 100,
+                },
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -801,7 +967,6 @@ class TestQuotaAwareFailover:
 
     def test_400_bad_request_does_not_fail_over(self):
         from fastapi import HTTPException
-        from multillm import gateway
 
         routes = {
             "openai/gpt-4o": {"backend": "openai", "model": "gpt-4o"},
@@ -815,15 +980,27 @@ class TestQuotaAwareFailover:
 
         with (
             patch.dict("multillm.gateway.ROUTES", routes, clear=True),
-            patch("multillm.gateway.route_request", new=AsyncMock(side_effect=fake_route_request)),
-            patch("multillm.memory.get_setting", side_effect=self._settings(["anthropic/sonnet"])),
-            patch("multillm.gateway.ensure_any_local_backend", new=AsyncMock(return_value=None)),
+            patch(
+                "multillm.gateway.route_request",
+                new=AsyncMock(side_effect=fake_route_request),
+            ),
+            patch(
+                "multillm.memory.get_setting",
+                side_effect=self._settings(["anthropic/sonnet"]),
+            ),
+            patch(
+                "multillm.gateway.ensure_any_local_backend",
+                new=AsyncMock(return_value=None),
+            ),
         ):
-            response = client.post("/v1/messages", json={
-                "model": "openai/gpt-4o",
-                "messages": [{"role": "user", "content": "Hi"}],
-                "max_tokens": 100,
-            })
+            response = client.post(
+                "/v1/messages",
+                json={
+                    "model": "openai/gpt-4o",
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 100,
+                },
+            )
 
         # A 400 client error is surfaced, not failed over (only one dispatch).
         assert response.status_code == 400
@@ -835,10 +1012,12 @@ class TestInstalledAwareFallback:
 
     def _seed_discovery(self, cache):
         from multillm import discovery
+
         discovery._discovery_cache = dict(cache)
 
     def teardown_method(self):
         from multillm import discovery
+
         discovery._discovery_cache = {}
 
     def test_default_chain_skipped_when_static_model_not_installed(self):
@@ -846,28 +1025,46 @@ class TestInstalledAwareFallback:
         # chain default (ollama/qwen3-30b -> hf.co/...). Fallback must NOT return
         # the uninstalled static chain entry; it must pick the installed model.
         from multillm import gateway
-        self._seed_discovery({
-            "ollama": [
-                {"id": "ollama/phi3", "backend": "ollama", "model": "phi3:latest",
-                 "parameter_size": "3.8B"},
-            ],
-        })
+
+        self._seed_discovery(
+            {
+                "ollama": [
+                    {
+                        "id": "ollama/phi3",
+                        "backend": "ollama",
+                        "model": "phi3:latest",
+                        "parameter_size": "3.8B",
+                    },
+                ],
+            }
+        )
         with patch("multillm.gateway.is_backend_healthy", return_value=True):
             alias, route = gateway._get_fallback_model()
         assert route["backend"] == "ollama"
-        assert route["model"] == "phi3:latest"  # installed model, not the static default
+        assert (
+            route["model"] == "phi3:latest"
+        )  # installed model, not the static default
 
     def test_chain_honoured_when_static_model_is_installed(self):
         from multillm import gateway
+
         # The real model behind ollama/llama3 is "llama3" — mark it installed.
-        self._seed_discovery({
-            "ollama": [
-                {"id": "ollama/llama3", "backend": "ollama", "model": "llama3",
-                 "parameter_size": "8B"},
-            ],
-        })
-        with patch("multillm.memory.get_setting", return_value=["ollama/llama3"]), \
-             patch("multillm.gateway.is_backend_healthy", return_value=True):
+        self._seed_discovery(
+            {
+                "ollama": [
+                    {
+                        "id": "ollama/llama3",
+                        "backend": "ollama",
+                        "model": "llama3",
+                        "parameter_size": "8B",
+                    },
+                ],
+            }
+        )
+        with (
+            patch("multillm.memory.get_setting", return_value=["ollama/llama3"]),
+            patch("multillm.gateway.is_backend_healthy", return_value=True),
+        ):
             alias, route = gateway._get_fallback_model()
         assert alias == "ollama/llama3"
         assert route["model"] == "llama3"
@@ -875,6 +1072,7 @@ class TestInstalledAwareFallback:
     def test_empty_cache_falls_through_to_chain(self):
         # With no discovery data we cannot verify; trust the configured chain.
         from multillm import gateway
+
         self._seed_discovery({})
         with patch("multillm.memory.get_setting", return_value=["ollama/llama3"]):
             alias, route = gateway._get_fallback_model()

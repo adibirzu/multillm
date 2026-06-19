@@ -67,7 +67,9 @@ def assess_doctor_report(report: dict[str, Any]) -> dict[str, Any]:
     if not gateway.get("reachable"):
         issues.append("Gateway is not reachable.")
     if exposure.get("ok") is False:
-        issues.append(exposure.get("message") or "Gateway exposure configuration is unsafe.")
+        issues.append(
+            exposure.get("message") or "Gateway exposure configuration is unsafe."
+        )
     if gateway_config.get("unsafe_open_mode"):
         issues.append("Gateway is in unsafe open mode on a non-loopback interface.")
 
@@ -155,7 +157,9 @@ def format_doctor_report(report: dict[str, Any]) -> str:
 
     lines.extend(["", "--- Configured Backends ---"])
     for name in sorted(configured):
-        lines.append(f"{name}: {'configured' if configured[name] else 'not configured'}")
+        lines.append(
+            f"{name}: {'configured' if configured[name] else 'not configured'}"
+        )
 
     lines.extend(["", "--- Assessment ---"])
     lines.append("Ready: yes" if assessment.get("ready") else "Ready: no")
@@ -167,10 +171,20 @@ def format_doctor_report(report: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check MultiLLM production readiness.")
-    parser.add_argument("--gateway-url", default=None, help="Gateway base URL, default http://127.0.0.1:<GATEWAY_PORT>")
-    parser.add_argument("--timeout", type=float, default=2.0, help="Gateway request timeout in seconds")
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
-    parser.add_argument("--strict", action="store_true", help="Exit non-zero when readiness checks fail")
+    parser.add_argument(
+        "--gateway-url",
+        default=None,
+        help="Gateway base URL, default http://127.0.0.1:<GATEWAY_PORT>",
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=2.0, help="Gateway request timeout in seconds"
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    parser.add_argument(
+        "--strict", action="store_true", help="Exit non-zero when readiness checks fail"
+    )
     args = parser.parse_args(argv)
 
     report = collect_doctor_report(gateway_url=args.gateway_url, timeout=args.timeout)

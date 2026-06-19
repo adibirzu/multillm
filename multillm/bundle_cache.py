@@ -27,7 +27,6 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 from .config import DATA_DIR
@@ -59,7 +58,9 @@ _inflight: set[str] = set()
 _lock = asyncio.Lock()
 
 
-def make_key(*, hours: int, project: Optional[str], session_limit: int, direct_session_limit: int) -> str:
+def make_key(
+    *, hours: int, project: Optional[str], session_limit: int, direct_session_limit: int
+) -> str:
     """Stable cache key for one bundle parameter set."""
     return f"h={hours}|p={project or ''}|s={session_limit}|d={direct_session_limit}"
 
@@ -111,7 +112,11 @@ def warm_load() -> int:
         except Exception:
             continue
     if loaded:
-        log.info("bundle cache: warm-loaded %d entr%s from disk", loaded, "y" if loaded == 1 else "ies")
+        log.info(
+            "bundle cache: warm-loaded %d entr%s from disk",
+            loaded,
+            "y" if loaded == 1 else "ies",
+        )
     return loaded
 
 
@@ -125,7 +130,9 @@ def _persist(snapshot: Optional[dict] = None) -> None:
     try:
         payload = {
             "version": 1,
-            "entries": {k: {"data": e.data, "wall_time": e.wall_time} for k, e in mem.items()},
+            "entries": {
+                k: {"data": e.data, "wall_time": e.wall_time} for k, e in mem.items()
+            },
         }
         tmp = _CACHE_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload))

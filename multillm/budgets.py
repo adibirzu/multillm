@@ -37,7 +37,9 @@ def _state_for(pct: float, thresholds: list[float]) -> str:
     return "ok"
 
 
-def _window_status(cap: Optional[float], spent: float, thresholds: list[float]) -> Optional[dict]:
+def _window_status(
+    cap: Optional[float], spent: float, thresholds: list[float]
+) -> Optional[dict]:
     """Status for one (cap, spent) pair, or None when no cap is configured."""
     if cap is None or cap <= 0:
         return None

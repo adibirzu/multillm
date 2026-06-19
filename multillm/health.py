@@ -11,17 +11,24 @@ used by the router to skip degraded backends before user requests fail.
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import httpx
 
 from .config import (
-    OLLAMA_URL, LMSTUDIO_URL,
-    OPENROUTER_KEY, OPENAI_KEY, ANTHROPIC_KEY, GEMINI_KEY,
-    GROQ_KEY, DEEPSEEK_KEY, MISTRAL_KEY, TOGETHER_KEY,
-    XAI_KEY, FIREWORKS_KEY,
-    AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT,
+    OLLAMA_URL,
+    LMSTUDIO_URL,
+    OPENROUTER_KEY,
+    OPENAI_KEY,
+    ANTHROPIC_KEY,
+    GEMINI_KEY,
+    GROQ_KEY,
+    DEEPSEEK_KEY,
+    MISTRAL_KEY,
+    TOGETHER_KEY,
+    XAI_KEY,
+    FIREWORKS_KEY,
 )
 from .resilience import get_breaker
 
@@ -29,6 +36,7 @@ log = logging.getLogger("multillm.health")
 
 
 # ── Health states ────────────────────────────────────────────────────────────
+
 
 @dataclass
 class BackendHealth:
@@ -64,7 +72,9 @@ class BackendHealth:
     def to_dict(self) -> dict:
         return {
             "status": self.status,
-            "last_check_ago": f"{time.time() - self.last_check:.0f}s" if self.last_check else "never",
+            "last_check_ago": f"{time.time() - self.last_check:.0f}s"
+            if self.last_check
+            else "never",
             "latency_ms": round(self.last_latency_ms, 1),
             "last_error": self.last_error,
             "consecutive_failures": self.consecutive_failures,
@@ -109,7 +119,10 @@ def all_health_status() -> dict[str, dict]:
 
 # ── Probe functions ──────────────────────────────────────────────────────────
 
-async def _probe_http(url: str, backend: str, timeout: float = 10.0) -> tuple[bool, float, str]:
+
+async def _probe_http(
+    url: str, backend: str, timeout: float = 10.0
+) -> tuple[bool, float, str]:
     """Probe an HTTP endpoint. Returns (ok, latency_ms, error)."""
     t0 = time.monotonic()
     try:
@@ -124,7 +137,9 @@ async def _probe_http(url: str, backend: str, timeout: float = 10.0) -> tuple[bo
         return False, latency, f"{type(e).__name__}: {e}"
 
 
-async def _probe_api_key(url: str, api_key: str, backend: str, timeout: float = 10.0) -> tuple[bool, float, str]:
+async def _probe_api_key(
+    url: str, api_key: str, backend: str, timeout: float = 10.0
+) -> tuple[bool, float, str]:
     """Probe a cloud API with key auth (list models endpoint)."""
     t0 = time.monotonic()
     try:
@@ -147,14 +162,38 @@ async def _probe_api_key(url: str, api_key: str, backend: str, timeout: float = 
 BACKEND_PROBES = {
     "ollama": lambda: _probe_http(f"{OLLAMA_URL}/api/tags", "ollama", timeout=5),
     "lmstudio": lambda: _probe_http(f"{LMSTUDIO_URL}/v1/models", "lmstudio", timeout=5),
-    "openai": lambda: _probe_api_key("https://api.openai.com", OPENAI_KEY, "openai") if OPENAI_KEY else _skip("openai"),
-    "openrouter": lambda: _probe_api_key("https://openrouter.ai/api", OPENROUTER_KEY, "openrouter") if OPENROUTER_KEY else _skip("openrouter"),
-    "groq": lambda: _probe_api_key("https://api.groq.com/openai", GROQ_KEY, "groq") if GROQ_KEY else _skip("groq"),
-    "deepseek": lambda: _probe_api_key("https://api.deepseek.com", DEEPSEEK_KEY, "deepseek") if DEEPSEEK_KEY else _skip("deepseek"),
-    "mistral": lambda: _probe_api_key("https://api.mistral.ai", MISTRAL_KEY, "mistral") if MISTRAL_KEY else _skip("mistral"),
-    "together": lambda: _probe_api_key("https://api.together.xyz", TOGETHER_KEY, "together") if TOGETHER_KEY else _skip("together"),
-    "xai": lambda: _probe_api_key("https://api.x.ai", XAI_KEY, "xai") if XAI_KEY else _skip("xai"),
-    "fireworks": lambda: _probe_api_key("https://api.fireworks.ai/inference", FIREWORKS_KEY, "fireworks") if FIREWORKS_KEY else _skip("fireworks"),
+    "openai": lambda: _probe_api_key("https://api.openai.com", OPENAI_KEY, "openai")
+    if OPENAI_KEY
+    else _skip("openai"),
+    "openrouter": lambda: _probe_api_key(
+        "https://openrouter.ai/api", OPENROUTER_KEY, "openrouter"
+    )
+    if OPENROUTER_KEY
+    else _skip("openrouter"),
+    "groq": lambda: _probe_api_key("https://api.groq.com/openai", GROQ_KEY, "groq")
+    if GROQ_KEY
+    else _skip("groq"),
+    "deepseek": lambda: _probe_api_key(
+        "https://api.deepseek.com", DEEPSEEK_KEY, "deepseek"
+    )
+    if DEEPSEEK_KEY
+    else _skip("deepseek"),
+    "mistral": lambda: _probe_api_key("https://api.mistral.ai", MISTRAL_KEY, "mistral")
+    if MISTRAL_KEY
+    else _skip("mistral"),
+    "together": lambda: _probe_api_key(
+        "https://api.together.xyz", TOGETHER_KEY, "together"
+    )
+    if TOGETHER_KEY
+    else _skip("together"),
+    "xai": lambda: _probe_api_key("https://api.x.ai", XAI_KEY, "xai")
+    if XAI_KEY
+    else _skip("xai"),
+    "fireworks": lambda: _probe_api_key(
+        "https://api.fireworks.ai/inference", FIREWORKS_KEY, "fireworks"
+    )
+    if FIREWORKS_KEY
+    else _skip("fireworks"),
 }
 
 
@@ -230,6 +269,7 @@ async def check_all_backends():
 
 
 # ── Background check loop ───────────────────────────────────────────────────
+
 
 async def _health_check_loop():
     """Periodically check all backends."""

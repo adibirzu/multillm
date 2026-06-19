@@ -21,6 +21,8 @@ async def call_openai_compat(
         **(extra_headers or {}),
     }
     client = get_client(backend)
-    r = await client.post(f"{base_url}/v1/chat/completions", json=payload, headers=headers)
+    r = await client.post(
+        f"{base_url}/v1/chat/completions", json=payload, headers=headers
+    )
     r.raise_for_status()
     return r.json()

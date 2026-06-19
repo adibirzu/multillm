@@ -2,7 +2,6 @@
 # Copyright 2026 MultiLLM contributors
 
 """Tests for the dynamic model discovery module."""
-from unittest.mock import AsyncMock
 
 import pytest
 import httpx
@@ -27,25 +26,38 @@ from multillm.discovery import (
 def clear_discovery_cache():
     """Clear the discovery cache before each test."""
     from multillm import discovery
+
     discovery._discovery_cache = {}
     discovery._cache_timestamp = 0.0
     yield
 
 
 class TestDiscoverOllama:
-
     @pytest.mark.asyncio
     @respx.mock
     async def test_discover_ollama_success(self):
         respx.get("http://localhost:11434/api/tags").mock(
-            return_value=httpx.Response(200, json={
-                "models": [
-                    {"name": "llama3:latest", "size": 4_000_000_000,
-                     "details": {"parameter_size": "8B", "family": "llama", "quantization_level": "Q4_K_M"}},
-                    {"name": "qwen3:30b", "size": 18_000_000_000,
-                     "details": {"parameter_size": "30B", "family": "qwen2"}},
-                ]
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "models": [
+                        {
+                            "name": "llama3:latest",
+                            "size": 4_000_000_000,
+                            "details": {
+                                "parameter_size": "8B",
+                                "family": "llama",
+                                "quantization_level": "Q4_K_M",
+                            },
+                        },
+                        {
+                            "name": "qwen3:30b",
+                            "size": 18_000_000_000,
+                            "details": {"parameter_size": "30B", "family": "qwen2"},
+                        },
+                    ]
+                },
+            )
         )
         models = await discover_ollama()
         assert len(models) == 2
@@ -66,22 +78,26 @@ class TestDiscoverOllama:
     @pytest.mark.asyncio
     @respx.mock
     async def test_discover_ollama_connection_error(self):
-        respx.get("http://localhost:11434/api/tags").mock(side_effect=httpx.ConnectError("refused"))
+        respx.get("http://localhost:11434/api/tags").mock(
+            side_effect=httpx.ConnectError("refused")
+        )
         models = await discover_ollama()
         assert models == []
 
 
 class TestDiscoverLmStudio:
-
     @pytest.mark.asyncio
     @respx.mock
     async def test_discover_lmstudio_success(self):
         respx.get("http://localhost:1234/v1/models").mock(
-            return_value=httpx.Response(200, json={
-                "data": [
-                    {"id": "mistral-7b-instruct", "owned_by": "mistralai"},
-                ]
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "mistral-7b-instruct", "owned_by": "mistralai"},
+                    ]
+                },
+            )
         )
         models = await discover_lmstudio()
         assert len(models) == 1
@@ -90,24 +106,27 @@ class TestDiscoverLmStudio:
 
 
 class TestDiscoverOpenAI:
-
     @pytest.mark.asyncio
     @respx.mock
     async def test_discover_openai_filters_chat_models(self):
         from multillm import discovery
+
         old_key = discovery.OPENAI_KEY
         discovery.OPENAI_KEY = "test-key"
         try:
             respx.get("https://api.openai.com/v1/models").mock(
-                return_value=httpx.Response(200, json={
-                    "data": [
-                        {"id": "gpt-4o", "owned_by": "openai"},
-                        {"id": "gpt-3.5-turbo", "owned_by": "openai"},
-                        {"id": "dall-e-3", "owned_by": "openai"},
-                        {"id": "text-embedding-ada-002", "owned_by": "openai"},
-                        {"id": "o3-mini", "owned_by": "openai"},
-                    ]
-                })
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "data": [
+                            {"id": "gpt-4o", "owned_by": "openai"},
+                            {"id": "gpt-3.5-turbo", "owned_by": "openai"},
+                            {"id": "dall-e-3", "owned_by": "openai"},
+                            {"id": "text-embedding-ada-002", "owned_by": "openai"},
+                            {"id": "o3-mini", "owned_by": "openai"},
+                        ]
+                    },
+                )
             )
             models = await discover_openai()
             ids = {m["id"] for m in models}
@@ -123,6 +142,7 @@ class TestDiscoverOpenAI:
     @pytest.mark.asyncio
     async def test_discover_openai_no_key(self):
         from multillm import discovery
+
         old_key = discovery.OPENAI_KEY
         discovery.OPENAI_KEY = ""
         try:
@@ -133,31 +153,34 @@ class TestDiscoverOpenAI:
 
 
 class TestDiscoverGemini:
-
     @pytest.mark.asyncio
     @respx.mock
     async def test_discover_gemini_success(self):
         from multillm import discovery
+
         old_key = discovery.GEMINI_KEY
         discovery.GEMINI_KEY = "test-key"
         try:
             respx.get("https://generativelanguage.googleapis.com/v1beta/models").mock(
-                return_value=httpx.Response(200, json={
-                    "models": [
-                        {
-                            "name": "models/gemini-2.0-flash",
-                            "displayName": "Gemini 2.0 Flash",
-                            "supportedGenerationMethods": ["generateContent"],
-                            "inputTokenLimit": 1048576,
-                            "outputTokenLimit": 8192,
-                        },
-                        {
-                            "name": "models/embedding-001",
-                            "displayName": "Embedding",
-                            "supportedGenerationMethods": ["embedContent"],
-                        },
-                    ]
-                })
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "models": [
+                            {
+                                "name": "models/gemini-2.0-flash",
+                                "displayName": "Gemini 2.0 Flash",
+                                "supportedGenerationMethods": ["generateContent"],
+                                "inputTokenLimit": 1048576,
+                                "outputTokenLimit": 8192,
+                            },
+                            {
+                                "name": "models/embedding-001",
+                                "displayName": "Embedding",
+                                "supportedGenerationMethods": ["embedContent"],
+                            },
+                        ]
+                    },
+                )
             )
             models = await discover_gemini()
             assert len(models) == 1  # embedding model filtered out
@@ -168,21 +191,28 @@ class TestDiscoverGemini:
 
 
 class TestDiscoverOpenRouter:
-
     @pytest.mark.asyncio
     @respx.mock
     async def test_discover_openrouter_success(self):
         from multillm import discovery
+
         old_key = discovery.OPENROUTER_KEY
         discovery.OPENROUTER_KEY = "test-key"
         try:
             respx.get("https://openrouter.ai/api/v1/models").mock(
-                return_value=httpx.Response(200, json={
-                    "data": [
-                        {"id": "anthropic/claude-3-opus", "name": "Claude 3 Opus",
-                         "context_length": 200000, "pricing": {"prompt": "0.015", "completion": "0.075"}},
-                    ]
-                })
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "data": [
+                            {
+                                "id": "anthropic/claude-3-opus",
+                                "name": "Claude 3 Opus",
+                                "context_length": 200000,
+                                "pricing": {"prompt": "0.015", "completion": "0.075"},
+                            },
+                        ]
+                    },
+                )
             )
             models = await discover_openrouter()
             assert len(models) == 1
@@ -193,12 +223,13 @@ class TestDiscoverOpenRouter:
 
 
 class TestDiscoverAll:
-
     @pytest.mark.asyncio
     @respx.mock
     async def test_discover_all_aggregates(self):
         respx.get("http://localhost:11434/api/tags").mock(
-            return_value=httpx.Response(200, json={"models": [{"name": "llama3:latest", "details": {}}]})
+            return_value=httpx.Response(
+                200, json={"models": [{"name": "llama3:latest", "details": {}}]}
+            )
         )
         respx.get("http://localhost:1234/v1/models").mock(
             return_value=httpx.Response(200, json={"data": []})
@@ -224,7 +255,6 @@ class TestDiscoverAll:
 
 
 class TestDiscoveredToRoutes:
-
     def test_converts_to_route_format(self):
         discovered = {
             "ollama": [
@@ -243,32 +273,38 @@ class TestDiscoveredToRoutes:
 
 
 class TestParseParameterSize:
-
-    @pytest.mark.parametrize("value,expected", [
-        ("30B", 30.0),
-        ("7b", 7.0),
-        ("3.8B", 3.8),
-        ("500M", 0.5),
-        ("", 0.0),
-        ("unknown", 0.0),
-        (None, 0.0),
-    ])
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            ("30B", 30.0),
+            ("7b", 7.0),
+            ("3.8B", 3.8),
+            ("500M", 0.5),
+            ("", 0.0),
+            ("unknown", 0.0),
+            (None, 0.0),
+        ],
+    )
     def test_parses_parameter_size(self, value, expected):
         assert _parse_parameter_size(value) == pytest.approx(expected)
 
 
 class TestResolveLocalTarget:
-
     def _seed(self, cache):
         from multillm import discovery
+
         discovery._discovery_cache = cache
 
     def test_get_discovered_local_models_only_local_backends(self):
-        self._seed({
-            "ollama": [{"id": "ollama/a", "backend": "ollama", "model": "a"}],
-            "lmstudio": [{"id": "lmstudio/b", "backend": "lmstudio", "model": "b"}],
-            "openai": [{"id": "openai/gpt-4o", "backend": "openai", "model": "gpt-4o"}],
-        })
+        self._seed(
+            {
+                "ollama": [{"id": "ollama/a", "backend": "ollama", "model": "a"}],
+                "lmstudio": [{"id": "lmstudio/b", "backend": "lmstudio", "model": "b"}],
+                "openai": [
+                    {"id": "openai/gpt-4o", "backend": "openai", "model": "gpt-4o"}
+                ],
+            }
+        )
         ids = {m["id"] for m in get_discovered_local_models()}
         assert ids == {"ollama/a", "lmstudio/b"}
 
@@ -282,12 +318,24 @@ class TestResolveLocalTarget:
         assert ranked == ["ollama/big", "ollama/mid", "ollama/small"]
 
     def test_resolve_picks_most_capable_reachable(self):
-        self._seed({
-            "ollama": [
-                {"id": "ollama/small", "backend": "ollama", "model": "small", "parameter_size": "3B"},
-                {"id": "ollama/big", "backend": "ollama", "model": "big", "parameter_size": "30B"},
-            ],
-        })
+        self._seed(
+            {
+                "ollama": [
+                    {
+                        "id": "ollama/small",
+                        "backend": "ollama",
+                        "model": "small",
+                        "parameter_size": "3B",
+                    },
+                    {
+                        "id": "ollama/big",
+                        "backend": "ollama",
+                        "model": "big",
+                        "parameter_size": "30B",
+                    },
+                ],
+            }
+        )
         alias, route = resolve_local_target()
         assert alias == "ollama/big"
         assert route["backend"] == "ollama"
@@ -295,13 +343,28 @@ class TestResolveLocalTarget:
         assert route["discovered"] is True
 
     def test_resolve_respects_reachable_filter(self):
-        self._seed({
-            "ollama": [{"id": "ollama/big", "backend": "ollama", "model": "big", "parameter_size": "30B"}],
-            "lmstudio": [{"id": "lmstudio/x", "backend": "lmstudio", "model": "x"}],
-        })
+        self._seed(
+            {
+                "ollama": [
+                    {
+                        "id": "ollama/big",
+                        "backend": "ollama",
+                        "model": "big",
+                        "parameter_size": "30B",
+                    }
+                ],
+                "lmstudio": [{"id": "lmstudio/x", "backend": "lmstudio", "model": "x"}],
+            }
+        )
         alias, _ = resolve_local_target(reachable_backends={"lmstudio"})
         assert alias == "lmstudio/x"
 
     def test_resolve_returns_none_when_no_local(self):
-        self._seed({"openai": [{"id": "openai/gpt-4o", "backend": "openai", "model": "gpt-4o"}]})
+        self._seed(
+            {
+                "openai": [
+                    {"id": "openai/gpt-4o", "backend": "openai", "model": "gpt-4o"}
+                ]
+            }
+        )
         assert resolve_local_target() is None

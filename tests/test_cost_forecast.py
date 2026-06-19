@@ -22,10 +22,20 @@ def _unified():
         "limits": {
             "windowHours": 168,
             "items": [
-                {"label": "Claude Sonnet", "source": "claude_code",
-                 "remainingTokens": 6_000_000, "limitTokens": 70_000_000, "percentUsed": 1.4},
-                {"label": "Gemini CLI", "source": "gemini_cli",
-                 "remainingTokens": 0, "limitTokens": 14_000_000, "percentUsed": 100.0},
+                {
+                    "label": "Claude Sonnet",
+                    "source": "claude_code",
+                    "remainingTokens": 6_000_000,
+                    "limitTokens": 70_000_000,
+                    "percentUsed": 1.4,
+                },
+                {
+                    "label": "Gemini CLI",
+                    "source": "gemini_cli",
+                    "remainingTokens": 0,
+                    "limitTokens": 14_000_000,
+                    "percentUsed": 100.0,
+                },
             ],
         },
     }
@@ -76,11 +86,20 @@ def test_quota_eta_only_for_positive_remaining_and_rate():
 
 def test_eta_exhausts_today_flag():
     unified = {
-        "sources": [{"source": "claude_code", "tokens": 12_000_000, "actualCostUSD": 120.0}],
+        "sources": [
+            {"source": "claude_code", "tokens": 12_000_000, "actualCostUSD": 120.0}
+        ],
         "limits": {
             "windowHours": 24,
-            "items": [{"label": "Claude Opus", "source": "claude_code",
-                       "remainingTokens": 500_000, "limitTokens": 35_000_000, "percentUsed": 97}],
+            "items": [
+                {
+                    "label": "Claude Opus",
+                    "source": "claude_code",
+                    "remainingTokens": 500_000,
+                    "limitTokens": 35_000_000,
+                    "percentUsed": 97,
+                }
+            ],
         },
     }
     fc = cost_forecast.build_cost_forecast(

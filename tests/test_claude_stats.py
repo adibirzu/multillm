@@ -94,7 +94,12 @@ def test_get_claude_code_stats_applies_hours_and_project_filters(tmp_path, monke
     _write_jsonl(
         projects_dir / "-Users-test-dev-multillm" / "session-a.jsonl",
         [
-            _user_entry(recent - timedelta(minutes=1), "session-a", "/Users/test/dev/multillm", "Fix dashboard filters"),
+            _user_entry(
+                recent - timedelta(minutes=1),
+                "session-a",
+                "/Users/test/dev/multillm",
+                "Fix dashboard filters",
+            ),
             _assistant_entry(
                 recent,
                 "session-a",

@@ -11,7 +11,10 @@ from ..config import OPENROUTER_KEY
 from ..converters import build_openai_payload, openai_response_to_anthropic
 from ..streaming import stream_openai_compat
 
-_EXTRA_HEADERS = {"HTTP-Referer": "https://multillm-gateway", "X-Title": "MultiLLM Gateway"}
+_EXTRA_HEADERS = {
+    "HTTP-Referer": "https://multillm-gateway",
+    "X-Title": "MultiLLM Gateway",
+}
 
 
 class OpenRouterAdapter(BaseAdapter):
@@ -31,8 +34,11 @@ class OpenRouterAdapter(BaseAdapter):
         payload = build_openai_payload(body, model)
         payload["stream"] = False
         oai = await call_openai_compat(
-            "https://openrouter.ai/api", OPENROUTER_KEY, payload,
-            extra_headers=_EXTRA_HEADERS, backend="openrouter",
+            "https://openrouter.ai/api",
+            OPENROUTER_KEY,
+            payload,
+            extra_headers=_EXTRA_HEADERS,
+            backend="openrouter",
         )
         return openai_response_to_anthropic(oai, model_alias)
 
@@ -40,6 +46,11 @@ class OpenRouterAdapter(BaseAdapter):
         if err := self.validate(model):
             raise HTTPException(status_code=500, detail=err)
         return await stream_openai_compat(
-            "https://openrouter.ai/api", OPENROUTER_KEY, body, model, model_alias,
-            extra_headers=_EXTRA_HEADERS, backend="openrouter",
+            "https://openrouter.ai/api",
+            OPENROUTER_KEY,
+            body,
+            model,
+            model_alias,
+            extra_headers=_EXTRA_HEADERS,
+            backend="openrouter",
         )

@@ -130,7 +130,9 @@ def _spawn_backend(backend: str) -> None:
     log.info("Started local backend '%s' via %s", backend, " ".join(command))
 
 
-async def ensure_local_backend(backend: str, *, timeout: float = _START_TIMEOUT_S) -> bool:
+async def ensure_local_backend(
+    backend: str, *, timeout: float = _START_TIMEOUT_S
+) -> bool:
     """Ensure ``backend`` is reachable, starting it if installed but down.
 
     Returns True if the backend is reachable (already, or after a successful
@@ -165,7 +167,9 @@ async def ensure_local_backend(backend: str, *, timeout: float = _START_TIMEOUT_
             if await _probe_backend(backend):
                 log.info("Local backend '%s' is ready", backend)
                 return True
-    log.warning("Local backend '%s' did not become ready within %.0fs", backend, timeout)
+    log.warning(
+        "Local backend '%s' did not become ready within %.0fs", backend, timeout
+    )
     return False
 
 

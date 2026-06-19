@@ -45,12 +45,21 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field, ConfigDict
 
 from .memory import (
-    store_memory, search_memory, list_memories, get_memory, delete_memory,
-    share_context, get_shared_context,
-    get_settings, get_setting, set_setting, update_settings,
+    store_memory,
+    search_memory,
+    list_memories,
+    delete_memory,
+    share_context,
+    get_shared_context,
+    get_settings,
+    update_settings,
 )
-from .tracking import get_usage_summary, get_project_summary, get_sessions, get_dashboard_stats
-from .config import detect_project
+from .tracking import (
+    get_usage_summary,
+    get_project_summary,
+    get_sessions,
+    get_dashboard_stats,
+)
 
 import getpass
 
@@ -58,7 +67,12 @@ import getpass
 def _enforce_tenant() -> bool:
     """Opt-in (MULTILLM_ENFORCE_TENANT) so standalone multillm stays globally shared,
     while a multi-developer deployment isolates memory per UNIX user."""
-    return os.environ.get("MULTILLM_ENFORCE_TENANT", "").lower() in ("1", "true", "yes", "on")
+    return os.environ.get("MULTILLM_ENFORCE_TENANT", "").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 def _current_tenant() -> str:
@@ -74,6 +88,7 @@ def _write_tenant() -> str:
 
 def _read_tenant():
     return _current_tenant() if _enforce_tenant() else None
+
 
 log = logging.getLogger("multillm.mcp")
 
@@ -100,9 +115,13 @@ mcp = FastMCP("multillm")
 
 # ── Input models ─────────────────────────────────────────────────────────────
 
+
 class AskModelInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    model: str = Field(..., description="Model alias (e.g. 'ollama/llama3', 'codex/gpt-5-4', 'gemini/flash', 'codex/cli')")
+    model: str = Field(
+        ...,
+        description="Model alias (e.g. 'ollama/llama3', 'codex/gpt-5-4', 'gemini/flash', 'codex/cli')",
+    )
     prompt: str = Field(..., description="The question or task", min_length=1)
     system: Optional[str] = Field(default=None, description="Optional system prompt")
     max_tokens: int = Field(default=2048, ge=64, le=16000)
@@ -112,13 +131,17 @@ class AskModelInput(BaseModel):
 class SecondOpinionInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     reviewer_model: str = Field(..., description="Model alias for reviewer")
-    artifact: str = Field(..., description="Code, plan, or text to review", min_length=10)
+    artifact: str = Field(
+        ..., description="Code, plan, or text to review", min_length=10
+    )
     review_focus: str = Field(default="correctness, security, and clarity")
 
 
 class CouncilInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    models: list[str] = Field(..., description="2-5 model aliases to query", min_length=2, max_length=5)
+    models: list[str] = Field(
+        ..., description="2-5 model aliases to query", min_length=2, max_length=5
+    )
     prompt: str = Field(..., min_length=1)
     system: Optional[str] = Field(default=None)
 
@@ -135,13 +158,17 @@ class MemoryStoreInput(BaseModel):
     title: str = Field(..., description="Short title for the memory")
     content: str = Field(..., description="Content to remember", min_length=5)
     project: str = Field(default="global", description="Project scope")
-    category: str = Field(default="general", description="Category: decision, finding, context, todo")
+    category: str = Field(
+        default="general", description="Category: decision, finding, context, todo"
+    )
     source_llm: str = Field(default="claude", description="Which LLM stored this")
 
 
 class MemorySearchInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    query: str = Field(..., description="Search query (supports FTS5 syntax)", min_length=1)
+    query: str = Field(
+        ..., description="Search query (supports FTS5 syntax)", min_length=1
+    )
     project: Optional[str] = Field(default=None, description="Filter by project")
     limit: int = Field(default=10, ge=1, le=50)
 
@@ -152,13 +179,20 @@ class ContextShareInput(BaseModel):
     content: str = Field(..., description="Context to share", min_length=1)
     source_llm: str = Field(default="claude", description="Source LLM")
     target_llm: str = Field(default="*", description="Target LLM ('*' for all)")
-    context_type: str = Field(default="info", description="Type: info, decision, finding, error")
+    context_type: str = Field(
+        default="info", description="Type: info, decision, finding, error"
+    )
 
 
 class UsageInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     project: Optional[str] = Field(default=None, description="Filter by project")
-    hours: int = Field(default=24, ge=1, le=43800, description="Lookback window in hours, up to 5 years")
+    hours: int = Field(
+        default=24,
+        ge=1,
+        le=43800,
+        description="Lookback window in hours, up to 5 years",
+    )
 
 
 class SettingsInput(BaseModel):
@@ -168,9 +202,13 @@ class SettingsInput(BaseModel):
 
 # ── Helper ───────────────────────────────────────────────────────────────────
 
+
 async def _call_gateway(
-    model: str, prompt: str, system: Optional[str] = None,
-    max_tokens: int = 2048, temperature: float = 0.7,
+    model: str,
+    prompt: str,
+    system: Optional[str] = None,
+    max_tokens: int = 2048,
+    temperature: float = 0.7,
 ) -> str:
     payload: dict = {
         "model": model,
@@ -194,13 +232,20 @@ async def _call_gateway(
 
 # ── LLM Tools ────────────────────────────────────────────────────────────────
 
-@mcp.tool(name="llm_ask_model", annotations={"title": "Ask a specific LLM model", "readOnlyHint": True})
+
+@mcp.tool(
+    name="llm_ask_model",
+    annotations={"title": "Ask a specific LLM model", "readOnlyHint": True},
+)
 async def llm_ask_model(params: AskModelInput) -> str:
     """Send a prompt to any LLM via the gateway (Ollama, Codex, Gemini, OpenAI, etc.)."""
     try:
         response = await _call_gateway(
-            model=params.model, prompt=params.prompt, system=params.system,
-            max_tokens=params.max_tokens, temperature=params.temperature,
+            model=params.model,
+            prompt=params.prompt,
+            system=params.system,
+            max_tokens=params.max_tokens,
+            temperature=params.temperature,
         )
         return f"[{params.model}]\n\n{response}"
     except httpx.HTTPStatusError as e:
@@ -211,7 +256,10 @@ async def llm_ask_model(params: AskModelInput) -> str:
         return f"Error: {type(e).__name__}: {e}"
 
 
-@mcp.tool(name="llm_second_opinion", annotations={"title": "Get review from another LLM", "readOnlyHint": True})
+@mcp.tool(
+    name="llm_second_opinion",
+    annotations={"title": "Get review from another LLM", "readOnlyHint": True},
+)
 async def llm_second_opinion(params: SecondOpinionInput) -> str:
     """Ask another LLM (GPT-4o, Gemini, Llama, etc.) to review code or a plan."""
     system = (
@@ -220,18 +268,26 @@ async def llm_second_opinion(params: SecondOpinionInput) -> str:
     )
     prompt = f"Review this artifact:\n\n```\n{params.artifact}\n```"
     try:
-        response = await _call_gateway(model=params.reviewer_model, prompt=prompt, system=system, temperature=0.3)
+        response = await _call_gateway(
+            model=params.reviewer_model, prompt=prompt, system=system, temperature=0.3
+        )
         return f"[Second Opinion from {params.reviewer_model}]\n\n{response}"
     except Exception as e:
         return f"Review failed: {e}"
 
 
-@mcp.tool(name="llm_council", annotations={"title": "Query multiple LLMs in parallel", "readOnlyHint": True})
+@mcp.tool(
+    name="llm_council",
+    annotations={"title": "Query multiple LLMs in parallel", "readOnlyHint": True},
+)
 async def llm_council(params: CouncilInput) -> str:
     """Query 2-5 LLMs simultaneously (e.g. Codex + Gemini + Ollama + Claude for diverse perspectives)."""
+
     async def ask_one(model: str) -> tuple[str, str]:
         try:
-            resp = await _call_gateway(model=model, prompt=params.prompt, system=params.system, max_tokens=1024)
+            resp = await _call_gateway(
+                model=model, prompt=params.prompt, system=params.system, max_tokens=1024
+            )
             return model, resp
         except Exception as e:
             return model, f"ERROR: {e}"
@@ -243,21 +299,34 @@ async def llm_council(params: CouncilInput) -> str:
     return "\n".join(parts)
 
 
-@mcp.tool(name="llm_summarize_cheap", annotations={"title": "Summarize with cheap local model", "readOnlyHint": True})
+@mcp.tool(
+    name="llm_summarize_cheap",
+    annotations={"title": "Summarize with cheap local model", "readOnlyHint": True},
+)
 async def llm_summarize_cheap(params: SummarizeInput) -> str:
     """Summarize text using a free local model (Ollama) to save tokens."""
     system = f"Summarize in at most {params.max_words} words. Preserve key facts and decisions. Plain text only."
     try:
         response = await _call_gateway(
-            model=params.model, prompt=f"Summarize:\n\n{params.text}",
-            system=system, max_tokens=min(params.max_words * 3, 1024), temperature=0.3,
+            model=params.model,
+            prompt=f"Summarize:\n\n{params.text}",
+            system=system,
+            max_tokens=min(params.max_words * 3, 1024),
+            temperature=0.3,
         )
         return f"[Summary via {params.model}]\n\n{response}"
     except Exception as e:
         return f"Summarization failed: {e}"
 
 
-@mcp.tool(name="llm_list_models", annotations={"title": "List available models", "readOnlyHint": True, "idempotentHint": True})
+@mcp.tool(
+    name="llm_list_models",
+    annotations={
+        "title": "List available models",
+        "readOnlyHint": True,
+        "idempotentHint": True,
+    },
+)
 async def llm_list_models() -> str:
     """List all model aliases available in the gateway (Ollama, Codex, Gemini, OpenAI, etc.)."""
     try:
@@ -281,7 +350,14 @@ async def llm_list_models() -> str:
         return f"Could not fetch routes: {e}"
 
 
-@mcp.tool(name="llm_status", annotations={"title": "Show MultiLLM gateway status", "readOnlyHint": True, "idempotentHint": True})
+@mcp.tool(
+    name="llm_status",
+    annotations={
+        "title": "Show MultiLLM gateway status",
+        "readOnlyHint": True,
+        "idempotentHint": True,
+    },
+)
 async def llm_status() -> str:
     """Show gateway runtime status, auth mode, backend health, and direct-client visibility."""
     try:
@@ -310,10 +386,19 @@ async def llm_status() -> str:
             "## Direct Clients",
         ]
         for name, info in clients.items():
-            state = "available" if info.get("available") else f"unavailable ({info.get('error') or 'no data'})"
+            state = (
+                "available"
+                if info.get("available")
+                else f"unavailable ({info.get('error') or 'no data'})"
+            )
             lines.append(f"- {name}: {state}")
         if gateway.get("unsafe_open_mode"):
-            lines.extend(["", "WARNING: Gateway is unauthenticated and bound to a non-localhost interface."])
+            lines.extend(
+                [
+                    "",
+                    "WARNING: Gateway is unauthenticated and bound to a non-localhost interface.",
+                ]
+            )
         return "\n".join(lines)
     except httpx.ConnectError:
         return f"Cannot reach gateway at {GATEWAY_URL}. Is it running?"
@@ -321,13 +406,20 @@ async def llm_status() -> str:
         return f"Status check failed: {e}"
 
 
-@mcp.tool(name="llm_discover_models", annotations={"title": "Discover models from backends", "readOnlyHint": True})
-async def llm_discover_models(backend: Optional[str] = None, refresh: bool = True) -> str:
+@mcp.tool(
+    name="llm_discover_models",
+    annotations={"title": "Discover models from backends", "readOnlyHint": True},
+)
+async def llm_discover_models(
+    backend: Optional[str] = None, refresh: bool = True
+) -> str:
     """Discover available models from all backends (Ollama, LM Studio, OpenAI, Gemini, OpenRouter).
     Use refresh=True to force re-query. Optionally filter by backend name."""
     try:
         client = _get_gateway_client()
-        r = await client.get(f"{GATEWAY_URL}/api/backends", params={"refresh": str(refresh).lower()})
+        r = await client.get(
+            f"{GATEWAY_URL}/api/backends", params={"refresh": str(refresh).lower()}
+        )
         r.raise_for_status()
         data = r.json()
 
@@ -350,13 +442,26 @@ async def llm_discover_models(backend: Optional[str] = None, refresh: bool = Tru
         return f"Discovery failed: {e}"
 
 
-@mcp.tool(name="llm_add_route", annotations={"title": "Add/configure a model route", "readOnlyHint": False})
+@mcp.tool(
+    name="llm_add_route",
+    annotations={"title": "Add/configure a model route", "readOnlyHint": False},
+)
 async def llm_add_route(alias: str, backend: str, model: str) -> str:
     """Add or update a model route. Example: alias='my-gpt4', backend='openai', model='gpt-4o-2024-08-06'.
     Backends: ollama, lmstudio, openai, openrouter, anthropic, gemini, codex_cli."""
-    valid_backends = {"ollama", "lmstudio", "openai", "openrouter", "anthropic", "gemini", "codex_cli"}
+    valid_backends = {
+        "ollama",
+        "lmstudio",
+        "openai",
+        "openrouter",
+        "anthropic",
+        "gemini",
+        "codex_cli",
+    }
     if backend not in valid_backends:
-        return f"Invalid backend '{backend}'. Valid: {', '.join(sorted(valid_backends))}"
+        return (
+            f"Invalid backend '{backend}'. Valid: {', '.join(sorted(valid_backends))}"
+        )
     try:
         client = _get_gateway_client()
         r = await client.post(
@@ -370,14 +475,16 @@ async def llm_add_route(alias: str, backend: str, model: str) -> str:
         return f"Failed to add route: {e}"
 
 
-@mcp.tool(name="llm_remove_route", annotations={"title": "Remove a model route", "readOnlyHint": False})
+@mcp.tool(
+    name="llm_remove_route",
+    annotations={"title": "Remove a model route", "readOnlyHint": False},
+)
 async def llm_remove_route(alias: str) -> str:
     """Remove a model route by alias."""
     try:
         client = _get_gateway_client()
         r = await client.delete(f"{GATEWAY_URL}/api/routes/{alias}")
         r.raise_for_status()
-        data = r.json()
         return f"Route removed: `{alias}`"
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
@@ -389,7 +496,15 @@ async def llm_remove_route(alias: str) -> str:
 
 # ── Usage/Tracking Tools ────────────────────────────────────────────────────
 
-@mcp.tool(name="llm_usage", annotations={"title": "Token usage dashboard", "readOnlyHint": True, "idempotentHint": True})
+
+@mcp.tool(
+    name="llm_usage",
+    annotations={
+        "title": "Token usage dashboard",
+        "readOnlyHint": True,
+        "idempotentHint": True,
+    },
+)
 async def llm_usage(params: UsageInput) -> str:
     """Show token usage, costs, and latency across all LLMs and projects."""
     by_model = get_usage_summary(project=params.project, hours=params.hours)
@@ -417,9 +532,13 @@ async def llm_usage(params: UsageInput) -> str:
             total_cost += cost
             lines.append(
                 f"- **{p['project']}**: {p['requests']} requests, "
-                f"{p.get('input_tokens',0):,}+{p.get('output_tokens',0):,} tokens"
-                + (f" (+{p.get('cache_read_input_tokens',0):,} cache read, +{p.get('cache_creation_input_tokens',0):,} cache write)"
-                   if p.get('cache_read_input_tokens',0) or p.get('cache_creation_input_tokens',0) else "")
+                f"{p.get('input_tokens', 0):,}+{p.get('output_tokens', 0):,} tokens"
+                + (
+                    f" (+{p.get('cache_read_input_tokens', 0):,} cache read, +{p.get('cache_creation_input_tokens', 0):,} cache write)"
+                    if p.get("cache_read_input_tokens", 0)
+                    or p.get("cache_creation_input_tokens", 0)
+                    else ""
+                )
                 + f", ${cost:.4f}"
             )
         lines.append(f"\n**Total cost: ${total_cost:.4f}**\n")
@@ -429,12 +548,20 @@ async def llm_usage(params: UsageInput) -> str:
         for m in by_model:
             lines.append(
                 f"- **{m['model_alias']}** ({m['backend']}): "
-                f"{m['request_count']} reqs, {m.get('total_input',0):,}+{m.get('total_output',0):,} tokens"
-                + (f" (+{m.get('total_cache_read_input',0):,} cache read, +{m.get('total_cache_creation_input',0):,} cache write)"
-                   if m.get('total_cache_read_input',0) or m.get('total_cache_creation_input',0) else "")
+                f"{m['request_count']} reqs, {m.get('total_input', 0):,}+{m.get('total_output', 0):,} tokens"
+                + (
+                    f" (+{m.get('total_cache_read_input', 0):,} cache read, +{m.get('total_cache_creation_input', 0):,} cache write)"
+                    if m.get("total_cache_read_input", 0)
+                    or m.get("total_cache_creation_input", 0)
+                    else ""
+                )
                 + ", "
-                f"avg {m.get('avg_latency_ms',0):.0f}ms, ${m.get('total_cost_usd',0):.4f}"
-                + (f", {m.get('error_count',0)} errors" if m.get('error_count') else "")
+                f"avg {m.get('avg_latency_ms', 0):.0f}ms, ${m.get('total_cost_usd', 0):.4f}"
+                + (
+                    f", {m.get('error_count', 0)} errors"
+                    if m.get("error_count")
+                    else ""
+                )
             )
     else:
         lines.append("No usage data yet.")
@@ -442,7 +569,14 @@ async def llm_usage(params: UsageInput) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool(name="llm_cache_stats", annotations={"title": "Semantic cache stats", "readOnlyHint": True, "idempotentHint": True})
+@mcp.tool(
+    name="llm_cache_stats",
+    annotations={
+        "title": "Semantic cache stats",
+        "readOnlyHint": True,
+        "idempotentHint": True,
+    },
+)
 async def llm_cache_stats() -> str:
     """Show Redis LangCache statistics (hit rate, stored entries, cost savings)."""
     try:
@@ -452,11 +586,13 @@ async def llm_cache_stats() -> str:
         stats = r.json()
 
         if not stats.get("enabled"):
-            return ("LangCache is disabled. Enable with env vars:\n"
-                    "  LANGCACHE_ENABLED=true\n"
-                    "  LANGCACHE_HOST=your-host\n"
-                    "  LANGCACHE_CACHE_ID=your-cache-id\n"
-                    "  LANGCACHE_API_KEY=your-key")
+            return (
+                "LangCache is disabled. Enable with env vars:\n"
+                "  LANGCACHE_ENABLED=true\n"
+                "  LANGCACHE_HOST=your-host\n"
+                "  LANGCACHE_CACHE_ID=your-cache-id\n"
+                "  LANGCACHE_API_KEY=your-key"
+            )
 
         return (
             f"# LangCache Stats\n\n"
@@ -471,7 +607,14 @@ async def llm_cache_stats() -> str:
         return f"Could not fetch cache stats: {e}"
 
 
-@mcp.tool(name="llm_sessions", annotations={"title": "List LLM sessions", "readOnlyHint": True, "idempotentHint": True})
+@mcp.tool(
+    name="llm_sessions",
+    annotations={
+        "title": "List LLM sessions",
+        "readOnlyHint": True,
+        "idempotentHint": True,
+    },
+)
 async def llm_sessions(hours: int = 168, project: Optional[str] = None) -> str:
     """List recent LLM sessions with models used, tokens, and costs. Dashboard at http://localhost:8080/dashboard"""
     sessions = get_sessions(hours=hours, project=project, limit=20)
@@ -479,15 +622,18 @@ async def llm_sessions(hours: int = 168, project: Optional[str] = None) -> str:
         return "No sessions found. Dashboard: http://localhost:8080/dashboard"
 
     from datetime import datetime
+
     label = f"{hours}h" if hours < 24 else f"{hours // 24}d"
     lines = [f"# LLM Sessions (last {label})\n"]
-    lines.append(f"Dashboard: http://localhost:8080/dashboard\n")
+    lines.append("Dashboard: http://localhost:8080/dashboard\n")
     for s in sessions:
         started = datetime.fromtimestamp(s["started_at"]).strftime("%b %d %H:%M")
         duration_s = int(s["last_active_at"] - s["started_at"])
         duration = f"{duration_s}s" if duration_s < 60 else f"{duration_s // 60}m"
         models = ", ".join(s.get("models_used", []))
-        total_tok = (s.get("total_input_tokens", 0) or 0) + (s.get("total_output_tokens", 0) or 0)
+        total_tok = (s.get("total_input_tokens", 0) or 0) + (
+            s.get("total_output_tokens", 0) or 0
+        )
         lines.append(
             f"- **{started}** ({duration}) [{s['project']}] "
             f"{s.get('total_requests', 0)} reqs, {total_tok:,} tokens, "
@@ -498,22 +644,38 @@ async def llm_sessions(hours: int = 168, project: Optional[str] = None) -> str:
 
 # ── Memory Tools ─────────────────────────────────────────────────────────────
 
-@mcp.tool(name="llm_memory_store", annotations={"title": "Store shared memory", "readOnlyHint": False})
+
+@mcp.tool(
+    name="llm_memory_store",
+    annotations={"title": "Store shared memory", "readOnlyHint": False},
+)
 async def llm_memory_store(params: MemoryStoreInput) -> str:
     """Store a memory entry that can be searched by any LLM (local RAG via FTS5)."""
     mem_id = store_memory(
-        title=params.title, content=params.content, project=params.project,
-        source_llm=params.source_llm, category=params.category,
+        title=params.title,
+        content=params.content,
+        project=params.project,
+        source_llm=params.source_llm,
+        category=params.category,
         tenant_id=_write_tenant(),
     )
-    return f"Memory stored: {mem_id} (title='{params.title}', project='{params.project}')"
+    return (
+        f"Memory stored: {mem_id} (title='{params.title}', project='{params.project}')"
+    )
 
 
-@mcp.tool(name="llm_memory_search", annotations={"title": "Search shared memory (RAG)", "readOnlyHint": True})
+@mcp.tool(
+    name="llm_memory_search",
+    annotations={"title": "Search shared memory (RAG)", "readOnlyHint": True},
+)
 async def llm_memory_search(params: MemorySearchInput) -> str:
     """Search shared memories using full-text search. Works as local RAG for all LLMs."""
-    results = search_memory(query=params.query, project=params.project, limit=params.limit,
-                            tenant_id=_read_tenant())
+    results = search_memory(
+        query=params.query,
+        project=params.project,
+        limit=params.limit,
+        tenant_id=_read_tenant(),
+    )
     if not results:
         return f"No memories found for query: '{params.query}'"
 
@@ -521,26 +683,38 @@ async def llm_memory_search(params: MemorySearchInput) -> str:
     for r in results:
         lines.append(
             f"### {r['title']} [{r['id']}]\n"
-            f"- Project: {r['project']} | Source: {r.get('source_llm','?')} | Category: {r.get('category','?')}\n"
+            f"- Project: {r['project']} | Source: {r.get('source_llm', '?')} | Category: {r.get('category', '?')}\n"
             f"{r['content'][:500]}\n"
         )
     return "\n".join(lines)
 
 
-@mcp.tool(name="llm_memory_list", annotations={"title": "List recent memories", "readOnlyHint": True})
-async def llm_memory_list(project: Optional[str] = None, category: Optional[str] = None) -> str:
+@mcp.tool(
+    name="llm_memory_list",
+    annotations={"title": "List recent memories", "readOnlyHint": True},
+)
+async def llm_memory_list(
+    project: Optional[str] = None, category: Optional[str] = None
+) -> str:
     """List recent shared memories, optionally filtered by project or category."""
-    results = list_memories(project=project, category=category, limit=30, tenant_id=_read_tenant())
+    results = list_memories(
+        project=project, category=category, limit=30, tenant_id=_read_tenant()
+    )
     if not results:
         return "No memories stored yet."
 
     lines = ["# Shared Memories\n"]
     for r in results:
-        lines.append(f"- **{r['title']}** [{r['id']}] ({r['project']}/{r.get('category','')}) by {r.get('source_llm','?')}")
+        lines.append(
+            f"- **{r['title']}** [{r['id']}] ({r['project']}/{r.get('category', '')}) by {r.get('source_llm', '?')}"
+        )
     return "\n".join(lines)
 
 
-@mcp.tool(name="llm_memory_delete", annotations={"title": "Delete a memory entry", "readOnlyHint": False})
+@mcp.tool(
+    name="llm_memory_delete",
+    annotations={"title": "Delete a memory entry", "readOnlyHint": False},
+)
 async def llm_memory_delete(memory_id: str) -> str:
     """Delete a memory entry by ID."""
     if delete_memory(memory_id):
@@ -550,18 +724,27 @@ async def llm_memory_delete(memory_id: str) -> str:
 
 # ── Context Sharing Tools ───────────────────────────────────────────────────
 
-@mcp.tool(name="llm_share_context", annotations={"title": "Share context between LLMs", "readOnlyHint": False})
+
+@mcp.tool(
+    name="llm_share_context",
+    annotations={"title": "Share context between LLMs", "readOnlyHint": False},
+)
 async def llm_share_context(params: ContextShareInput) -> str:
     """Share context from one LLM to others within a session (cross-LLM communication)."""
     ctx_id = share_context(
-        session_id=params.session_id, source_llm=params.source_llm,
-        content=params.content, context_type=params.context_type,
+        session_id=params.session_id,
+        source_llm=params.source_llm,
+        content=params.content,
+        context_type=params.context_type,
         target_llm=params.target_llm,
     )
     return f"Context shared: {ctx_id} (session={params.session_id}, type={params.context_type})"
 
 
-@mcp.tool(name="llm_get_context", annotations={"title": "Get shared context for session", "readOnlyHint": True})
+@mcp.tool(
+    name="llm_get_context",
+    annotations={"title": "Get shared context for session", "readOnlyHint": True},
+)
 async def llm_get_context(session_id: str, target_llm: Optional[str] = None) -> str:
     """Get all shared context entries for a session (what other LLMs have shared)."""
     entries = get_shared_context(session_id=session_id, target_llm=target_llm)
@@ -571,7 +754,7 @@ async def llm_get_context(session_id: str, target_llm: Optional[str] = None) -> 
     lines = [f"# Shared Context (session: {session_id})\n"]
     for e in entries:
         lines.append(
-            f"### [{e.get('context_type','info')}] from {e.get('source_llm','?')}\n"
+            f"### [{e.get('context_type', 'info')}] from {e.get('source_llm', '?')}\n"
             f"{e['content']}\n"
         )
     return "\n".join(lines)
@@ -579,7 +762,15 @@ async def llm_get_context(session_id: str, target_llm: Optional[str] = None) -> 
 
 # ── Settings Tools ──────────────────────────────────────────────────────────
 
-@mcp.tool(name="llm_settings_get", annotations={"title": "Get gateway settings", "readOnlyHint": True, "idempotentHint": True})
+
+@mcp.tool(
+    name="llm_settings_get",
+    annotations={
+        "title": "Get gateway settings",
+        "readOnlyHint": True,
+        "idempotentHint": True,
+    },
+)
 async def llm_settings_get() -> str:
     """Get all MultiLLM gateway settings (defaults merged with overrides)."""
     settings = get_settings()
@@ -589,7 +780,10 @@ async def llm_settings_get() -> str:
     return "\n".join(lines)
 
 
-@mcp.tool(name="llm_settings_set", annotations={"title": "Update gateway settings", "readOnlyHint": False})
+@mcp.tool(
+    name="llm_settings_set",
+    annotations={"title": "Update gateway settings", "readOnlyHint": False},
+)
 async def llm_settings_set(params: SettingsInput) -> str:
     """Update MultiLLM gateway settings (persisted to ~/.multillm/memory.db)."""
     update_settings(params.settings)
@@ -598,6 +792,7 @@ async def llm_settings_set(params: SettingsInput) -> str:
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────
+
 
 def main():
     mcp.run()

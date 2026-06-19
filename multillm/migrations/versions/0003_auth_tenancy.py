@@ -86,10 +86,24 @@ def upgrade() -> None:
         op.create_table(
             "budgets",
             sa.Column("tenant_id", sa.Text(), primary_key=True, nullable=False),
-            sa.Column("daily_cap_cents", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("monthly_cap_cents", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("daily_remaining_cents", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("monthly_remaining_cents", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column(
+                "daily_cap_cents", sa.Integer(), nullable=False, server_default="0"
+            ),
+            sa.Column(
+                "monthly_cap_cents", sa.Integer(), nullable=False, server_default="0"
+            ),
+            sa.Column(
+                "daily_remaining_cents",
+                sa.Integer(),
+                nullable=False,
+                server_default="0",
+            ),
+            sa.Column(
+                "monthly_remaining_cents",
+                sa.Integer(),
+                nullable=False,
+                server_default="0",
+            ),
             sa.Column("day_started_at", sa.Text(), nullable=False),
             sa.Column("month_started_at", sa.Text(), nullable=False),
         )
@@ -130,7 +144,9 @@ def upgrade() -> None:
         # applies to new rows in some SQLite paths; an UPDATE is safe-by-
         # construction here).
         op.execute(
-            sa.text(f"UPDATE {table} SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''")
+            sa.text(
+                f"UPDATE {table} SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''"
+            )
         )
 
 

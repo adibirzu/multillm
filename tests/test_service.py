@@ -2,6 +2,7 @@
 # Copyright 2026 MultiLLM contributors
 
 """Tests for the OS-service installer (pure render + path resolution)."""
+
 import plistlib
 from pathlib import Path
 
@@ -17,7 +18,6 @@ from multillm.service import (
 
 
 class TestRenderLaunchd:
-
     def test_plist_has_runatload_and_keepalive(self):
         raw = render_launchd_plist(
             python_exe="/usr/bin/python3",
@@ -29,7 +29,11 @@ class TestRenderLaunchd:
         assert plist["Label"] == LAUNCHD_LABEL
         assert plist["RunAtLoad"] is True
         assert plist["KeepAlive"] is True
-        assert plist["ProgramArguments"] == ["/usr/bin/python3", "-m", "multillm.gateway"]
+        assert plist["ProgramArguments"] == [
+            "/usr/bin/python3",
+            "-m",
+            "multillm.gateway",
+        ]
         assert plist["EnvironmentVariables"]["GATEWAY_PORT"] == "8080"
         assert plist["EnvironmentVariables"]["MULTILLM_HOME"] == "/home/u/.multillm"
         # PATH must be set so subprocess CLI backends resolve under launchd,
@@ -43,7 +47,6 @@ class TestRenderLaunchd:
 
 
 class TestRenderSystemd:
-
     def test_unit_has_restart_and_execstart(self):
         unit = render_systemd_unit(
             python_exe="/usr/bin/python3",
@@ -69,16 +72,19 @@ class TestRenderSystemd:
 
 
 class TestResolvePaths:
-
     def test_darwin_launchagent_path(self):
         paths = resolve_paths(platform="darwin", home=Path("/Users/jane"))
         assert paths.platform == "darwin"
-        assert paths.unit_path == Path(f"/Users/jane/Library/LaunchAgents/{LAUNCHD_LABEL}.plist")
+        assert paths.unit_path == Path(
+            f"/Users/jane/Library/LaunchAgents/{LAUNCHD_LABEL}.plist"
+        )
 
     def test_linux_systemd_user_path(self):
         paths = resolve_paths(platform="linux", home=Path("/home/jane"))
         assert paths.platform == "linux"
-        assert paths.unit_path == Path(f"/home/jane/.config/systemd/user/{SYSTEMD_UNIT}")
+        assert paths.unit_path == Path(
+            f"/home/jane/.config/systemd/user/{SYSTEMD_UNIT}"
+        )
 
     def test_unsupported_platform_raises(self):
         with pytest.raises(RuntimeError):

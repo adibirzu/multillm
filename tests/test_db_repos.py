@@ -13,7 +13,6 @@ Covers:
 from __future__ import annotations
 
 import sqlite3
-import time
 from pathlib import Path
 
 import pytest
@@ -129,10 +128,12 @@ def test_get_summary_isolates_by_tenant(fresh_db: Path) -> None:
     """AUTH-15: summary path also includes WHERE tenant_id = ?."""
     repo = TrackingRepoSqlite(fresh_db)
     repo.record_usage(
-        "default", {"model_alias": "ollama/llama3", "backend": "ollama", "input_tokens": 10}
+        "default",
+        {"model_alias": "ollama/llama3", "backend": "ollama", "input_tokens": 10},
     )
     repo.record_usage(
-        "other", {"model_alias": "openai/gpt-4o", "backend": "openai", "input_tokens": 20}
+        "other",
+        {"model_alias": "openai/gpt-4o", "backend": "openai", "input_tokens": 20},
     )
 
     s_default = repo.get_summary("default", hours=24)
@@ -144,7 +145,9 @@ def test_get_summary_isolates_by_tenant(fresh_db: Path) -> None:
     assert s_other["models"][0]["model_alias"] == "openai/gpt-4o"
 
 
-def test_tracking_module_delegates_with_default_tenant(monkeypatch, tmp_path: Path) -> None:
+def test_tracking_module_delegates_with_default_tenant(
+    monkeypatch, tmp_path: Path
+) -> None:
     """multillm/tracking.py record_usage inserts a row tagged tenant_id='default'."""
     # Redirect tracking.py at a tmp DB so we don't pollute the operator's home dir.
     db = tmp_path / "usage.db"
@@ -204,7 +207,16 @@ def test_session_append_request_no_cross_bleed(fresh_db: Path) -> None:
     repo = SessionRepoSqlite(fresh_db)
     sess_default = repo.create_session("default", {"project": "p1"})
     # Attempting to append to default's session FROM another tenant context is a no-op
-    repo.append_request("other", sess_default["id"], {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.01, "model_alias": "ollama/llama3"})
+    repo.append_request(
+        "other",
+        sess_default["id"],
+        {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cost_usd": 0.01,
+            "model_alias": "ollama/llama3",
+        },
+    )
     after = repo.get_session("default", sess_default["id"])
     assert after is not None
     assert after["total_requests"] == 0, "cross-tenant append_request must be a no-op"
@@ -277,7 +289,9 @@ def test_memory_fts_query_is_parameterized(fresh_memory_db: Path) -> None:
     """
     repo = MemoryRepoSqlite(fresh_memory_db)
     repo.store_memory("default", {"title": "safe", "content": "harmless content"})
-    repo.store_memory("other", {"title": "secret", "content": "should never appear cross-tenant"})
+    repo.store_memory(
+        "other", {"title": "secret", "content": "should never appear cross-tenant"}
+    )
 
     # Inject a SQL-shaped string into the FTS query. Should be parsed as FTS, not SQL.
     # FTS5 may reject the string with a SyntaxError; either way no cross-tenant rows.
@@ -294,7 +308,9 @@ def test_memory_fts_query_is_parameterized(fresh_memory_db: Path) -> None:
     assert "secret" not in titles, f"injection-bypassed isolation: titles={titles}"
 
 
-def test_memory_module_delegates_with_default_tenant(monkeypatch, tmp_path: Path) -> None:
+def test_memory_module_delegates_with_default_tenant(
+    monkeypatch, tmp_path: Path
+) -> None:
     """multillm/memory.py store_memory inserts a row tagged tenant_id='default'."""
     db = tmp_path / "memory.db"
     monkeypatch.setattr("multillm.memory.MEMORY_DB", db)

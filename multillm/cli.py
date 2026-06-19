@@ -145,7 +145,9 @@ def migrate_up_cmd(target: str) -> None:
     click.echo(f"Migrated to: {_format_revision(new_rev)}")
 
 
-@migrate.command(name="down", help="Downgrade to TARGET (e.g. 'base' or a revision ID).")
+@migrate.command(
+    name="down", help="Downgrade to TARGET (e.g. 'base' or a revision ID)."
+)
 @click.option(
     "--target",
     required=True,
@@ -184,7 +186,9 @@ def service() -> None:
     """Service management command group (launchd on macOS, systemd on Linux)."""
 
 
-@service.command(name="install", help="Install and start the gateway as a login service.")
+@service.command(
+    name="install", help="Install and start the gateway as a login service."
+)
 def service_install_cmd() -> None:
     """Write the platform service file and load it (RunAtLoad/KeepAlive)."""
     from multillm.config import DATA_DIR, GATEWAY_HOST, GATEWAY_PORT
@@ -208,7 +212,9 @@ def service_uninstall_cmd() -> None:
     click.echo(f"Removed {paths.platform} service: {paths.unit_path}")
 
 
-@service.command(name="status", help="Show whether the boot service is installed and loaded.")
+@service.command(
+    name="status", help="Show whether the boot service is installed and loaded."
+)
 def service_status_cmd() -> None:
     """Print installed/loaded state for the host platform."""
     from multillm.service import service_status

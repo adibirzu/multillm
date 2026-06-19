@@ -3,7 +3,11 @@
 
 """Tests for the production readiness doctor."""
 
-from multillm.doctor import assess_doctor_report, collect_doctor_report, format_doctor_report
+from multillm.doctor import (
+    assess_doctor_report,
+    collect_doctor_report,
+    format_doctor_report,
+)
 
 
 def test_assess_doctor_report_flags_unsafe_remote_gateway():

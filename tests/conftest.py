@@ -2,6 +2,7 @@
 # Copyright 2026 MultiLLM contributors
 
 """Shared test fixtures for MultiLLM tests."""
+
 import os
 import tempfile
 
@@ -167,15 +168,25 @@ def sample_openai_stream_chunks():
     return [
         {
             "id": "chatcmpl-abc",
-            "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": ""},
+                    "finish_reason": None,
+                }
+            ],
         },
         {
             "id": "chatcmpl-abc",
-            "choices": [{"index": 0, "delta": {"content": "Hello"}, "finish_reason": None}],
+            "choices": [
+                {"index": 0, "delta": {"content": "Hello"}, "finish_reason": None}
+            ],
         },
         {
             "id": "chatcmpl-abc",
-            "choices": [{"index": 0, "delta": {"content": " world"}, "finish_reason": None}],
+            "choices": [
+                {"index": 0, "delta": {"content": " world"}, "finish_reason": None}
+            ],
         },
         {
             "id": "chatcmpl-abc",
@@ -190,38 +201,58 @@ def sample_openai_stream_chunks_with_tools():
     return [
         {
             "id": "chatcmpl-abc",
-            "choices": [{"index": 0, "delta": {"role": "assistant", "content": None}, "finish_reason": None}],
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": None},
+                    "finish_reason": None,
+                }
+            ],
         },
         {
             "id": "chatcmpl-abc",
-            "choices": [{
-                "index": 0,
-                "delta": {
-                    "tool_calls": [{
-                        "index": 0,
-                        "id": "call_xyz",
-                        "type": "function",
-                        "function": {"name": "get_weather", "arguments": ""},
-                    }],
-                },
-                "finish_reason": None,
-            }],
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_xyz",
+                                "type": "function",
+                                "function": {"name": "get_weather", "arguments": ""},
+                            }
+                        ],
+                    },
+                    "finish_reason": None,
+                }
+            ],
         },
         {
             "id": "chatcmpl-abc",
-            "choices": [{
-                "index": 0,
-                "delta": {"tool_calls": [{"index": 0, "function": {"arguments": '{"loc'}}]},
-                "finish_reason": None,
-            }],
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [{"index": 0, "function": {"arguments": '{"loc'}}]
+                    },
+                    "finish_reason": None,
+                }
+            ],
         },
         {
             "id": "chatcmpl-abc",
-            "choices": [{
-                "index": 0,
-                "delta": {"tool_calls": [{"index": 0, "function": {"arguments": 'ation": "London"}'}}]},
-                "finish_reason": None,
-            }],
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": 'ation": "London"}'}}
+                        ]
+                    },
+                    "finish_reason": None,
+                }
+            ],
         },
         {
             "id": "chatcmpl-abc",
@@ -234,8 +265,21 @@ def sample_openai_stream_chunks_with_tools():
 def sample_ollama_stream_chunks():
     """Ollama streaming JSON lines."""
     return [
-        {"model": "llama3", "message": {"role": "assistant", "content": "Hello"}, "done": False},
-        {"model": "llama3", "message": {"role": "assistant", "content": " there"}, "done": False},
-        {"model": "llama3", "message": {"role": "assistant", "content": ""}, "done": True,
-         "eval_count": 5, "prompt_eval_count": 10},
+        {
+            "model": "llama3",
+            "message": {"role": "assistant", "content": "Hello"},
+            "done": False,
+        },
+        {
+            "model": "llama3",
+            "message": {"role": "assistant", "content": " there"},
+            "done": False,
+        },
+        {
+            "model": "llama3",
+            "message": {"role": "assistant", "content": ""},
+            "done": True,
+            "eval_count": 5,
+            "prompt_eval_count": 10,
+        },
     ]

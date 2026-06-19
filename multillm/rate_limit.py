@@ -30,9 +30,11 @@ def is_rate_limiting_enabled() -> bool:
 
 # ── Token Bucket ─────────────────────────────────────────────────────────────
 
+
 @dataclass
 class TokenBucket:
     """Sliding-window token bucket rate limiter."""
+
     capacity: int  # max tokens (requests) per window
     window_seconds: float = 60.0
     _tokens: float = field(init=False)
@@ -122,8 +124,12 @@ def acquire_concurrent(client_id: str) -> bool:
     if not RATE_LIMIT_CONCURRENT:
         return True
     if _concurrent[client_id] >= RATE_LIMIT_CONCURRENT:
-        log.warning("Concurrent limit exceeded for %s (%d/%d)",
-                     client_id, _concurrent[client_id], RATE_LIMIT_CONCURRENT)
+        log.warning(
+            "Concurrent limit exceeded for %s (%d/%d)",
+            client_id,
+            _concurrent[client_id],
+            RATE_LIMIT_CONCURRENT,
+        )
         return False
     _concurrent[client_id] += 1
     return True

@@ -3,12 +3,9 @@
 
 """Tests for the authentication middleware."""
 
-import os
-import pytest
 from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from starlette.responses import JSONResponse
 
 from multillm.auth import AuthMiddleware, _extract_key, auth_enabled
 
@@ -108,12 +105,25 @@ class TestAuthEnabled:
         with patch("multillm.auth.API_KEY", "secret123"):
             client = TestClient(app)
             assert client.get("/api/memory").status_code == 401
-            assert client.post("/api/memory", json={"title": "x", "content": "y"}).status_code == 401
-            assert client.get("/api/memory", headers={"X-API-Key": "secret123"}).status_code == 200
+            assert (
+                client.post(
+                    "/api/memory", json={"title": "x", "content": "y"}
+                ).status_code
+                == 401
+            )
+            assert (
+                client.get(
+                    "/api/memory", headers={"X-API-Key": "secret123"}
+                ).status_code
+                == 200
+            )
 
     def test_public_dashboard_api_can_be_explicitly_enabled(self):
         app = _make_app("secret123")
-        with patch("multillm.auth.API_KEY", "secret123"), patch("multillm.auth.PUBLIC_DASHBOARD_API", True):
+        with (
+            patch("multillm.auth.API_KEY", "secret123"),
+            patch("multillm.auth.PUBLIC_DASHBOARD_API", True),
+        ):
             client = TestClient(app)
             assert client.get("/api/dashboard").status_code == 200
 
@@ -122,9 +132,6 @@ class TestExtractKey:
     """Test key extraction from various header formats."""
 
     def test_x_api_key_header(self):
-        from starlette.testclient import TestClient
-        from starlette.requests import Request
-
         # Simple mock
         class FakeRequest:
             headers = {"x-api-key": "mykey"}

@@ -48,55 +48,63 @@ def test_get_codex_stats_reads_rollout_token_breakdowns(tmp_path, monkeypatch):
     rollout_external.write_text(
         "\n".join(
             [
-                json.dumps({
-                    "type": "event_msg",
-                    "payload": {"type": "token_count", "info": None},
-                }),
-                json.dumps({
-                    "type": "event_msg",
-                    "payload": {
-                        "type": "token_count",
-                        "info": {
-                            "last_token_usage": {
-                                "input_tokens": 60,
-                                "cached_input_tokens": 10,
-                                "output_tokens": 15,
-                                "reasoning_output_tokens": 4,
-                                "total_tokens": 75,
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {"type": "token_count", "info": None},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "last_token_usage": {
+                                    "input_tokens": 60,
+                                    "cached_input_tokens": 10,
+                                    "output_tokens": 15,
+                                    "reasoning_output_tokens": 4,
+                                    "total_tokens": 75,
+                                },
                             },
                         },
-                    },
-                }),
-                json.dumps({
-                    "type": "event_msg",
-                    "payload": {
-                        "type": "token_count",
-                        "info": {
-                            "last_token_usage": {
-                                "input_tokens": 60,
-                                "cached_input_tokens": 10,
-                                "output_tokens": 15,
-                                "reasoning_output_tokens": 4,
-                                "total_tokens": 75,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "last_token_usage": {
+                                    "input_tokens": 60,
+                                    "cached_input_tokens": 10,
+                                    "output_tokens": 15,
+                                    "reasoning_output_tokens": 4,
+                                    "total_tokens": 75,
+                                },
                             },
                         },
-                    },
-                }),
-                json.dumps({
-                    "type": "event_msg",
-                    "payload": {
-                        "type": "token_count",
-                        "info": {
-                            "last_token_usage": {
-                                "input_tokens": 40,
-                                "cached_input_tokens": 5,
-                                "output_tokens": 10,
-                                "reasoning_output_tokens": 2,
-                                "total_tokens": 50,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "last_token_usage": {
+                                    "input_tokens": 40,
+                                    "cached_input_tokens": 5,
+                                    "output_tokens": 10,
+                                    "reasoning_output_tokens": 2,
+                                    "total_tokens": 50,
+                                },
                             },
                         },
-                    },
-                }),
+                    }
+                ),
             ]
         )
         + "\n"
@@ -111,9 +119,18 @@ def test_get_codex_stats_reads_rollout_token_breakdowns(tmp_path, monkeypatch):
         """,
         [
             (
-                "thr-external", str(rollout_external), 1_775_470_000, 1_775_470_100, "cli", "openai",
-                "/Users/test/dev/multillm", "External", "danger-full-access", "never",
-                125, "gpt-5.4",
+                "thr-external",
+                str(rollout_external),
+                1_775_470_000,
+                1_775_470_100,
+                "cli",
+                "openai",
+                "/Users/test/dev/multillm",
+                "External",
+                "danger-full-access",
+                "never",
+                125,
+                "gpt-5.4",
             ),
         ],
     )
@@ -151,7 +168,9 @@ def test_get_codex_stats_reads_rollout_token_breakdowns(tmp_path, monkeypatch):
     assert provider_usage["cachedTokens"] == 15
     assert provider_usage["realNetTokens"] == 110
 
-    external_session = next(session for session in stats["sessions"] if session["provider"] == "openai")
+    external_session = next(
+        session for session in stats["sessions"] if session["provider"] == "openai"
+    )
     assert external_session["tokensUsed"] == 125
     assert external_session["inputTokens"] == 100
     assert external_session["outputTokens"] == 25

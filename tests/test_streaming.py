@@ -2,8 +2,8 @@
 # Copyright 2026 MultiLLM contributors
 
 """Tests for streaming event conversion and SSE formatting."""
+
 import json
-import pytest
 
 from multillm.converters import (
     StreamState,
@@ -34,7 +34,6 @@ def parse_sse_event(event_str: str) -> tuple[str, dict]:
 
 
 class TestSSEEventFormatting:
-
     def test_anthropic_sse_event(self):
         event = anthropic_sse_event("ping", {"type": "ping"})
         assert event.startswith("event: ping\n")
@@ -59,7 +58,9 @@ class TestSSEEventFormatting:
         assert data["index"] == 0
 
     def test_content_block_start_tool_use(self):
-        event = make_content_block_start_event(1, "tool_use", id="toolu_abc", name="get_weather")
+        event = make_content_block_start_event(
+            1, "tool_use", id="toolu_abc", name="get_weather"
+        )
         etype, data = parse_sse_event(event)
         assert data["content_block"]["type"] == "tool_use"
         assert data["content_block"]["id"] == "toolu_abc"
@@ -105,7 +106,6 @@ class TestSSEEventFormatting:
 
 
 class TestOpenAIStreamConversion:
-
     def test_full_text_stream(self, sample_openai_stream_chunks):
         state = StreamState("test-model", input_tokens=10)
         all_events = []
@@ -120,7 +120,11 @@ class TestOpenAIStreamConversion:
 
         # Should have text deltas
         deltas = [(t, d) for t, d in parsed if t == "content_block_delta"]
-        texts = [d["delta"]["text"] for _, d in deltas if d["delta"].get("type") == "text_delta"]
+        texts = [
+            d["delta"]["text"]
+            for _, d in deltas
+            if d["delta"].get("type") == "text_delta"
+        ]
         assert "Hello" in texts
         assert " world" in texts
 
@@ -137,7 +141,6 @@ class TestOpenAIStreamConversion:
             all_events.extend(events)
 
         parsed = [parse_sse_event(e) for e in all_events]
-        event_types = [t for t, _ in parsed]
 
         # Should have content_block_start for tool_use
         starts = [(t, d) for t, d in parsed if t == "content_block_start"]
@@ -146,7 +149,11 @@ class TestOpenAIStreamConversion:
         assert tool_starts[0]["content_block"]["name"] == "get_weather"
 
         # Should have input_json_delta events
-        json_deltas = [(t, d) for t, d in parsed if d.get("delta", {}).get("type") == "input_json_delta"]
+        json_deltas = [
+            (t, d)
+            for t, d in parsed
+            if d.get("delta", {}).get("type") == "input_json_delta"
+        ]
         assert len(json_deltas) >= 1
 
         # Should end with tool_use stop reason
@@ -171,12 +178,11 @@ class TestOpenAIStreamConversion:
             "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
             "usage": {"completion_tokens": 99},
         }
-        events = openai_chunk_to_anthropic_events(chunk, state)
+        openai_chunk_to_anthropic_events(chunk, state)
         assert state.output_tokens == 99
 
 
 class TestOllamaStreamConversion:
-
     def test_full_text_stream(self, sample_ollama_stream_chunks):
         state = StreamState("ollama/llama3")
         all_events = []
@@ -190,8 +196,11 @@ class TestOllamaStreamConversion:
         assert parsed[0][0] == "content_block_start"
 
         # Should have text deltas
-        texts = [d["delta"]["text"] for _, d in parsed
-                 if d.get("delta", {}).get("type") == "text_delta"]
+        texts = [
+            d["delta"]["text"]
+            for _, d in parsed
+            if d.get("delta", {}).get("type") == "text_delta"
+        ]
         assert "Hello" in texts
         assert " there" in texts
 
@@ -205,12 +214,14 @@ class TestOllamaStreamConversion:
             "message": {
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [{
-                    "function": {
-                        "name": "get_weather",
-                        "arguments": {"location": "London"},
-                    },
-                }],
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": {"location": "London"},
+                        },
+                    }
+                ],
             },
             "done": True,
             "eval_count": 10,
@@ -230,9 +241,18 @@ class TestOllamaStreamConversion:
     def test_token_counts_from_done(self):
         state = StreamState("ollama/llama3")
         chunks = [
-            {"model": "llama3", "message": {"role": "assistant", "content": "Hi"}, "done": False},
-            {"model": "llama3", "message": {"role": "assistant", "content": ""}, "done": True,
-             "eval_count": 42, "prompt_eval_count": 100},
+            {
+                "model": "llama3",
+                "message": {"role": "assistant", "content": "Hi"},
+                "done": False,
+            },
+            {
+                "model": "llama3",
+                "message": {"role": "assistant", "content": ""},
+                "done": True,
+                "eval_count": 42,
+                "prompt_eval_count": 100,
+            },
         ]
         for chunk in chunks:
             ollama_chunk_to_anthropic_events(chunk, state)

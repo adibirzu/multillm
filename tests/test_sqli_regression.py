@@ -36,11 +36,14 @@ def authed_client(monkeypatch):
     # Reload auth + gateway so the env var is picked up.
     import importlib
     import multillm.auth as auth_mod
+
     importlib.reload(auth_mod)
     import multillm.gateway as gateway_mod
+
     importlib.reload(gateway_mod)
 
     from fastapi.testclient import TestClient
+
     with TestClient(gateway_mod.app) as client:
         yield client
 
@@ -63,7 +66,9 @@ def test_injection_bearer_returns_401(authed_client, bearer: str) -> None:
     )
 
 
-def test_drop_table_does_not_drop_api_keys(authed_client, tmp_path: Path, monkeypatch) -> None:
+def test_drop_table_does_not_drop_api_keys(
+    authed_client, tmp_path: Path, monkeypatch
+) -> None:
     """AUTH-16: the DROP TABLE injection vector must not cascade to a DDL execution."""
     # Run the malicious DROP request — it should be 401 (auth gate).
     response = authed_client.post(
@@ -82,6 +87,7 @@ def test_drop_table_does_not_drop_api_keys(authed_client, tmp_path: Path, monkey
     db = tmp_path / "verify.db"
     monkeypatch.setenv("MULTILLM_DB_PATH", str(db))
     from multillm.migrations.runner import migrate_up
+
     migrate_up()
 
     conn = sqlite3.connect(db)
@@ -91,4 +97,6 @@ def test_drop_table_does_not_drop_api_keys(authed_client, tmp_path: Path, monkey
         ).fetchone()
     finally:
         conn.close()
-    assert row is not None, "api_keys table missing after migration — DROP injection contract broken"
+    assert row is not None, (
+        "api_keys table missing after migration — DROP injection contract broken"
+    )

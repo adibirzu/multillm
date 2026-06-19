@@ -18,6 +18,7 @@ from typing import Optional
 
 # ── Message Conversion ──────────────────────────────────────────────────────
 
+
 def anthropic_messages_to_openai(
     messages: list[dict],
     system: Optional[str | list] = None,
@@ -28,7 +29,9 @@ def anthropic_messages_to_openai(
     # System prompt
     if system:
         if isinstance(system, list):
-            system = " ".join(p.get("text", "") for p in system if p.get("type") == "text")
+            system = " ".join(
+                p.get("text", "") for p in system if p.get("type") == "text"
+            )
         out.append({"role": "system", "content": system})
 
     for m in messages:
@@ -55,36 +58,44 @@ def anthropic_messages_to_openai(
                     text_parts.append(block.get("text", ""))
 
                 elif btype == "tool_use":
-                    tool_calls.append({
-                        "id": block.get("id", f"call_{uuid.uuid4().hex[:24]}"),
-                        "type": "function",
-                        "function": {
-                            "name": block["name"],
-                            "arguments": json.dumps(block.get("input", {})),
-                        },
-                    })
+                    tool_calls.append(
+                        {
+                            "id": block.get("id", f"call_{uuid.uuid4().hex[:24]}"),
+                            "type": "function",
+                            "function": {
+                                "name": block["name"],
+                                "arguments": json.dumps(block.get("input", {})),
+                            },
+                        }
+                    )
 
                 elif btype == "tool_result":
                     result_content = block.get("content", "")
                     if isinstance(result_content, list):
                         result_content = "\n".join(
-                            p.get("text", "") for p in result_content if p.get("type") == "text"
+                            p.get("text", "")
+                            for p in result_content
+                            if p.get("type") == "text"
                         )
-                    tool_results.append({
-                        "role": "tool",
-                        "tool_call_id": block.get("tool_use_id", ""),
-                        "content": str(result_content),
-                    })
+                    tool_results.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": block.get("tool_use_id", ""),
+                            "content": str(result_content),
+                        }
+                    )
 
                 elif btype == "image":
                     source = block.get("source", {})
                     if source.get("type") == "base64":
-                        image_parts.append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{source.get('media_type', 'image/png')};base64,{source.get('data', '')}",
-                            },
-                        })
+                        image_parts.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{source.get('media_type', 'image/png')};base64,{source.get('data', '')}",
+                                },
+                            }
+                        )
 
             # Emit assistant message with tool_calls
             if role == "assistant" and tool_calls:
@@ -139,12 +150,14 @@ def openai_response_to_anthropic(response: dict, model_alias: str) -> dict:
             input_data = json.loads(func.get("arguments", "{}"))
         except json.JSONDecodeError:
             input_data = {"raw": func.get("arguments", "")}
-        content_blocks.append({
-            "type": "tool_use",
-            "id": tc.get("id", f"toolu_{uuid.uuid4().hex[:24]}"),
-            "name": func.get("name", "unknown"),
-            "input": input_data,
-        })
+        content_blocks.append(
+            {
+                "type": "tool_use",
+                "id": tc.get("id", f"toolu_{uuid.uuid4().hex[:24]}"),
+                "name": func.get("name", "unknown"),
+                "input": input_data,
+            }
+        )
 
     if not content_blocks:
         content_blocks.append({"type": "text", "text": ""})
@@ -173,22 +186,28 @@ def openai_response_to_anthropic(response: dict, model_alias: str) -> dict:
 
 # ── Tool Definition Conversion ──────────────────────────────────────────────
 
+
 def anthropic_tools_to_openai(tools: list[dict]) -> list[dict]:
     """Convert Anthropic tool definitions to OpenAI function-calling format."""
     oai_tools = []
     for tool in tools:
-        oai_tools.append({
-            "type": "function",
-            "function": {
-                "name": tool["name"],
-                "description": tool.get("description", ""),
-                "parameters": tool.get("input_schema", {"type": "object", "properties": {}}),
-            },
-        })
+        oai_tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get(
+                        "input_schema", {"type": "object", "properties": {}}
+                    ),
+                },
+            }
+        )
     return oai_tools
 
 
 # ── Payload Builders ────────────────────────────────────────────────────────
+
 
 def build_openai_payload(body: dict, model: str) -> dict:
     """Build OpenAI-compatible payload from Anthropic request body."""
@@ -255,6 +274,7 @@ def build_ollama_payload(body: dict, model: str) -> dict:
 
 # ── Response Builders ───────────────────────────────────────────────────────
 
+
 def make_anthropic_response(
     text: str,
     model: str,
@@ -288,18 +308,23 @@ def extract_text_from_anthropic(body: dict) -> str:
     system = body.get("system")
     if system:
         if isinstance(system, list):
-            system = " ".join(p.get("text", "") for p in system if p.get("type") == "text")
+            system = " ".join(
+                p.get("text", "") for p in system if p.get("type") == "text"
+            )
         parts.append(system)
     for m in body.get("messages", []):
         content = m.get("content", "")
         if isinstance(content, list):
-            content = "\n".join(p.get("text", "") for p in content if p.get("type") == "text")
+            content = "\n".join(
+                p.get("text", "") for p in content if p.get("type") == "text"
+            )
         if content:
             parts.append(content)
     return "\n\n".join(parts)
 
 
 # ── Streaming Event Conversion ──────────────────────────────────────────────
+
 
 class StreamState:
     """Tracks state during streaming conversion."""
@@ -333,22 +358,27 @@ def anthropic_sse_event(event_type: str, data: dict) -> str:
 
 def make_message_start_event(state: StreamState) -> str:
     """Create the message_start SSE event."""
-    return anthropic_sse_event("message_start", {
-        "type": "message_start",
-        "message": {
-            "id": state.msg_id,
-            "type": "message",
-            "role": "assistant",
-            "content": [],
-            "model": state.model,
-            "stop_reason": None,
-            "stop_sequence": None,
-            "usage": {"input_tokens": state.input_tokens, "output_tokens": 0},
+    return anthropic_sse_event(
+        "message_start",
+        {
+            "type": "message_start",
+            "message": {
+                "id": state.msg_id,
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": state.model,
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": state.input_tokens, "output_tokens": 0},
+            },
         },
-    })
+    )
 
 
-def make_content_block_start_event(index: int, block_type: str = "text", **kwargs) -> str:
+def make_content_block_start_event(
+    index: int, block_type: str = "text", **kwargs
+) -> str:
     """Create a content_block_start SSE event."""
     block: dict = {"type": block_type}
     if block_type == "text":
@@ -357,46 +387,61 @@ def make_content_block_start_event(index: int, block_type: str = "text", **kwarg
         block["id"] = kwargs.get("id", f"toolu_{uuid.uuid4().hex[:24]}")
         block["name"] = kwargs.get("name", "")
         block["input"] = {}
-    return anthropic_sse_event("content_block_start", {
-        "type": "content_block_start",
-        "index": index,
-        "content_block": block,
-    })
+    return anthropic_sse_event(
+        "content_block_start",
+        {
+            "type": "content_block_start",
+            "index": index,
+            "content_block": block,
+        },
+    )
 
 
 def make_text_delta_event(index: int, text: str) -> str:
     """Create a content_block_delta SSE event for text."""
-    return anthropic_sse_event("content_block_delta", {
-        "type": "content_block_delta",
-        "index": index,
-        "delta": {"type": "text_delta", "text": text},
-    })
+    return anthropic_sse_event(
+        "content_block_delta",
+        {
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {"type": "text_delta", "text": text},
+        },
+    )
 
 
 def make_tool_input_delta_event(index: int, partial_json: str) -> str:
     """Create a content_block_delta SSE event for tool input."""
-    return anthropic_sse_event("content_block_delta", {
-        "type": "content_block_delta",
-        "index": index,
-        "delta": {"type": "input_json_delta", "partial_json": partial_json},
-    })
+    return anthropic_sse_event(
+        "content_block_delta",
+        {
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {"type": "input_json_delta", "partial_json": partial_json},
+        },
+    )
 
 
 def make_content_block_stop_event(index: int) -> str:
     """Create a content_block_stop SSE event."""
-    return anthropic_sse_event("content_block_stop", {
-        "type": "content_block_stop",
-        "index": index,
-    })
+    return anthropic_sse_event(
+        "content_block_stop",
+        {
+            "type": "content_block_stop",
+            "index": index,
+        },
+    )
 
 
 def make_message_delta_event(stop_reason: str, output_tokens: int) -> str:
     """Create the message_delta SSE event."""
-    return anthropic_sse_event("message_delta", {
-        "type": "message_delta",
-        "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-        "usage": {"output_tokens": output_tokens},
-    })
+    return anthropic_sse_event(
+        "message_delta",
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+            "usage": {"output_tokens": output_tokens},
+        },
+    )
 
 
 def make_message_stop_event() -> str:
@@ -447,19 +492,23 @@ def openai_chunk_to_anthropic_events(chunk: dict, state: StreamState) -> list[st
                 "name": tool_name,
                 "arguments": "",
             }
-            events.append(make_content_block_start_event(
-                state.current_block_index,
-                "tool_use",
-                id=tool_id,
-                name=tool_name,
-            ))
+            events.append(
+                make_content_block_start_event(
+                    state.current_block_index,
+                    "tool_use",
+                    id=tool_id,
+                    name=tool_name,
+                )
+            )
             state.content_started = True
 
         # Accumulate arguments
         args_chunk = func.get("arguments", "")
         if args_chunk:
             state.active_tool_calls[tc_index]["arguments"] += args_chunk
-            events.append(make_tool_input_delta_event(state.current_block_index, args_chunk))
+            events.append(
+                make_tool_input_delta_event(state.current_block_index, args_chunk)
+            )
             state.output_tokens += max(1, len(args_chunk) // 4)
 
     # Finish
@@ -467,7 +516,11 @@ def openai_chunk_to_anthropic_events(chunk: dict, state: StreamState) -> list[st
         if state.content_started:
             events.append(make_content_block_stop_event(state.current_block_index))
 
-        stop_map = {"stop": "end_turn", "length": "max_tokens", "tool_calls": "tool_use"}
+        stop_map = {
+            "stop": "end_turn",
+            "length": "max_tokens",
+            "tool_calls": "tool_use",
+        }
         stop = stop_map.get(finish_reason, finish_reason)
         events.append(make_message_delta_event(stop, state.output_tokens))
         events.append(make_message_stop_event())
@@ -504,10 +557,14 @@ def ollama_chunk_to_anthropic_events(chunk: dict, state: StreamState) -> list[st
             state.current_block_index += 1
 
         tool_id = f"toolu_{uuid.uuid4().hex[:24]}"
-        events.append(make_content_block_start_event(
-            state.current_block_index, "tool_use",
-            id=tool_id, name=func.get("name", ""),
-        ))
+        events.append(
+            make_content_block_start_event(
+                state.current_block_index,
+                "tool_use",
+                id=tool_id,
+                name=func.get("name", ""),
+            )
+        )
         args_json = json.dumps(func.get("arguments", {}))
         events.append(make_tool_input_delta_event(state.current_block_index, args_json))
         events.append(make_content_block_stop_event(state.current_block_index))

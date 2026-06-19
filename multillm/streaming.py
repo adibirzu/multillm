@@ -12,7 +12,6 @@ import json
 import logging
 from typing import AsyncIterator, Optional
 
-import httpx
 from starlette.responses import StreamingResponse
 
 from .http_pool import get_client
@@ -24,7 +23,6 @@ from .converters import (
     make_ping_event,
     openai_chunk_to_anthropic_events,
     ollama_chunk_to_anthropic_events,
-    anthropic_messages_to_openai,
 )
 
 log = logging.getLogger("multillm.streaming")
@@ -38,6 +36,7 @@ ANTHROPIC_SSE_HEADERS = {
 
 
 # ── OpenAI-compatible streaming ─────────────────────────────────────────────
+
 
 async def stream_openai_compat(
     base_url: str,
@@ -85,10 +84,13 @@ async def stream_openai_compat(
                 for event in openai_chunk_to_anthropic_events(chunk, state):
                     yield event
 
-    return StreamingResponse(generate(), media_type="text/event-stream", headers=ANTHROPIC_SSE_HEADERS)
+    return StreamingResponse(
+        generate(), media_type="text/event-stream", headers=ANTHROPIC_SSE_HEADERS
+    )
 
 
 # ── Ollama streaming ────────────────────────────────────────────────────────
+
 
 async def stream_ollama(
     ollama_url: str,
@@ -123,10 +125,13 @@ async def stream_ollama(
                 for event in ollama_chunk_to_anthropic_events(chunk, state):
                     yield event
 
-    return StreamingResponse(generate(), media_type="text/event-stream", headers=ANTHROPIC_SSE_HEADERS)
+    return StreamingResponse(
+        generate(), media_type="text/event-stream", headers=ANTHROPIC_SSE_HEADERS
+    )
 
 
 # ── Anthropic passthrough streaming ─────────────────────────────────────────
+
 
 async def stream_anthropic_passthrough(
     api_key: str,
@@ -155,10 +160,13 @@ async def stream_anthropic_passthrough(
                 else:
                     yield "\n"
 
-    return StreamingResponse(generate(), media_type="text/event-stream", headers=ANTHROPIC_SSE_HEADERS)
+    return StreamingResponse(
+        generate(), media_type="text/event-stream", headers=ANTHROPIC_SSE_HEADERS
+    )
 
 
 # ── Gemini streaming ────────────────────────────────────────────────────────
+
 
 async def stream_gemini(
     api_key: str,
@@ -167,9 +175,14 @@ async def stream_gemini(
     model_alias: str,
 ) -> StreamingResponse:
     """Stream from Gemini via the google-genai SDK (synchronous iteration wrapped in async)."""
-    from .converters import extract_text_from_anthropic, make_content_block_start_event, \
-        make_text_delta_event, make_content_block_stop_event, make_message_delta_event, \
-        make_message_stop_event
+    from .converters import (
+        extract_text_from_anthropic,
+        make_content_block_start_event,
+        make_text_delta_event,
+        make_content_block_stop_event,
+        make_message_delta_event,
+        make_message_stop_event,
+    )
 
     prompt = extract_text_from_anthropic(body)
 
@@ -219,4 +232,6 @@ async def stream_gemini(
         yield make_message_delta_event("end_turn", state.output_tokens)
         yield make_message_stop_event()
 
-    return StreamingResponse(generate(), media_type="text/event-stream", headers=ANTHROPIC_SSE_HEADERS)
+    return StreamingResponse(
+        generate(), media_type="text/event-stream", headers=ANTHROPIC_SSE_HEADERS
+    )

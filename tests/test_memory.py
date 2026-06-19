@@ -2,16 +2,24 @@
 # Copyright 2026 MultiLLM contributors
 
 """Tests for the memory module."""
-import pytest
+
 from multillm.memory import (
-    store_memory, search_memory, list_memories, get_memory, delete_memory,
-    share_context, get_shared_context,
-    get_settings, get_setting, set_setting, update_settings, delete_setting,
+    store_memory,
+    search_memory,
+    list_memories,
+    get_memory,
+    delete_memory,
+    share_context,
+    get_shared_context,
+    get_settings,
+    get_setting,
+    set_setting,
+    update_settings,
+    delete_setting,
 )
 
 
 class TestMemoryCRUD:
-
     def test_store_and_get(self):
         mem_id = store_memory(
             title="Test Memory",
@@ -45,11 +53,13 @@ class TestMemoryCRUD:
     def test_list_memories(self):
         ids = []
         for i in range(3):
-            ids.append(store_memory(
-                title=f"List Test {i}",
-                content=f"Content {i}",
-                project="list-test",
-            ))
+            ids.append(
+                store_memory(
+                    title=f"List Test {i}",
+                    content=f"Content {i}",
+                    project="list-test",
+                )
+            )
 
         results = list_memories(project="list-test")
         assert len(results) >= 3
@@ -59,8 +69,12 @@ class TestMemoryCRUD:
             delete_memory(mid)
 
     def test_list_memories_filter_category(self):
-        m1 = store_memory(title="Cat A", content="content", category="decision", project="cat-test")
-        m2 = store_memory(title="Cat B", content="content", category="finding", project="cat-test")
+        m1 = store_memory(
+            title="Cat A", content="content", category="decision", project="cat-test"
+        )
+        m2 = store_memory(
+            title="Cat B", content="content", category="finding", project="cat-test"
+        )
 
         decisions = list_memories(project="cat-test", category="decision")
         assert all(r["category"] == "decision" for r in decisions)
@@ -70,7 +84,6 @@ class TestMemoryCRUD:
 
 
 class TestMemorySearch:
-
     def test_search_basic(self):
         mem_id = store_memory(
             title="Kubernetes Deployment",
@@ -89,8 +102,12 @@ class TestMemorySearch:
         assert len(results) == 0
 
     def test_search_across_projects(self):
-        m1 = store_memory(title="Python Testing", content="pytest framework", project="proj-a")
-        m2 = store_memory(title="Python Linting", content="ruff linter", project="proj-b")
+        m1 = store_memory(
+            title="Python Testing", content="pytest framework", project="proj-a"
+        )
+        m2 = store_memory(
+            title="Python Linting", content="ruff linter", project="proj-b"
+        )
 
         # Search across all projects
         results = search_memory("python")
@@ -101,7 +118,6 @@ class TestMemorySearch:
 
 
 class TestSharedContext:
-
     def test_share_and_get_context(self):
         ctx_id = share_context(
             session_id="sess-123",
@@ -144,7 +160,6 @@ class TestSharedContext:
 
 
 class TestSettings:
-
     def test_get_defaults(self):
         settings = get_settings()
         assert "default_model" in settings
@@ -192,10 +207,18 @@ class TestTenantIsolation:
     """Hard per-tenant scoping (devvm Phase 2): writes are tagged, reads are filtered."""
 
     def test_search_filters_by_tenant(self):
-        a = store_memory(title="alpha note", content="ztok_isolated alpha body",
-                         project="p", tenant_id="alice")
-        b = store_memory(title="beta note", content="ztok_isolated beta body",
-                         project="p", tenant_id="bob")
+        a = store_memory(
+            title="alpha note",
+            content="ztok_isolated alpha body",
+            project="p",
+            tenant_id="alice",
+        )
+        b = store_memory(
+            title="beta note",
+            content="ztok_isolated beta body",
+            project="p",
+            tenant_id="bob",
+        )
         try:
             alice = search_memory("ztok_isolated", tenant_id="alice")
             ids = {r["id"] for r in alice}
@@ -205,7 +228,8 @@ class TestTenantIsolation:
             ids = {r["id"] for r in bob}
             assert b in ids and a not in ids
         finally:
-            delete_memory(a); delete_memory(b)
+            delete_memory(a)
+            delete_memory(b)
 
     def test_no_tenant_sees_all(self):
         a = store_memory(title="x", content="ztok_shared aa", tenant_id="alice")
@@ -214,16 +238,24 @@ class TestTenantIsolation:
             ids = {r["id"] for r in search_memory("ztok_shared")}  # no tenant filter
             assert a in ids and b in ids
         finally:
-            delete_memory(a); delete_memory(b)
+            delete_memory(a)
+            delete_memory(b)
 
     def test_list_filters_by_tenant(self):
-        a = store_memory(title="ztl alice", content="c", project="ztlproj", tenant_id="alice")
-        b = store_memory(title="ztl bob", content="c", project="ztlproj", tenant_id="bob")
+        a = store_memory(
+            title="ztl alice", content="c", project="ztlproj", tenant_id="alice"
+        )
+        b = store_memory(
+            title="ztl bob", content="c", project="ztlproj", tenant_id="bob"
+        )
         try:
-            names = {m["title"] for m in list_memories(project="ztlproj", tenant_id="alice")}
+            names = {
+                m["title"] for m in list_memories(project="ztlproj", tenant_id="alice")
+            }
             assert "ztl alice" in names and "ztl bob" not in names
         finally:
-            delete_memory(a); delete_memory(b)
+            delete_memory(a)
+            delete_memory(b)
 
     def test_default_tenant_when_unset(self):
         mem_id = store_memory(title="d", content="ztok_default body")

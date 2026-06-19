@@ -13,7 +13,7 @@ Provides read-only access to:
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -28,11 +28,11 @@ PROJECTS_FILE = GEMINI_DIR / "projects.json"
 # Google Gemini API pricing per 1M tokens (USD) — source: ai.google.dev/pricing (March 2026)
 # Gemini CLI uses Gemini 2.5 Pro by default
 GEMINI_PRICING: dict[str, dict[str, float]] = {
-    "gemini-2.5-pro":   {"input": 1.25, "output": 10.0, "cached_input": 0.3125},
+    "gemini-2.5-pro": {"input": 1.25, "output": 10.0, "cached_input": 0.3125},
     "gemini-2.5-flash": {"input": 0.15, "output": 0.60, "cached_input": 0.0375},
     "gemini-2.0-flash": {"input": 0.10, "output": 0.40, "cached_input": 0.025},
     # Default for Gemini CLI (typically 2.5 Pro)
-    "default":          {"input": 1.25, "output": 10.0, "cached_input": 0.3125},
+    "default": {"input": 1.25, "output": 10.0, "cached_input": 0.3125},
 }
 
 
@@ -77,6 +77,7 @@ def _resolve_project_name(proj_hash: str, project_map: dict[str, str]) -> str:
     for path, name in project_map.items():
         # Gemini CLI uses hash of project path for tmp dirs
         import hashlib
+
         path_hash = hashlib.sha256(path.encode()).hexdigest()
         if path_hash == proj_hash:
             return name
@@ -96,7 +97,9 @@ def _estimate_cost(input_tokens: int, output_tokens: int, cached_tokens: int) ->
 
 
 @ttl_cache(seconds=15.0, maxsize=128)
-def get_gemini_stats(hours: Optional[int] = None, project: Optional[str] = None) -> dict:
+def get_gemini_stats(
+    hours: Optional[int] = None, project: Optional[str] = None
+) -> dict:
     """Get comprehensive Gemini CLI usage stats."""
     if not SESSIONS_DIR.exists():
         return {"available": False, "error": "Gemini CLI sessions dir not found"}
@@ -168,22 +171,24 @@ def get_gemini_stats(hours: Optional[int] = None, project: Optional[str] = None)
 
         cost = _estimate_cost(ses_input, ses_output, ses_cached)
 
-        sessions.append({
-            "sessionId": data.get("sessionId", fname),
-            "project": project_name,
-            "projectHash": proj_dir,
-            "model": session_model,
-            "date": session_date,
-            "startTime": start_time,
-            "lastUpdated": last_updated,
-            "messageCount": msg_count,
-            "inputTokens": ses_input,
-            "outputTokens": ses_output,
-            "cachedTokens": ses_cached,
-            "thoughtTokens": ses_thoughts,
-            "totalTokens": ses_input + ses_output,
-            "estimatedCostUSD": round(cost, 4),
-        })
+        sessions.append(
+            {
+                "sessionId": data.get("sessionId", fname),
+                "project": project_name,
+                "projectHash": proj_dir,
+                "model": session_model,
+                "date": session_date,
+                "startTime": start_time,
+                "lastUpdated": last_updated,
+                "messageCount": msg_count,
+                "inputTokens": ses_input,
+                "outputTokens": ses_output,
+                "cachedTokens": ses_cached,
+                "thoughtTokens": ses_thoughts,
+                "totalTokens": ses_input + ses_output,
+                "estimatedCostUSD": round(cost, 4),
+            }
+        )
 
         total_input += ses_input
         total_output += ses_output
@@ -193,8 +198,12 @@ def get_gemini_stats(hours: Optional[int] = None, project: Optional[str] = None)
         # Aggregate by project
         if project_name not in by_project:
             by_project[project_name] = {
-                "sessions": 0, "inputTokens": 0, "outputTokens": 0,
-                "cachedTokens": 0, "totalTokens": 0, "costUSD": 0.0,
+                "sessions": 0,
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "cachedTokens": 0,
+                "totalTokens": 0,
+                "costUSD": 0.0,
             }
         agg = by_project[project_name]
         agg["sessions"] += 1
@@ -228,9 +237,13 @@ def get_gemini_stats(hours: Optional[int] = None, project: Optional[str] = None)
         if session_date:
             if session_date not in daily:
                 daily[session_date] = {
-                    "date": session_date, "sessions": 0,
-                    "inputTokens": 0, "outputTokens": 0,
-                    "cachedTokens": 0, "totalTokens": 0, "costUSD": 0.0,
+                    "date": session_date,
+                    "sessions": 0,
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "totalTokens": 0,
+                    "costUSD": 0.0,
                 }
             day = daily[session_date]
             day["sessions"] += 1

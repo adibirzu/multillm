@@ -202,7 +202,9 @@ def build_llm_observability_summary(
     today_value = today or date.today()
 
     gateway_totals = gateway_stats.get("totals", {}) or {}
-    gateway_tokens = int(gateway_totals.get("total_input", 0) or 0) + int(gateway_totals.get("total_output", 0) or 0)
+    gateway_tokens = int(gateway_totals.get("total_input", 0) or 0) + int(
+        gateway_totals.get("total_output", 0) or 0
+    )
     gateway_requests = int(gateway_totals.get("total_requests", 0) or 0)
 
     claude_available = bool(claude_stats.get("available"))
@@ -259,7 +261,9 @@ def build_llm_observability_summary(
         },
         "claude_code": {
             "available": claude_available,
-            "status": "active" if claude_available and claude_tokens > 0 else ("idle" if claude_available else "unavailable"),
+            "status": "active"
+            if claude_available and claude_tokens > 0
+            else ("idle" if claude_available else "unavailable"),
             "usedTokens": claude_tokens,
             "sessions": int(claude_stats.get("totalSessions", 0) or 0),
             "messages": int(claude_stats.get("totalMessages", 0) or 0),
@@ -306,11 +310,15 @@ def build_llm_observability_summary(
             available=gemini_available,
             sessions=gemini_sessions,
             model=gemini_stats.get("model", ""),
-            estimatedCostUSD=round(float(gemini_stats.get("totalEstimatedCostUSD", 0) or 0), 4),
+            estimatedCostUSD=round(
+                float(gemini_stats.get("totalEstimatedCostUSD", 0) or 0), 4
+            ),
         ),
     ]
 
-    for limit_key, aggregate in sorted(claude_family_usage.items(), key=lambda item: item[1]["label"]):
+    for limit_key, aggregate in sorted(
+        claude_family_usage.items(), key=lambda item: item[1]["label"]
+    ):
         limit_items.append(
             _build_limit_item(
                 item_id=limit_key,
@@ -326,16 +334,22 @@ def build_llm_observability_summary(
         )
 
     model_items = []
-    for model, aggregate in sorted(claude_model_usage.items(), key=lambda item: item[0]):
+    for model, aggregate in sorted(
+        claude_model_usage.items(), key=lambda item: item[0]
+    ):
         family_limit = limits.get(aggregate["limitKey"], 0)
-        family_used = claude_family_usage.get(aggregate["limitKey"], {}).get("usedTokens", 0)
+        family_used = claude_family_usage.get(aggregate["limitKey"], {}).get(
+            "usedTokens", 0
+        )
         model_items.append(
             _build_model_limit_item(
                 source="claude_code",
                 model=model,
                 used_tokens=aggregate["usedTokens"],
                 limit_tokens=family_limit,
-                remaining_tokens=max(0, family_limit - family_used) if family_limit > 0 else None,
+                remaining_tokens=max(0, family_limit - family_used)
+                if family_limit > 0
+                else None,
                 available=claude_available,
                 scope="family",
                 shared_used_tokens=family_used,
@@ -343,9 +357,15 @@ def build_llm_observability_summary(
             )
         )
 
-    codex_remaining = max(0, limits["codex_cli_external"] - codex_external_tokens) if limits["codex_cli_external"] > 0 else None
+    codex_remaining = (
+        max(0, limits["codex_cli_external"] - codex_external_tokens)
+        if limits["codex_cli_external"] > 0
+        else None
+    )
     for model, aggregate in sorted(codex_by_model.items(), key=lambda item: item[0]):
-        external_tokens = int(aggregate.get("externalTokens", aggregate.get("tokens", 0)) or 0)
+        external_tokens = int(
+            aggregate.get("externalTokens", aggregate.get("tokens", 0)) or 0
+        )
         providers = aggregate.get("providers", [])
         if external_tokens > 0:
             model_items.append(
@@ -363,7 +383,11 @@ def build_llm_observability_summary(
                 )
             )
 
-    gemini_remaining = max(0, limits["gemini_cli"] - gemini_tokens) if limits["gemini_cli"] > 0 else None
+    gemini_remaining = (
+        max(0, limits["gemini_cli"] - gemini_tokens)
+        if limits["gemini_cli"] > 0
+        else None
+    )
     for model, aggregate in sorted(gemini_by_model.items(), key=lambda item: item[0]):
         model_items.append(
             _build_model_limit_item(
@@ -381,7 +405,13 @@ def build_llm_observability_summary(
         )
 
     limit_items.sort(key=lambda item: (item["source"], item["label"]))
-    model_items.sort(key=lambda item: (item["source"], -int(item.get("usedTokens", 0) or 0), item["model"]))
+    model_items.sort(
+        key=lambda item: (
+            item["source"],
+            -int(item.get("usedTokens", 0) or 0),
+            item["model"],
+        )
+    )
 
     return {
         "statusBySource": status_by_source,

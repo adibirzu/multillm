@@ -25,7 +25,11 @@ log = logging.getLogger("multillm.auth")
 # Load API key from env. If not set, auth is disabled (open mode).
 API_KEY = os.getenv("MULTILLM_API_KEY", "")
 
-PUBLIC_DASHBOARD_API = os.getenv("MULTILLM_PUBLIC_DASHBOARD_API", "false").lower() in ("true", "1", "yes")
+PUBLIC_DASHBOARD_API = os.getenv("MULTILLM_PUBLIC_DASHBOARD_API", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 PUBLIC_EXACT_PATHS = {"/", "/health", "/dashboard"}
 PUBLIC_PREFIXES = ("/static/",)
 OPTIONAL_PUBLIC_READONLY_API_PREFIXES = (
@@ -72,9 +76,13 @@ def _is_public_request(request: Request) -> bool:
         return True
     if any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
         return True
-    if PUBLIC_DASHBOARD_API and request.method in SAFE_METHODS and any(
-        path == prefix or path.startswith(f"{prefix}/")
-        for prefix in OPTIONAL_PUBLIC_READONLY_API_PREFIXES
+    if (
+        PUBLIC_DASHBOARD_API
+        and request.method in SAFE_METHODS
+        and any(
+            path == prefix or path.startswith(f"{prefix}/")
+            for prefix in OPTIONAL_PUBLIC_READONLY_API_PREFIXES
+        )
     ):
         return True
     return False
@@ -83,7 +91,9 @@ def _is_public_request(request: Request) -> bool:
 class AuthMiddleware(BaseHTTPMiddleware):
     """Validates API key on protected endpoints when MULTILLM_API_KEY is set."""
 
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         if not API_KEY:
             return await call_next(request)
 
@@ -94,12 +104,25 @@ class AuthMiddleware(BaseHTTPMiddleware):
         provided = _extract_key(request)
         if not provided:
             path = request.url.path
-            log.warning("Auth: missing key for %s %s from %s", request.method, path, request.client.host if request.client else "unknown")
-            return JSONResponse(status_code=401, content={"detail": "API key required. Set X-API-Key header."})
+            log.warning(
+                "Auth: missing key for %s %s from %s",
+                request.method,
+                path,
+                request.client.host if request.client else "unknown",
+            )
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "API key required. Set X-API-Key header."},
+            )
 
         if not secrets.compare_digest(provided, API_KEY):
             path = request.url.path
-            log.warning("Auth: invalid key for %s %s from %s", request.method, path, request.client.host if request.client else "unknown")
+            log.warning(
+                "Auth: invalid key for %s %s from %s",
+                request.method,
+                path,
+                request.client.host if request.client else "unknown",
+            )
             # AUTH-16: invalid key returns 401, not 403. RFC 7235: 401 means
             # "you need credentials or yours don't work"; 403 is for "you have
             # credentials but lack permission". An invalid key is a 401.

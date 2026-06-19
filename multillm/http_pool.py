@@ -15,27 +15,27 @@ log = logging.getLogger("multillm.http_pool")
 
 # Backend-specific timeout profiles
 _PROFILES = {
-    "ollama":    httpx.Timeout(300.0, connect=5.0),   # local, large models can be slow
-    "lmstudio":  httpx.Timeout(120.0, connect=5.0),   # local
-    "openai":    httpx.Timeout(120.0, connect=10.0),   # cloud
+    "ollama": httpx.Timeout(300.0, connect=5.0),  # local, large models can be slow
+    "lmstudio": httpx.Timeout(120.0, connect=5.0),  # local
+    "openai": httpx.Timeout(120.0, connect=10.0),  # cloud
     "openrouter": httpx.Timeout(120.0, connect=10.0),
     "anthropic": httpx.Timeout(120.0, connect=10.0),
-    "gemini":    httpx.Timeout(120.0, connect=10.0),
-    "groq":      httpx.Timeout(60.0, connect=10.0),    # Groq is ultra-fast
-    "deepseek":  httpx.Timeout(120.0, connect=10.0),
-    "mistral":   httpx.Timeout(120.0, connect=10.0),
-    "together":  httpx.Timeout(120.0, connect=10.0),
-    "xai":       httpx.Timeout(120.0, connect=10.0),
+    "gemini": httpx.Timeout(120.0, connect=10.0),
+    "groq": httpx.Timeout(60.0, connect=10.0),  # Groq is ultra-fast
+    "deepseek": httpx.Timeout(120.0, connect=10.0),
+    "mistral": httpx.Timeout(120.0, connect=10.0),
+    "together": httpx.Timeout(120.0, connect=10.0),
+    "xai": httpx.Timeout(120.0, connect=10.0),
     "fireworks": httpx.Timeout(120.0, connect=10.0),
     "azure_openai": httpx.Timeout(120.0, connect=10.0),
-    "default":   httpx.Timeout(120.0, connect=10.0),
+    "default": httpx.Timeout(120.0, connect=10.0),
 }
 
 # Connection limits per backend
 _LIMITS = {
-    "ollama":   httpx.Limits(max_connections=20, max_keepalive_connections=10),
+    "ollama": httpx.Limits(max_connections=20, max_keepalive_connections=10),
     "lmstudio": httpx.Limits(max_connections=10, max_keepalive_connections=5),
-    "default":  httpx.Limits(max_connections=30, max_keepalive_connections=15),
+    "default": httpx.Limits(max_connections=30, max_keepalive_connections=15),
 }
 
 _clients: dict[str, httpx.AsyncClient] = {}

@@ -17,9 +17,14 @@ from contextlib import contextmanager
 from typing import Optional
 
 from .config import (
-    DATA_DIR, OTEL_ENABLED, OTEL_SERVICE_NAME,
-    OCI_APM_DOMAIN_ID, OCI_APM_DATA_KEY, OCI_APM_ENDPOINT,
-    OCI_APM_DATA_KEY_TYPE, OCI_APM_METRICS_ENABLED,
+    DATA_DIR,
+    OTEL_ENABLED,
+    OTEL_SERVICE_NAME,
+    OCI_APM_DOMAIN_ID,
+    OCI_APM_DATA_KEY,
+    OCI_APM_ENDPOINT,
+    OCI_APM_DATA_KEY_TYPE,
+    OCI_APM_METRICS_ENABLED,
 )
 
 
@@ -34,11 +39,18 @@ def _oci_apm_signal_endpoint(signal: str) -> str:
     traces to the bare base and rewrote metrics to a non-existent ``/metrics/``
     path, which returned 404 on every export.
     """
-    base = OCI_APM_ENDPOINT if OCI_APM_ENDPOINT.endswith("/") else OCI_APM_ENDPOINT + "/"
+    base = (
+        OCI_APM_ENDPOINT if OCI_APM_ENDPOINT.endswith("/") else OCI_APM_ENDPOINT + "/"
+    )
     if signal == "traces":
-        key_type = OCI_APM_DATA_KEY_TYPE if OCI_APM_DATA_KEY_TYPE in ("private", "public") else "private"
+        key_type = (
+            OCI_APM_DATA_KEY_TYPE
+            if OCI_APM_DATA_KEY_TYPE in ("private", "public")
+            else "private"
+        )
         return f"{base}{key_type}/v1/traces"
     return f"{base}v1/metrics"
+
 
 log = logging.getLogger("multillm.tracking")
 
@@ -48,23 +60,23 @@ DB_PATH = DATA_DIR / "usage.db"
 
 # Approximate cost per 1M tokens (USD) — for estimation only
 COST_TABLE = {
-    "ollama":       {"input": 0.0,    "output": 0.0},
-    "lmstudio":     {"input": 0.0,    "output": 0.0},
-    "codex_cli":    {"input": 0.0,    "output": 0.0},
-    "gemini_cli":   {"input": 0.0,    "output": 0.0},
-    "openrouter":   {"input": 2.50,   "output": 10.0},
-    "openai":       {"input": 2.50,   "output": 10.0},
-    "anthropic":    {"input": 3.0,    "output": 15.0},
-    "gemini":       {"input": 0.075,  "output": 0.30},   # Flash pricing
-    "groq":         {"input": 0.05,   "output": 0.08},   # Llama 70B pricing
-    "deepseek":     {"input": 0.27,   "output": 1.10},   # DeepSeek-V3
-    "mistral":      {"input": 2.0,    "output": 6.0},    # Mistral Large
-    "together":     {"input": 0.88,   "output": 0.88},   # Llama 70B Turbo
-    "xai":          {"input": 3.0,    "output": 15.0},   # Grok-3
-    "fireworks":    {"input": 0.90,   "output": 0.90},   # Llama 70B
-    "azure_openai": {"input": 2.50,   "output": 10.0},   # Same as OpenAI
-    "bedrock":      {"input": 3.0,    "output": 15.0},   # Claude Sonnet pricing
-    "oci_genai":    {"input": 0.10,   "output": 0.10},   # OCI GenAI (approx; Llama-class)
+    "ollama": {"input": 0.0, "output": 0.0},
+    "lmstudio": {"input": 0.0, "output": 0.0},
+    "codex_cli": {"input": 0.0, "output": 0.0},
+    "gemini_cli": {"input": 0.0, "output": 0.0},
+    "openrouter": {"input": 2.50, "output": 10.0},
+    "openai": {"input": 2.50, "output": 10.0},
+    "anthropic": {"input": 3.0, "output": 15.0},
+    "gemini": {"input": 0.075, "output": 0.30},  # Flash pricing
+    "groq": {"input": 0.05, "output": 0.08},  # Llama 70B pricing
+    "deepseek": {"input": 0.27, "output": 1.10},  # DeepSeek-V3
+    "mistral": {"input": 2.0, "output": 6.0},  # Mistral Large
+    "together": {"input": 0.88, "output": 0.88},  # Llama 70B Turbo
+    "xai": {"input": 3.0, "output": 15.0},  # Grok-3
+    "fireworks": {"input": 0.90, "output": 0.90},  # Llama 70B
+    "azure_openai": {"input": 2.50, "output": 10.0},  # Same as OpenAI
+    "bedrock": {"input": 3.0, "output": 15.0},  # Claude Sonnet pricing
+    "oci_genai": {"input": 0.10, "output": 0.10},  # OCI GenAI (approx; Llama-class)
 }
 
 
@@ -114,26 +126,36 @@ def _init_db(conn: sqlite3.Connection) -> None:
         conn.execute("SELECT session_id FROM usage LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE usage ADD COLUMN session_id TEXT")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_session ON usage(session_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_usage_session ON usage(session_id)"
+        )
     # AUTH-17: identifier-level ALTER TABLE statements written as literals
     # (no string interpolation into the SQL passed to .execute) so the
     # rg "execute\(.*f['\"]" gate stays clean.
     try:
         conn.execute("SELECT cache_read_input_tokens FROM usage LIMIT 1")
     except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE usage ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0")
+        conn.execute(
+            "ALTER TABLE usage ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0"
+        )
     try:
         conn.execute("SELECT cache_creation_input_tokens FROM usage LIMIT 1")
     except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE usage ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0")
+        conn.execute(
+            "ALTER TABLE usage ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0"
+        )
     try:
         conn.execute("SELECT total_cache_read_input_tokens FROM sessions LIMIT 1")
     except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE sessions ADD COLUMN total_cache_read_input_tokens INTEGER DEFAULT 0")
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN total_cache_read_input_tokens INTEGER DEFAULT 0"
+        )
     try:
         conn.execute("SELECT total_cache_creation_input_tokens FROM sessions LIMIT 1")
     except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE sessions ADD COLUMN total_cache_creation_input_tokens INTEGER DEFAULT 0")
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN total_cache_creation_input_tokens INTEGER DEFAULT 0"
+        )
     # Plan 02b-01 Task 2: backfill tenant_id onto pre-existing rows.
     # tracking.py owns its own usage.db (separate from multillm.db), so the
     # 0003_auth_tenancy alembic migration's backfill cannot reach this table.
@@ -142,15 +164,25 @@ def _init_db(conn: sqlite3.Connection) -> None:
     try:
         conn.execute("SELECT tenant_id FROM usage LIMIT 1")
     except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE usage ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
-        conn.execute("UPDATE usage SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''")
+        conn.execute(
+            "ALTER TABLE usage ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
+        )
+        conn.execute(
+            "UPDATE usage SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''"
+        )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_tenant ON usage(tenant_id)")
     try:
         conn.execute("SELECT tenant_id FROM sessions LIMIT 1")
     except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE sessions ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
-        conn.execute("UPDATE sessions SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_tenant ON sessions(tenant_id)")
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
+        )
+        conn.execute(
+            "UPDATE sessions SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_tenant ON sessions(tenant_id)"
+        )
 
 
 @contextmanager
@@ -169,7 +201,9 @@ def _get_db():
 SESSION_GAP_SECONDS = 300  # 5 minutes gap = new session
 
 # Per-project session tracking to prevent cross-project contamination
-_sessions: dict[str, tuple[str, float]] = {}  # project -> (session_id, last_request_time)
+_sessions: dict[
+    str, tuple[str, float]
+] = {}  # project -> (session_id, last_request_time)
 
 
 def _get_or_create_session(conn: sqlite3.Connection, project: str, now: float) -> str:
@@ -193,16 +227,27 @@ def _get_or_create_session(conn: sqlite3.Connection, project: str, now: float) -
     return session_id
 
 
-def _update_session(conn: sqlite3.Connection, session_id: str, model_alias: str,
-                    input_tokens: int, output_tokens: int,
-                    cache_read_input_tokens: int, cache_creation_input_tokens: int,
-                    cost: float, now: float) -> None:
+def _update_session(
+    conn: sqlite3.Connection,
+    session_id: str,
+    model_alias: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_input_tokens: int,
+    cache_creation_input_tokens: int,
+    cost: float,
+    now: float,
+) -> None:
     """Update session aggregates."""
     # Get current models_used
-    row = conn.execute("SELECT models_used FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    row = conn.execute(
+        "SELECT models_used FROM sessions WHERE id = ?", (session_id,)
+    ).fetchone()
     if row:
         try:
-            models = json.loads(row["models_used"] if isinstance(row["models_used"], str) else row[0])
+            models = json.loads(
+                row["models_used"] if isinstance(row["models_used"], str) else row[0]
+            )
         except (json.JSONDecodeError, TypeError):
             models = []
         if model_alias not in models:
@@ -219,9 +264,14 @@ def _update_session(conn: sqlite3.Connection, session_id: str, model_alias: str,
                 models_used = ?
             WHERE id = ?""",
             (
-                now, input_tokens, output_tokens,
-                cache_read_input_tokens, cache_creation_input_tokens,
-                cost, json.dumps(models), session_id,
+                now,
+                input_tokens,
+                output_tokens,
+                cache_read_input_tokens,
+                cache_creation_input_tokens,
+                cost,
+                json.dumps(models),
+                session_id,
             ),
         )
 
@@ -234,9 +284,8 @@ def _estimate_cost(
     cache_creation_input_tokens: int = 0,
 ) -> float:
     costs = COST_TABLE.get(backend, {"input": 0, "output": 0})
-    total = (
-        input_tokens * costs.get("input", 0)
-        + output_tokens * costs.get("output", 0)
+    total = input_tokens * costs.get("input", 0) + output_tokens * costs.get(
+        "output", 0
     )
     if backend == "anthropic":
         total += cache_read_input_tokens * 0.3
@@ -297,10 +346,15 @@ def record_usage(
             ),
         )
         _update_session(
-            conn, session_id, model_alias,
-            input_tokens, output_tokens,
-            cache_read_input_tokens, cache_creation_input_tokens,
-            cost, now,
+            conn,
+            session_id,
+            model_alias,
+            input_tokens,
+            output_tokens,
+            cache_read_input_tokens,
+            cache_creation_input_tokens,
+            cost,
+            now,
         )
     return usage_id
 
@@ -366,9 +420,10 @@ def update_streaming_usage(
     """Update a streaming usage record with actual token counts after stream completes."""
     if not usage_id:
         return
-    costs_backend = None
     with _get_db() as conn:
-        row = conn.execute("SELECT backend, session_id FROM usage WHERE id = ?", (usage_id,)).fetchone()
+        row = conn.execute(
+            "SELECT backend, session_id FROM usage WHERE id = ?", (usage_id,)
+        ).fetchone()
         if not row:
             return
         backend = row["backend"]
@@ -385,9 +440,12 @@ def update_streaming_usage(
                       cache_read_input_tokens = ?, cache_creation_input_tokens = ?, cost_estimate_usd = ?
                WHERE id = ?""",
             (
-                input_tokens, output_tokens,
-                cache_read_input_tokens, cache_creation_input_tokens,
-                cost, usage_id,
+                input_tokens,
+                output_tokens,
+                cache_read_input_tokens,
+                cache_creation_input_tokens,
+                cost,
+                usage_id,
             ),
         )
         if session_id:
@@ -400,12 +458,20 @@ def update_streaming_usage(
                     total_cost_usd = total_cost_usd + ?
                 WHERE id = ?""",
                 (
-                    input_tokens, output_tokens,
-                    cache_read_input_tokens, cache_creation_input_tokens,
-                    cost, session_id,
+                    input_tokens,
+                    output_tokens,
+                    cache_read_input_tokens,
+                    cache_creation_input_tokens,
+                    cost,
+                    session_id,
                 ),
             )
-    log.debug("Updated streaming usage %s: in=%d out=%d", usage_id, input_tokens, output_tokens)
+    log.debug(
+        "Updated streaming usage %s: in=%d out=%d",
+        usage_id,
+        input_tokens,
+        output_tokens,
+    )
 
 
 def get_recent_backend_latency(
@@ -441,6 +507,7 @@ def get_recent_backend_latency(
 
 # ── Session Queries ──────────────────────────────────────────────────────────
 
+
 def get_active_sessions() -> list[dict]:
     """Get sessions active within the last SESSION_GAP_SECONDS (5 min)."""
     cutoff = time.time() - SESSION_GAP_SECONDS
@@ -461,7 +528,9 @@ def get_active_sessions() -> list[dict]:
     return results
 
 
-def get_sessions(hours: int = 168, project: Optional[str] = None, limit: int = 50) -> list[dict]:
+def get_sessions(
+    hours: int = 168, project: Optional[str] = None, limit: int = 50
+) -> list[dict]:
     """Get recent sessions (default: last 7 days)."""
     since = time.time() - (hours * 3600)
     with _get_db() as conn:
@@ -487,7 +556,9 @@ def get_sessions(hours: int = 168, project: Optional[str] = None, limit: int = 5
 def get_session_detail(session_id: str) -> dict:
     """Get a session with all its requests."""
     with _get_db() as conn:
-        sess = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        sess = conn.execute(
+            "SELECT * FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
         if not sess:
             return {}
         requests = conn.execute(
@@ -523,7 +594,9 @@ def get_model_routing_stats(hours: int = 168, project: Optional[str] = None) -> 
                       AVG(latency_ms) as avg_latency_ms,
                       AVG(cost_estimate_usd) as avg_cost_usd,
                       SUM(CASE WHEN status LIKE '%error%' THEN 1 ELSE 0 END) * 1.0 / COUNT(*) as error_rate
-               FROM usage WHERE """ + where_clause + """
+               FROM usage WHERE """
+            + where_clause
+            + """
                GROUP BY model_alias, backend""",
             params,
         ).fetchall()
@@ -557,7 +630,8 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
                       COALESCE(SUM(cache_read_input_tokens), 0) as total_cache_read_input,
                       COALESCE(SUM(cache_creation_input_tokens), 0) as total_cache_creation_input,
                       COALESCE(SUM(cost_estimate_usd), 0) as total_cost
-               FROM usage WHERE """ + where_clause,
+               FROM usage WHERE """
+            + where_clause,
             params,
         ).fetchone()
 
@@ -570,7 +644,9 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
                       COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_input_tokens,
                       COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_input_tokens,
                       COALESCE(SUM(cost_estimate_usd), 0) as cost_usd
-               FROM usage WHERE """ + where_clause + """
+               FROM usage WHERE """
+            + where_clause
+            + """
                GROUP BY backend ORDER BY cost_usd DESC""",
             params,
         ).fetchall()
@@ -585,7 +661,9 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
                       COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_input_tokens,
                       COALESCE(SUM(cost_estimate_usd), 0) as cost_usd,
                       AVG(latency_ms) as avg_latency_ms
-               FROM usage WHERE """ + where_clause + """
+               FROM usage WHERE """
+            + where_clause
+            + """
                GROUP BY model_alias, backend ORDER BY requests DESC""",
             params,
         ).fetchall()
@@ -599,7 +677,9 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
                       COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_input_tokens,
                       COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_input_tokens,
                       COALESCE(SUM(cost_estimate_usd), 0) as cost_usd
-               FROM usage WHERE """ + where_clause + """
+               FROM usage WHERE """
+            + where_clause
+            + """
                GROUP BY day ORDER BY day ASC""",
             params,
         ).fetchall()
@@ -611,7 +691,8 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
             session_where += " AND project = ?"
             session_params.append(project)
         session_count = conn.execute(
-            "SELECT COUNT(*) FROM sessions WHERE " + session_where, session_params,
+            "SELECT COUNT(*) FROM sessions WHERE " + session_where,
+            session_params,
         ).fetchone()
 
         # Status breakdown — surfaces fallback/cache_hit/error/streaming mix that
@@ -619,7 +700,9 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
         by_status = conn.execute(
             """SELECT COALESCE(status, 'unknown') as status,
                       COUNT(*) as requests
-               FROM usage WHERE """ + where_clause + """
+               FROM usage WHERE """
+            + where_clause
+            + """
                GROUP BY status ORDER BY requests DESC""",
             params,
         ).fetchall()
@@ -628,7 +711,9 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
         recent_errors = conn.execute(
             """SELECT timestamp, model_alias, backend, status, error_message
                FROM usage
-               WHERE """ + where_clause + """
+               WHERE """
+            + where_clause
+            + """
                  AND (status = 'error' OR error_message IS NOT NULL)
                ORDER BY timestamp DESC LIMIT 20""",
             params,
@@ -650,7 +735,9 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
                       COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_input_tokens,
                       COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_input_tokens,
                       COALESCE(SUM(cost_estimate_usd), 0) as cost_usd
-               FROM usage WHERE """ + hourly_where + """
+               FROM usage WHERE """
+            + hourly_where
+            + """
                GROUP BY hour, backend ORDER BY hour ASC""",
             hourly_params,
         ).fetchall()
@@ -658,7 +745,9 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
     status_rows = [dict(r) for r in by_status]
     status_counts = {r["status"]: r["requests"] for r in status_rows}
     error_count = status_counts.get("error", 0)
-    fallback_count = sum(c for s, c in status_counts.items() if s.startswith("fallback"))
+    fallback_count = sum(
+        c for s, c in status_counts.items() if s.startswith("fallback")
+    )
 
     totals_dict = dict(totals) if totals else {}
     total_requests = totals_dict.get("total_requests", 0) or 0
@@ -681,10 +770,18 @@ def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict
             "billable_input_tokens": billable_input_tokens,
             "cache_read_input_tokens": total_cache_read,
             "cache_creation_input_tokens": total_cache_creation,
-            "avg_requests_per_session": (total_requests / session_total) if session_total else 0,
-            "avg_tokens_per_request": (total_tokens / total_requests) if total_requests else 0,
-            "avg_cost_per_request": (total_cost / total_requests) if total_requests else 0,
-            "avg_cost_per_1k_tokens": ((total_cost / total_tokens) * 1000) if total_tokens else 0,
+            "avg_requests_per_session": (total_requests / session_total)
+            if session_total
+            else 0,
+            "avg_tokens_per_request": (total_tokens / total_requests)
+            if total_requests
+            else 0,
+            "avg_cost_per_request": (total_cost / total_requests)
+            if total_requests
+            else 0,
+            "avg_cost_per_1k_tokens": ((total_cost / total_tokens) * 1000)
+            if total_tokens
+            else 0,
             "requests_per_hour": (total_requests / hours) if hours else 0,
             "tokens_per_hour": (total_tokens / hours) if hours else 0,
             "cost_per_hour": (total_cost / hours) if hours else 0,
@@ -724,9 +821,12 @@ def _build_otel_exporter_kwargs() -> dict:
         kwargs["headers"] = {
             "Authorization": f"dataKey {OCI_APM_DATA_KEY}",
         }
-        log.info("OCI APM configured: base=%s domain=%s key_type=%s",
-                 OCI_APM_ENDPOINT, OCI_APM_DOMAIN_ID[:30] + "..." if OCI_APM_DOMAIN_ID else "?",
-                 OCI_APM_DATA_KEY_TYPE)
+        log.info(
+            "OCI APM configured: base=%s domain=%s key_type=%s",
+            OCI_APM_ENDPOINT,
+            OCI_APM_DOMAIN_ID[:30] + "..." if OCI_APM_DOMAIN_ID else "?",
+            OCI_APM_DATA_KEY_TYPE,
+        )
     # Otherwise, fall back to standard OTEL_EXPORTER_OTLP_ENDPOINT env var
     return kwargs
 
@@ -749,20 +849,26 @@ def init_otel(app=None):
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.metrics import MeterProvider
         from opentelemetry.sdk.resources import Resource
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter,
+        )
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
         exporter_kwargs = _build_otel_exporter_kwargs()
 
-        resource = Resource.create({
-            "service.name": OTEL_SERVICE_NAME,
-            "service.version": "0.5.0",
-            # OCI APM uses these resource attributes for grouping
-            "deployment.environment": "production",
-            "service.namespace": "llm-coding",
-        })
+        resource = Resource.create(
+            {
+                "service.name": OTEL_SERVICE_NAME,
+                "service.version": "0.5.0",
+                # OCI APM uses these resource attributes for grouping
+                "deployment.environment": "production",
+                "service.namespace": "llm-coding",
+            }
+        )
 
         # Tracing — OCI APM needs the explicit /…/v1/traces path; a standard
         # OTLP collector derives it from the base endpoint env var itself.
@@ -783,7 +889,9 @@ def init_otel(app=None):
             if OCI_APM_ENDPOINT:
                 metrics_kwargs["endpoint"] = _oci_apm_signal_endpoint("metrics")
             metric_exporter = OTLPMetricExporter(**metrics_kwargs)
-            reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=30000)
+            reader = PeriodicExportingMetricReader(
+                metric_exporter, export_interval_millis=30000
+            )
             mp = MeterProvider(resource=resource, metric_readers=[reader])
             metrics.set_meter_provider(mp)
             _meter = metrics.get_meter("multillm")
@@ -814,12 +922,17 @@ def init_otel(app=None):
         if app:
             try:
                 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
                 FastAPIInstrumentor.instrument_app(app)
             except ImportError:
                 log.debug("FastAPI instrumentation not available")
 
         dest = "OCI APM (LLM-CODING)" if OCI_APM_ENDPOINT else "standard OTLP"
-        log.info("OpenTelemetry initialized (service=%s, destination=%s)", OTEL_SERVICE_NAME, dest)
+        log.info(
+            "OpenTelemetry initialized (service=%s, destination=%s)",
+            OTEL_SERVICE_NAME,
+            dest,
+        )
 
     except ImportError as e:
         log.warning("OpenTelemetry packages not available: %s", e)
@@ -838,12 +951,22 @@ def trace_llm_call(model_alias: str, backend: str, project: str):
     if _tracer:
         # Map backend to gen_ai.system value
         system_map = {
-            "anthropic": "anthropic", "openai": "openai", "gemini": "google",
-            "ollama": "ollama", "openrouter": "openrouter", "groq": "groq",
-            "deepseek": "deepseek", "mistral": "mistral", "together": "together",
-            "xai": "xai", "fireworks": "fireworks",
-            "azure_openai": "azure", "bedrock": "aws", "lmstudio": "lmstudio",
-            "codex_cli": "openai", "gemini_cli": "google",
+            "anthropic": "anthropic",
+            "openai": "openai",
+            "gemini": "google",
+            "ollama": "ollama",
+            "openrouter": "openrouter",
+            "groq": "groq",
+            "deepseek": "deepseek",
+            "mistral": "mistral",
+            "together": "together",
+            "xai": "xai",
+            "fireworks": "fireworks",
+            "azure_openai": "azure",
+            "bedrock": "aws",
+            "lmstudio": "lmstudio",
+            "codex_cli": "openai",
+            "gemini_cli": "google",
         }
         with _tracer.start_as_current_span(
             "gen_ai.chat",

@@ -11,7 +11,6 @@ Covers:
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from pathlib import Path
 
@@ -28,18 +27,22 @@ def tmp_db(tmp_path, monkeypatch):
 
 def _run_up(target: str = "head") -> None:
     from multillm.migrations.runner import migrate_up
+
     migrate_up(target)
 
 
 def _run_down(target: str) -> None:
     from multillm.migrations.runner import migrate_down
+
     migrate_down(target)
 
 
 def _table_names(db_path: Path) -> set[str]:
     conn = sqlite3.connect(db_path)
     try:
-        rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
         return {r[0] for r in rows}
     finally:
         conn.close()

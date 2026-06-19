@@ -51,8 +51,8 @@ def test_fresh_entry_is_served_without_recompute():
         return _payload(f"v{calls['n']}")
 
     async def run():
-        await bundle_cache.get_bundle("k", compute)        # cold → compute
-        out = await bundle_cache.get_bundle("k", compute)   # fresh → no compute
+        await bundle_cache.get_bundle("k", compute)  # cold → compute
+        out = await bundle_cache.get_bundle("k", compute)  # fresh → no compute
         assert out["performance"]["cacheState"] == "fresh"
 
     asyncio.run(run())
@@ -69,7 +69,9 @@ def test_stale_entry_served_immediately_then_revalidated():
     async def run():
         await bundle_cache.get_bundle("k", compute)  # cold → v1
         # Force staleness by ageing the stored entry past the fresh TTL.
-        bundle_cache._mem["k"].wall_time = time.time() - (bundle_cache.FRESH_TTL_SECONDS + 5)
+        bundle_cache._mem["k"].wall_time = time.time() - (
+            bundle_cache.FRESH_TTL_SECONDS + 5
+        )
         out = await bundle_cache.get_bundle("k", compute)
         assert out["unified"]["tag"] == "v1"  # stale value served immediately
         assert out["performance"]["cacheState"] == "stale-refreshing"
@@ -124,21 +126,33 @@ def test_warm_load_skips_expired_entries(monkeypatch):
 
     asyncio.run(run())
     # Age the on-disk entry beyond the max disk age, then warm-load.
-    bundle_cache._mem["k"].wall_time = time.time() - (bundle_cache.MAX_DISK_AGE_SECONDS + 10)
+    bundle_cache._mem["k"].wall_time = time.time() - (
+        bundle_cache.MAX_DISK_AGE_SECONDS + 10
+    )
     bundle_cache._persist()
     bundle_cache.cache_clear()
     assert bundle_cache.warm_load() == 0
 
 
 def test_make_key_is_stable_and_distinct():
-    a = bundle_cache.make_key(hours=168, project=None, session_limit=50, direct_session_limit=100)
-    b = bundle_cache.make_key(hours=168, project=None, session_limit=50, direct_session_limit=100)
-    c = bundle_cache.make_key(hours=720, project="x", session_limit=50, direct_session_limit=100)
+    a = bundle_cache.make_key(
+        hours=168, project=None, session_limit=50, direct_session_limit=100
+    )
+    b = bundle_cache.make_key(
+        hours=168, project=None, session_limit=50, direct_session_limit=100
+    )
+    c = bundle_cache.make_key(
+        hours=720, project="x", session_limit=50, direct_session_limit=100
+    )
     assert a == b
     assert a != c
 
 
 def test_make_key_distinguishes_session_limits():
-    a = bundle_cache.make_key(hours=168, project=None, session_limit=50, direct_session_limit=100)
-    b = bundle_cache.make_key(hours=168, project=None, session_limit=51, direct_session_limit=100)
+    a = bundle_cache.make_key(
+        hours=168, project=None, session_limit=50, direct_session_limit=100
+    )
+    b = bundle_cache.make_key(
+        hours=168, project=None, session_limit=51, direct_session_limit=100
+    )
     assert a != b

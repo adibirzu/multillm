@@ -49,9 +49,7 @@ def hash_password(plaintext: str) -> str:
     if not isinstance(plaintext, str):
         raise ValueError("password must be a string")
     if len(plaintext) < MIN_PASSWORD_LEN:
-        raise ValueError(
-            f"password must be at least {MIN_PASSWORD_LEN} characters"
-        )
+        raise ValueError(f"password must be at least {MIN_PASSWORD_LEN} characters")
     return _ph.hash(plaintext)
 
 

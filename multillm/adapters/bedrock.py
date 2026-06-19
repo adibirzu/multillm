@@ -18,7 +18,9 @@ class BedrockAdapter(BaseAdapter):
         try:
             import boto3
         except ImportError:
-            raise HTTPException(status_code=500, detail="boto3 not installed. Run: pip install boto3")
+            raise HTTPException(
+                status_code=500, detail="boto3 not installed. Run: pip install boto3"
+            )
 
         prompt = extract_text_from_anthropic(body)
         max_tokens = body.get("max_tokens", 4096)
@@ -37,7 +39,10 @@ class BedrockAdapter(BaseAdapter):
             kwargs = {
                 "modelId": model,
                 "messages": messages,
-                "inferenceConfig": {"maxTokens": max_tokens, "temperature": body.get("temperature", 0.7)},
+                "inferenceConfig": {
+                    "maxTokens": max_tokens,
+                    "temperature": body.get("temperature", 0.7),
+                },
             }
             if system_param:
                 kwargs["system"] = system_param
@@ -45,7 +50,8 @@ class BedrockAdapter(BaseAdapter):
             text = response["output"]["message"]["content"][0]["text"]
             usage = response.get("usage", {})
             return make_anthropic_response(
-                text=text, model=f"bedrock/{model.split('.')[-1]}",
+                text=text,
+                model=f"bedrock/{model.split('.')[-1]}",
                 input_tokens=usage.get("inputTokens", 0),
                 output_tokens=usage.get("outputTokens", 0),
             )

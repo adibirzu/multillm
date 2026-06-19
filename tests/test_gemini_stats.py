@@ -49,7 +49,9 @@ def test_get_gemini_stats_aggregates_usage_by_model(tmp_path, monkeypatch):
             },
         ],
     }
-    (sessions_dir / "session-2026-04-06T10-00-sess-1.json").write_text(json.dumps(session_payload))
+    (sessions_dir / "session-2026-04-06T10-00-sess-1.json").write_text(
+        json.dumps(session_payload)
+    )
 
     monkeypatch.setattr(gemini_stats, "SESSIONS_DIR", gemini_dir / "tmp")
     monkeypatch.setattr(gemini_stats, "PROJECTS_FILE", projects_file)
@@ -63,4 +65,3 @@ def test_get_gemini_stats_aggregates_usage_by_model(tmp_path, monkeypatch):
     assert stats["byModel"]["gemini-2.5-pro"]["outputTokens"] == 100
     assert stats["byModel"]["gemini-2.5-pro"]["cachedTokens"] == 30
     assert stats["byModel"]["gemini-2.5-pro"]["totalTokens"] == 400
-

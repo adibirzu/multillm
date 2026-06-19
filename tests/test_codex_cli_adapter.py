@@ -9,7 +9,7 @@ from multillm.adapters import codex_cli
 def test_resolve_codex_exec_target_prefers_matching_profile(tmp_path, monkeypatch):
     config_path = tmp_path / "config.toml"
     config_path.write_text(
-        '\n'.join(
+        "\n".join(
             [
                 'profile = "internal-gpt-5-4"',
                 "",
@@ -51,6 +51,7 @@ def test_run_codex_exec_uses_modern_flags(monkeypatch):
 
     class _FakeProc:
         returncode = 0
+
         async def communicate(self, input=None):
             return (b"hi", b"")
 
@@ -58,10 +59,14 @@ def test_run_codex_exec_uses_modern_flags(monkeypatch):
         captured["args"] = args
         return _FakeProc()
 
-    monkeypatch.setattr(codex_cli, "resolve_cli_binary", lambda *a, **k: "/usr/bin/codex")
+    monkeypatch.setattr(
+        codex_cli, "resolve_cli_binary", lambda *a, **k: "/usr/bin/codex"
+    )
     monkeypatch.setattr(codex_cli.asyncio, "create_subprocess_exec", _fake_exec)
 
-    rc, out, err = asyncio.run(codex_cli._run_codex_exec("hello", "read-only", ["-p", "prof"]))
+    rc, out, err = asyncio.run(
+        codex_cli._run_codex_exec("hello", "read-only", ["-p", "prof"])
+    )
     assert rc == 0
     args = captured["args"]
     assert "--full-auto" not in args

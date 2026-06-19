@@ -117,7 +117,9 @@ def test_advance_admin_persists_row_and_admin_user(conn: sqlite3.Connection) -> 
     assert get_state(conn) is SetupState.ADMIN_CREATED
 
 
-def test_advance_backends_persists_payload_after_admin(conn: sqlite3.Connection) -> None:
+def test_advance_backends_persists_payload_after_admin(
+    conn: sqlite3.Connection,
+) -> None:
     import json
 
     from multillm.setup.state import advance
@@ -136,7 +138,9 @@ def test_advance_backends_persists_payload_after_admin(conn: sqlite3.Connection)
     assert payload == {"openai": "sk-test", "anthropic": ""}
 
 
-def test_advance_panes_2_through_4_are_order_independent(conn: sqlite3.Connection) -> None:
+def test_advance_panes_2_through_4_are_order_independent(
+    conn: sqlite3.Connection,
+) -> None:
     from multillm.setup.state import advance
 
     advance(
@@ -149,10 +153,7 @@ def test_advance_panes_2_through_4_are_order_independent(conn: sqlite3.Connectio
     advance(conn, "backends", {"openai": "sk-..."})
     advance(conn, "local_probe", {"ollama": {"reachable": False}})
 
-    panes = {
-        r["pane"]
-        for r in conn.execute("SELECT pane FROM setup_state").fetchall()
-    }
+    panes = {r["pane"] for r in conn.execute("SELECT pane FROM setup_state").fetchall()}
     assert panes == {"admin", "backends", "local_probe", "observability"}
 
 
@@ -175,7 +176,9 @@ def test_complete_sets_flag_and_clears_setup_state(conn: sqlite3.Connection) -> 
     assert rows["n"] == 0
 
 
-def test_reset_clears_admin_users_and_re_enables_wizard(conn: sqlite3.Connection) -> None:
+def test_reset_clears_admin_users_and_re_enables_wizard(
+    conn: sqlite3.Connection,
+) -> None:
     from multillm.setup.state import (
         advance,
         complete,

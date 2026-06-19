@@ -36,6 +36,7 @@ def _first_env(*names: str, default: str = "") -> str:
             return value
     return default
 
+
 # ── Data directory (portable across machines) ────────────────────────────────
 MULTILLM_HOME = os.getenv("MULTILLM_HOME", "")
 DATA_DIR = Path(
@@ -51,9 +52,9 @@ GATEWAY_HOST = os.getenv("GATEWAY_HOST", "127.0.0.1")
 GATEWAY_PORT = int(os.getenv("GATEWAY_PORT", "8080"))
 GATEWAY_RELOAD = os.getenv("GATEWAY_RELOAD", "false").lower() in ("true", "1", "yes")
 GATEWAY_CORS_ORIGINS = os.getenv("GATEWAY_CORS_ORIGINS", "")
-MULTILLM_ALLOW_UNAUTHENTICATED_REMOTE = (
-    os.getenv("MULTILLM_ALLOW_UNAUTHENTICATED_REMOTE", "false").lower() in ("true", "1", "yes")
-)
+MULTILLM_ALLOW_UNAUTHENTICATED_REMOTE = os.getenv(
+    "MULTILLM_ALLOW_UNAUTHENTICATED_REMOTE", "false"
+).lower() in ("true", "1", "yes")
 
 # ── Backend URLs (local) ────────────────────────────────────────────────────
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -75,11 +76,15 @@ FIREWORKS_KEY = os.getenv("FIREWORKS_API_KEY", "")
 
 # Azure OpenAI
 AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")  # e.g. https://myresource.openai.azure.com
+AZURE_OPENAI_ENDPOINT = os.getenv(
+    "AZURE_OPENAI_ENDPOINT", ""
+)  # e.g. https://myresource.openai.azure.com
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
 
 # AWS Bedrock
-AWS_BEDROCK_REGION = os.getenv("AWS_BEDROCK_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+AWS_BEDROCK_REGION = os.getenv(
+    "AWS_BEDROCK_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+)
 AWS_BEDROCK_PROFILE = os.getenv("AWS_BEDROCK_PROFILE", "")
 
 # OCI Generative AI (Oracle's managed inference: Cohere, Meta Llama, Google
@@ -133,13 +138,22 @@ OCI_APM_DATA_KEY_TYPE = os.getenv("OCI_APM_DATA_KEY_TYPE", "private").lower()
 # ingest OTLP traces but not OTLP metrics (the metrics endpoint returns 404),
 # and LLM metrics are already covered by the dashboard and Langfuse. Traces
 # (spans with token/cost attributes) always flow regardless of this flag.
-OCI_APM_METRICS_ENABLED = os.getenv("OCI_APM_METRICS_ENABLED", "false").lower() in ("true", "1", "yes")
+OCI_APM_METRICS_ENABLED = os.getenv("OCI_APM_METRICS_ENABLED", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 # ── Langfuse (LLM Observability) ─────────────────────────────────────────────
-LANGFUSE_ENABLED = os.getenv("LANGFUSE_ENABLED", "false").lower() in ("true", "1", "yes")
+LANGFUSE_ENABLED = os.getenv("LANGFUSE_ENABLED", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "http://localhost:3001")
+
 
 # ── Project detection ────────────────────────────────────────────────────────
 def detect_project() -> str:
@@ -153,89 +167,149 @@ def detect_project() -> str:
 # ── Routing table ────────────────────────────────────────────────────────────
 DEFAULT_ROUTES: dict[str, dict] = {
     # Ollama local
-    "ollama/llama3":         {"backend": "ollama",     "model": "llama3"},
-    "ollama/llama3.1":       {"backend": "ollama",     "model": "llama3.1"},
-    "ollama/mistral":        {"backend": "ollama",     "model": "mistral"},
-    "ollama/codellama":      {"backend": "ollama",     "model": "codellama"},
-    "ollama/deepseek-coder": {"backend": "ollama",     "model": "deepseek-coder"},
-    "ollama/gemma2":         {"backend": "ollama",     "model": "gemma2"},
-    "ollama/phi3":           {"backend": "ollama",     "model": "phi3"},
-    "ollama/qwen2.5-coder":  {"backend": "ollama",     "model": "qwen2.5-coder:14b"},
-    "ollama/qwen3-30b":      {"backend": "ollama",     "model": "hf.co/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF:Q4_K_M"},
+    "ollama/llama3": {"backend": "ollama", "model": "llama3"},
+    "ollama/llama3.1": {"backend": "ollama", "model": "llama3.1"},
+    "ollama/mistral": {"backend": "ollama", "model": "mistral"},
+    "ollama/codellama": {"backend": "ollama", "model": "codellama"},
+    "ollama/deepseek-coder": {"backend": "ollama", "model": "deepseek-coder"},
+    "ollama/gemma2": {"backend": "ollama", "model": "gemma2"},
+    "ollama/phi3": {"backend": "ollama", "model": "phi3"},
+    "ollama/qwen2.5-coder": {"backend": "ollama", "model": "qwen2.5-coder:14b"},
+    "ollama/qwen3-30b": {
+        "backend": "ollama",
+        "model": "hf.co/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF:Q4_K_M",
+    },
     # LM Studio
-    "lmstudio/current":      {"backend": "lmstudio",   "model": "local-model"},
-    "lmstudio/deepseek":     {"backend": "lmstudio",   "model": "deepseek-coder-v2"},
+    "lmstudio/current": {"backend": "lmstudio", "model": "local-model"},
+    "lmstudio/deepseek": {"backend": "lmstudio", "model": "deepseek-coder-v2"},
     # OpenRouter
-    "openrouter/gpt4o":      {"backend": "openrouter", "model": "openai/gpt-4o"},
+    "openrouter/gpt4o": {"backend": "openrouter", "model": "openai/gpt-4o"},
     "openrouter/gpt4o-mini": {"backend": "openrouter", "model": "openai/gpt-4o-mini"},
-    "openrouter/gemini-pro": {"backend": "openrouter", "model": "google/gemini-pro-1.5"},
-    "openrouter/deepseek":   {"backend": "openrouter", "model": "deepseek/deepseek-chat"},
-    "openrouter/mixtral":    {"backend": "openrouter", "model": "mistralai/mixtral-8x7b-instruct"},
+    "openrouter/gemini-pro": {
+        "backend": "openrouter",
+        "model": "google/gemini-pro-1.5",
+    },
+    "openrouter/deepseek": {"backend": "openrouter", "model": "deepseek/deepseek-chat"},
+    "openrouter/mixtral": {
+        "backend": "openrouter",
+        "model": "mistralai/mixtral-8x7b-instruct",
+    },
     # OpenAI direct
-    "openai/gpt-4o":         {"backend": "openai",     "model": "gpt-4o"},
-    "openai/gpt-4o-mini":    {"backend": "openai",     "model": "gpt-4o-mini"},
-    "openai/o1-mini":        {"backend": "openai",     "model": "o1-mini"},
-    "openai/codex":          {"backend": "openai",     "model": "codex-mini-latest"},
+    "openai/gpt-4o": {"backend": "openai", "model": "gpt-4o"},
+    "openai/gpt-4o-mini": {"backend": "openai", "model": "gpt-4o-mini"},
+    "openai/o1-mini": {"backend": "openai", "model": "o1-mini"},
+    "openai/codex": {"backend": "openai", "model": "codex-mini-latest"},
     # Anthropic
-    "claude-haiku":          {"backend": "anthropic",  "model": "claude-haiku-4-5-20251001"},
-    "claude-sonnet":         {"backend": "anthropic",  "model": "claude-sonnet-4-6"},
+    "claude-haiku": {"backend": "anthropic", "model": "claude-haiku-4-5-20251001"},
+    "claude-sonnet": {"backend": "anthropic", "model": "claude-sonnet-4-6"},
     # Gemini (Google SDK)
-    "gemini/flash":          {"backend": "gemini",     "model": "gemini-2.0-flash"},
-    "gemini/pro":            {"backend": "gemini",     "model": "gemini-2.0-pro"},
-    "gemini/flash-lite":     {"backend": "gemini",     "model": "gemini-2.0-flash-lite"},
+    "gemini/flash": {"backend": "gemini", "model": "gemini-2.0-flash"},
+    "gemini/pro": {"backend": "gemini", "model": "gemini-2.0-pro"},
+    "gemini/flash-lite": {"backend": "gemini", "model": "gemini-2.0-flash-lite"},
     # Gemini CLI (subprocess-based, uses `gemini` binary)
-    "gemini-cli/default":    {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-flash"},
-    "gemini-cli/flash":      {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-flash"},
-    "gemini-cli/pro":        {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-pro"},
-    "gemini-cli/flash-lite": {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-flash-lite"},
+    "gemini-cli/default": {
+        "backend": "gemini_cli",
+        "model": "gemini-cli:gemini-2.5-flash",
+    },
+    "gemini-cli/flash": {
+        "backend": "gemini_cli",
+        "model": "gemini-cli:gemini-2.5-flash",
+    },
+    "gemini-cli/pro": {"backend": "gemini_cli", "model": "gemini-cli:gemini-2.5-pro"},
+    "gemini-cli/flash-lite": {
+        "backend": "gemini_cli",
+        "model": "gemini-cli:gemini-2.5-flash-lite",
+    },
     # Codex CLI (subprocess, profile-based via ~/.codex/config.toml)
-    "codex/cli":             {"backend": "codex_cli",  "model": "codex:"},
-    "codex/gpt-5-4":         {"backend": "codex_cli",  "model": "codex:gpt-5-4"},
-    "codex/gpt-5-codex":     {"backend": "codex_cli",  "model": "codex:gpt-5-codex"},
-    "codex/gpt-5-2-codex":   {"backend": "codex_cli",  "model": "codex:gpt-5-2-codex"},
-    "codex/gpt-5-3-codex":   {"backend": "codex_cli",  "model": "codex:gpt-5-3-codex"},
+    "codex/cli": {"backend": "codex_cli", "model": "codex:"},
+    "codex/gpt-5-4": {"backend": "codex_cli", "model": "codex:gpt-5-4"},
+    "codex/gpt-5-codex": {"backend": "codex_cli", "model": "codex:gpt-5-codex"},
+    "codex/gpt-5-2-codex": {"backend": "codex_cli", "model": "codex:gpt-5-2-codex"},
+    "codex/gpt-5-3-codex": {"backend": "codex_cli", "model": "codex:gpt-5-3-codex"},
     # ── Cline-compatible backends ──────────────────────────────────────────
     # Groq (ultra-fast inference)
-    "groq/llama-3.3-70b":   {"backend": "groq",       "model": "llama-3.3-70b-versatile"},
-    "groq/llama-3.1-8b":    {"backend": "groq",       "model": "llama-3.1-8b-instant"},
-    "groq/mixtral-8x7b":    {"backend": "groq",       "model": "mixtral-8x7b-32768"},
-    "groq/gemma2-9b":       {"backend": "groq",       "model": "gemma2-9b-it"},
+    "groq/llama-3.3-70b": {"backend": "groq", "model": "llama-3.3-70b-versatile"},
+    "groq/llama-3.1-8b": {"backend": "groq", "model": "llama-3.1-8b-instant"},
+    "groq/mixtral-8x7b": {"backend": "groq", "model": "mixtral-8x7b-32768"},
+    "groq/gemma2-9b": {"backend": "groq", "model": "gemma2-9b-it"},
     # DeepSeek (reasoning + code)
-    "deepseek/chat":         {"backend": "deepseek",   "model": "deepseek-chat"},
-    "deepseek/reasoner":     {"backend": "deepseek",   "model": "deepseek-reasoner"},
+    "deepseek/chat": {"backend": "deepseek", "model": "deepseek-chat"},
+    "deepseek/reasoner": {"backend": "deepseek", "model": "deepseek-reasoner"},
     # Mistral
-    "mistral/large":         {"backend": "mistral",    "model": "mistral-large-latest"},
-    "mistral/small":         {"backend": "mistral",    "model": "mistral-small-latest"},
-    "mistral/codestral":     {"backend": "mistral",    "model": "codestral-latest"},
+    "mistral/large": {"backend": "mistral", "model": "mistral-large-latest"},
+    "mistral/small": {"backend": "mistral", "model": "mistral-small-latest"},
+    "mistral/codestral": {"backend": "mistral", "model": "codestral-latest"},
     # Together AI
-    "together/llama-3.3-70b": {"backend": "together",  "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"},
-    "together/qwen-2.5-72b": {"backend": "together",   "model": "Qwen/Qwen2.5-72B-Instruct-Turbo"},
-    "together/deepseek-v3":  {"backend": "together",   "model": "deepseek-ai/DeepSeek-V3"},
+    "together/llama-3.3-70b": {
+        "backend": "together",
+        "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    },
+    "together/qwen-2.5-72b": {
+        "backend": "together",
+        "model": "Qwen/Qwen2.5-72B-Instruct-Turbo",
+    },
+    "together/deepseek-v3": {"backend": "together", "model": "deepseek-ai/DeepSeek-V3"},
     # xAI (Grok)
-    "xai/grok-3":            {"backend": "xai",        "model": "grok-3"},
-    "xai/grok-3-fast":       {"backend": "xai",        "model": "grok-3-fast"},
-    "xai/grok-3-mini":       {"backend": "xai",        "model": "grok-3-mini"},
+    "xai/grok-3": {"backend": "xai", "model": "grok-3"},
+    "xai/grok-3-fast": {"backend": "xai", "model": "grok-3-fast"},
+    "xai/grok-3-mini": {"backend": "xai", "model": "grok-3-mini"},
     # Fireworks AI
-    "fireworks/llama-3.3-70b": {"backend": "fireworks", "model": "accounts/fireworks/models/llama-v3p3-70b-instruct"},
-    "fireworks/qwen-2.5-72b": {"backend": "fireworks",  "model": "accounts/fireworks/models/qwen2p5-72b-instruct"},
+    "fireworks/llama-3.3-70b": {
+        "backend": "fireworks",
+        "model": "accounts/fireworks/models/llama-v3p3-70b-instruct",
+    },
+    "fireworks/qwen-2.5-72b": {
+        "backend": "fireworks",
+        "model": "accounts/fireworks/models/qwen2p5-72b-instruct",
+    },
     # Azure OpenAI (requires AZURE_OPENAI_ENDPOINT)
-    "azure/gpt-4o":          {"backend": "azure_openai", "model": "gpt-4o"},
-    "azure/gpt-4o-mini":     {"backend": "azure_openai", "model": "gpt-4o-mini"},
+    "azure/gpt-4o": {"backend": "azure_openai", "model": "gpt-4o"},
+    "azure/gpt-4o-mini": {"backend": "azure_openai", "model": "gpt-4o-mini"},
     # AWS Bedrock (requires AWS credentials)
-    "bedrock/claude-sonnet":   {"backend": "bedrock", "model": "anthropic.claude-sonnet-4-20250514-v1:0"},
-    "bedrock/claude-haiku":    {"backend": "bedrock", "model": "anthropic.claude-haiku-4-5-20251001-v1:0"},
-    "bedrock/llama-3.3-70b":   {"backend": "bedrock", "model": "meta.llama3-3-70b-instruct-v1:0"},
-    "bedrock/mistral-large":   {"backend": "bedrock", "model": "mistral.mistral-large-2411-v1:0"},
+    "bedrock/claude-sonnet": {
+        "backend": "bedrock",
+        "model": "anthropic.claude-sonnet-4-20250514-v1:0",
+    },
+    "bedrock/claude-haiku": {
+        "backend": "bedrock",
+        "model": "anthropic.claude-haiku-4-5-20251001-v1:0",
+    },
+    "bedrock/llama-3.3-70b": {
+        "backend": "bedrock",
+        "model": "meta.llama3-3-70b-instruct-v1:0",
+    },
+    "bedrock/mistral-large": {
+        "backend": "bedrock",
+        "model": "mistral.mistral-large-2411-v1:0",
+    },
     # OCI Generative AI (managed; model id = OCI on-demand foundational model name)
-    "oci/llama-3.3-70b":       {"backend": "oci_genai", "model": "meta.llama-3.3-70b-instruct"},
-    "oci/llama-3.1-405b":      {"backend": "oci_genai", "model": "meta.llama-3.1-405b-instruct"},
-    "oci/llama-3.1-70b":       {"backend": "oci_genai", "model": "meta.llama-3.1-70b-instruct"},
-    "oci/cohere-command-r-plus": {"backend": "oci_genai", "model": "cohere.command-r-plus-08-2024"},
-    "oci/cohere-command-a":    {"backend": "oci_genai", "model": "cohere.command-a-03-2025"},
-    "oci/gemini-2.5-pro":      {"backend": "oci_genai", "model": "google.gemini-2.5-pro"},
-    "oci/gemini-2.5-flash":    {"backend": "oci_genai", "model": "google.gemini-2.5-flash"},
-    "oci/gpt-oss-120b":        {"backend": "oci_genai", "model": "openai.gpt-oss-120b"},
-    "oci/gpt-oss-20b":         {"backend": "oci_genai", "model": "openai.gpt-oss-20b"},
+    "oci/llama-3.3-70b": {
+        "backend": "oci_genai",
+        "model": "meta.llama-3.3-70b-instruct",
+    },
+    "oci/llama-3.1-405b": {
+        "backend": "oci_genai",
+        "model": "meta.llama-3.1-405b-instruct",
+    },
+    "oci/llama-3.1-70b": {
+        "backend": "oci_genai",
+        "model": "meta.llama-3.1-70b-instruct",
+    },
+    "oci/cohere-command-r-plus": {
+        "backend": "oci_genai",
+        "model": "cohere.command-r-plus-08-2024",
+    },
+    "oci/cohere-command-a": {
+        "backend": "oci_genai",
+        "model": "cohere.command-a-03-2025",
+    },
+    "oci/gemini-2.5-pro": {"backend": "oci_genai", "model": "google.gemini-2.5-pro"},
+    "oci/gemini-2.5-flash": {
+        "backend": "oci_genai",
+        "model": "google.gemini-2.5-flash",
+    },
+    "oci/gpt-oss-120b": {"backend": "oci_genai", "model": "openai.gpt-oss-120b"},
+    "oci/gpt-oss-20b": {"backend": "oci_genai", "model": "openai.gpt-oss-20b"},
 }
 
 

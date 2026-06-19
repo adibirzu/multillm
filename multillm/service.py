@@ -54,8 +54,17 @@ def _service_path(python_exe: str) -> str:
     bin_dir = str(Path(python_exe).parent)
     home_local = str(Path.home() / ".local" / "bin")
     lmstudio_bin = str(Path.home() / ".lmstudio" / "bin")  # LM Studio CLI (lms)
-    parts = [bin_dir, "/usr/local/bin", "/opt/homebrew/bin", home_local,
-             lmstudio_bin, "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    parts = [
+        bin_dir,
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        home_local,
+        lmstudio_bin,
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ]
     # De-duplicate while preserving order.
     seen: set[str] = set()
     ordered = [p for p in parts if not (p in seen or seen.add(p))]
@@ -124,15 +133,17 @@ def render_systemd_unit(
         f'ExecStart="{python_exe}" -m multillm.gateway\n'
         "Restart=always\n"
         "RestartSec=3\n"
-        f'StandardOutput=append:{log_file}\n'
-        f'StandardError=append:{log_file}\n'
+        f"StandardOutput=append:{log_file}\n"
+        f"StandardError=append:{log_file}\n"
         "\n"
         "[Install]\n"
         "WantedBy=default.target\n"
     )
 
 
-def resolve_paths(platform: str | None = None, home: Path | None = None) -> ServicePaths:
+def resolve_paths(
+    platform: str | None = None, home: Path | None = None
+) -> ServicePaths:
     """Resolve the service definition path for ``platform`` (defaults to host)."""
     plat = platform or sys.platform
     home = home or Path.home()
@@ -205,7 +216,11 @@ def service_status() -> dict:
     if paths.platform == "darwin":
         result = _run(["launchctl", "list"])
         loaded = LAUNCHD_LABEL in result.stdout
-        detail = "loaded" if loaded else ("installed, not loaded" if installed else "not installed")
+        detail = (
+            "loaded"
+            if loaded
+            else ("installed, not loaded" if installed else "not installed")
+        )
     else:
         result = _run(["systemctl", "--user", "is-active", SYSTEMD_UNIT])
         detail = result.stdout.strip() or "unknown"

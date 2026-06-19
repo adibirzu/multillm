@@ -48,7 +48,9 @@ def test_backend_resolves_through_registry(backend: str) -> None:
     adapter = get_adapter(backend)
     assert adapter is not None, f"registry did not resolve backend {backend!r}"
     assert callable(getattr(adapter, "send", None)), f"{backend}.send is not callable"
-    assert callable(getattr(adapter, "stream", None)), f"{backend}.stream is not callable"
+    assert callable(getattr(adapter, "stream", None)), (
+        f"{backend}.stream is not callable"
+    )
     sig = inspect.signature(adapter.send)
     params = list(sig.parameters)
     assert params == ["body", "model", "model_alias"], (
@@ -70,7 +72,12 @@ def test_route_functions_have_at_most_three_statements() -> None:
     for name, fn in funcs.items():
         body = fn.body
         # Strip a leading docstring expression if present
-        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
             body = body[1:]
         assert len(body) <= 3, (
             f"{name} has {len(body)} top-level statements (excluding docstring); "
@@ -88,6 +95,6 @@ def test_gateway_has_no_if_elif_backend_dispatch_chain() -> None:
     src = pathlib.Path("multillm/gateway.py").read_text()
     occurrences = src.count('elif backend == "')
     assert occurrences == 0, (
-        f"found {occurrences} `elif backend == \"...\"` chain usages in gateway.py; "
+        f'found {occurrences} `elif backend == "..."` chain usages in gateway.py; '
         "registry dispatch should leave zero"
     )
