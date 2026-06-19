@@ -36,10 +36,14 @@ def validate_gateway_exposure(
     allow_unauthenticated_remote: bool,
 ) -> ExposureValidation:
     if is_loopback_host(host):
-        return ExposureValidation(True, "ok", "Gateway is bound to a loopback interface.")
+        return ExposureValidation(
+            True, "ok", "Gateway is bound to a loopback interface."
+        )
 
     if api_key:
-        return ExposureValidation(True, "ok", "Remote gateway binding is protected by MULTILLM_API_KEY.")
+        return ExposureValidation(
+            True, "ok", "Remote gateway binding is protected by MULTILLM_API_KEY."
+        )
 
     if allow_unauthenticated_remote:
         return ExposureValidation(

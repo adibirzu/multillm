@@ -35,5 +35,10 @@ class OpenAIAdapter(BaseAdapter):
         if err := self.validate(model):
             raise HTTPException(status_code=500, detail=err)
         return await stream_openai_compat(
-            "https://api.openai.com", OPENAI_KEY, body, model, model_alias, backend="openai",
+            "https://api.openai.com",
+            OPENAI_KEY,
+            body,
+            model,
+            model_alias,
+            backend="openai",
         )

@@ -35,6 +35,7 @@ RETRYABLE_EXCEPTIONS = (
 
 # ── Circuit Breaker ──────────────────────────────────────────────────────────
 
+
 @dataclass
 class CircuitBreaker:
     """Per-backend circuit breaker with three states: closed, open, half-open."""
@@ -123,6 +124,7 @@ def all_breaker_status() -> dict[str, dict]:
 
 # ── Retry with backoff ───────────────────────────────────────────────────────
 
+
 def _is_retryable(exc: Exception) -> bool:
     if isinstance(exc, RETRYABLE_EXCEPTIONS):
         return True
@@ -187,9 +189,12 @@ async def with_retry(
                     breaker.record_failure()
                     raise
 
-                delay = min(base_delay * (2 ** attempt), max_delay)
+                delay = min(base_delay * (2**attempt), max_delay)
                 # Respect Retry-After header for 429s
-                if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+                if (
+                    isinstance(exc, httpx.HTTPStatusError)
+                    and exc.response.status_code == 429
+                ):
                     retry_after = exc.response.headers.get("retry-after")
                     if retry_after:
                         try:
@@ -199,7 +204,11 @@ async def with_retry(
 
                 log.warning(
                     "Retrying %s (attempt %d/%d) after %s, delay=%.1fs",
-                    backend, attempt + 1, max_retries, type(exc).__name__, delay,
+                    backend,
+                    attempt + 1,
+                    max_retries,
+                    type(exc).__name__,
+                    delay,
                 )
                 await asyncio.sleep(delay)
 
@@ -213,6 +222,7 @@ async def with_retry(
 
 class BackendUnavailableError(Exception):
     """Raised when a circuit breaker is open for a backend."""
+
     pass
 
 
@@ -275,13 +285,25 @@ def calculate_backend_score(
 
     # Hard elimination checks
     if health_status in ("unhealthy", "unconfigured"):
-        result.update(score=0.0, health_score=0.0, latency_score=0.0, error_score=0.0,
-                      eliminated=True, elimination_reason=f"health={health_status}")
+        result.update(
+            score=0.0,
+            health_score=0.0,
+            latency_score=0.0,
+            error_score=0.0,
+            eliminated=True,
+            elimination_reason=f"health={health_status}",
+        )
         return result
 
     if not breaker_available:
-        result.update(score=0.0, health_score=0.0, latency_score=0.0, error_score=0.0,
-                      eliminated=True, elimination_reason="circuit_breaker_open")
+        result.update(
+            score=0.0,
+            health_score=0.0,
+            latency_score=0.0,
+            error_score=0.0,
+            eliminated=True,
+            elimination_reason="circuit_breaker_open",
+        )
         return result
 
     # Component scores
@@ -290,7 +312,9 @@ def calculate_backend_score(
     if recent_latency_ms is None:
         latency_score = 0.5
     else:
-        latency_score = max(0.0, 1.0 - min(recent_latency_ms, MAX_LATENCY_MS) / MAX_LATENCY_MS)
+        latency_score = max(
+            0.0, 1.0 - min(recent_latency_ms, MAX_LATENCY_MS) / MAX_LATENCY_MS
+        )
 
     failure_ratio = min(breaker_failures / max(breaker_threshold, 1), 1.0)
     error_score = 1.0 - failure_ratio

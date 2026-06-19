@@ -59,7 +59,6 @@ Thumbs.db
 *.pem
 *.key
 *.wallet
-.oca/
 .aws/
 .azure/
 .claude/

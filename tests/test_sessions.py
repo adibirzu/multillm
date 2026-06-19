@@ -2,9 +2,8 @@
 # Copyright 2026 MultiLLM contributors
 
 """Tests for session tracking in the tracking module."""
-import json
+
 import time
-from unittest.mock import patch
 
 import pytest
 
@@ -42,7 +41,6 @@ def _record(project="test-sess", model="ollama/llama3", **kwargs):
 
 
 class TestSessionCreation:
-
     def test_first_request_creates_session(self):
         _record(project="sess-create")
         sessions = get_sessions(hours=1, project="sess-create")
@@ -64,7 +62,10 @@ class TestSessionCreation:
         _record(project="sess-gap")
         # Simulate a gap larger than SESSION_GAP_SECONDS
         sess_id, _ = tracking._sessions["sess-gap"]
-        tracking._sessions["sess-gap"] = (sess_id, time.time() - SESSION_GAP_SECONDS - 10)
+        tracking._sessions["sess-gap"] = (
+            sess_id,
+            time.time() - SESSION_GAP_SECONDS - 10,
+        )
         _record(project="sess-gap")
         sessions = get_sessions(hours=1, project="sess-gap")
         assert len(sessions) == 2
@@ -108,10 +109,11 @@ class TestSessionCreation:
 
 
 class TestSessionQueries:
-
     def test_get_sessions_project_filter(self):
         _record(project="filter-a")
-        _record(project="filter-b")  # Different project = different session automatically
+        _record(
+            project="filter-b"
+        )  # Different project = different session automatically
 
         a = get_sessions(hours=1, project="filter-a")
         b = get_sessions(hours=1, project="filter-b")
@@ -143,7 +145,6 @@ class TestSessionQueries:
 
 
 class TestCrossProjectIsolation:
-
     def test_different_projects_get_different_sessions(self):
         _record(project="proj-alpha")
         _record(project="proj-beta")
@@ -159,12 +160,15 @@ class TestCrossProjectIsolation:
 
 
 class TestUpdateStreamingUsage:
-
     def test_update_streaming_tokens(self):
         usage_id = record_usage(
-            project="stream-test", model_alias="ollama/llama3",
-            backend="ollama", real_model="llama3",
-            input_tokens=0, output_tokens=0, latency_ms=100.0,
+            project="stream-test",
+            model_alias="ollama/llama3",
+            backend="ollama",
+            real_model="llama3",
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=100.0,
             status="streaming",
         )
         update_streaming_usage(usage_id, input_tokens=500, output_tokens=200)
@@ -179,7 +183,6 @@ class TestUpdateStreamingUsage:
 
 
 class TestDashboardStats:
-
     def test_dashboard_stats_structure(self):
         _record(project="dash-test")
         stats = get_dashboard_stats(hours=1)
@@ -197,13 +200,24 @@ class TestDashboardStats:
 
     def test_dashboard_reliability_breakdown(self):
         record_usage(
-            project="dash-rel", model_alias="openai/gpt-4o", backend="openai",
-            real_model="gpt-4o", input_tokens=0, output_tokens=0, latency_ms=10.0,
-            status="error", error_message="Connection refused",
+            project="dash-rel",
+            model_alias="openai/gpt-4o",
+            backend="openai",
+            real_model="gpt-4o",
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=10.0,
+            status="error",
+            error_message="Connection refused",
         )
         record_usage(
-            project="dash-rel", model_alias="ollama/llama3", backend="ollama",
-            real_model="llama3", input_tokens=10, output_tokens=5, latency_ms=20.0,
+            project="dash-rel",
+            model_alias="ollama/llama3",
+            backend="ollama",
+            real_model="llama3",
+            input_tokens=10,
+            output_tokens=5,
+            latency_ms=20.0,
             status="fallback",
         )
         stats = get_dashboard_stats(hours=1, project="dash-rel")
@@ -213,7 +227,9 @@ class TestDashboardStats:
         assert stats["reliability"]["error_count"] >= 1
         assert stats["reliability"]["fallback_count"] >= 1
         assert stats["reliability"]["error_rate"] > 0
-        assert any(e["error_message"] == "Connection refused" for e in stats["recent_errors"])
+        assert any(
+            e["error_message"] == "Connection refused" for e in stats["recent_errors"]
+        )
 
     def test_dashboard_stats_counts(self):
         record_usage(

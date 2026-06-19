@@ -53,7 +53,9 @@ class IngestRecord(BaseModel):
 
 
 class IngestBatch(BaseModel):
-    tenant_id: str = Field(..., min_length=1, description="UNIX user / workstation identity")
+    tenant_id: str = Field(
+        ..., min_length=1, description="UNIX user / workstation identity"
+    )
     source_host: str = ""
     records: list[IngestRecord] = Field(default_factory=list)
 
@@ -119,8 +121,18 @@ def register(app) -> None:
         if errors and not records:
             raise HTTPException(status_code=422, detail={"errors": errors})
         written = team_usage.record_team_usage(records)
-        log.info("ingest: tenant=%s wrote=%d skipped=%d", batch.tenant_id, written, len(errors))
-        return {"status": "ok", "written": written, "skipped": len(errors), "errors": errors}
+        log.info(
+            "ingest: tenant=%s wrote=%d skipped=%d",
+            batch.tenant_id,
+            written,
+            len(errors),
+        )
+        return {
+            "status": "ok",
+            "written": written,
+            "skipped": len(errors),
+            "errors": errors,
+        }
 
     @app.get("/api/team-usage")
     async def team_usage_api(hours: int = 168, tenant: Optional[str] = None):  # noqa: ANN202

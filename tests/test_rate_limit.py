@@ -3,9 +3,6 @@
 
 """Tests for the rate limiting module."""
 
-import pytest
-import time
-
 from multillm.rate_limit import (
     TokenBucket,
     check_rate_limit,
@@ -69,6 +66,7 @@ class TestCheckRateLimit:
     def test_disabled_always_allows(self):
         """When RPM=0, rate limiting is disabled."""
         import multillm.rate_limit as rl
+
         orig = rl.RATE_LIMIT_RPM
         rl.RATE_LIMIT_RPM = 0
         try:
@@ -80,6 +78,7 @@ class TestCheckRateLimit:
 
     def test_enabled_allows_within_limit(self):
         import multillm.rate_limit as rl
+
         orig = rl.RATE_LIMIT_RPM
         rl.RATE_LIMIT_RPM = 100
         try:
@@ -92,6 +91,7 @@ class TestCheckRateLimit:
 
     def test_enabled_blocks_over_limit(self):
         import multillm.rate_limit as rl
+
         orig = rl.RATE_LIMIT_RPM
         rl.RATE_LIMIT_RPM = 3
         try:
@@ -111,6 +111,7 @@ class TestConcurrentLimiting:
 
     def test_disabled_always_allows(self):
         import multillm.rate_limit as rl
+
         orig = rl.RATE_LIMIT_CONCURRENT
         rl.RATE_LIMIT_CONCURRENT = 0
         try:
@@ -120,6 +121,7 @@ class TestConcurrentLimiting:
 
     def test_allows_within_limit(self):
         import multillm.rate_limit as rl
+
         orig = rl.RATE_LIMIT_CONCURRENT
         rl.RATE_LIMIT_CONCURRENT = 2
         try:
@@ -131,6 +133,7 @@ class TestConcurrentLimiting:
 
     def test_release_frees_slot(self):
         import multillm.rate_limit as rl
+
         orig = rl.RATE_LIMIT_CONCURRENT
         rl.RATE_LIMIT_CONCURRENT = 1
         try:
@@ -143,6 +146,7 @@ class TestConcurrentLimiting:
 
     def test_per_client_isolation(self):
         import multillm.rate_limit as rl
+
         orig = rl.RATE_LIMIT_CONCURRENT
         rl.RATE_LIMIT_CONCURRENT = 1
         try:

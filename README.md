@@ -1,6 +1,6 @@
 # MultiLLM Gateway
 
-> Open-source multi-tenant LLM gateway. Route one API to 16+ backends, ship `docker compose up`, own your data.
+> Open-source multi-tenant LLM gateway. Route one API to 15+ backends, ship `docker compose up`, own your data.
 
 [![CI](https://github.com/adibirzu/multillm/actions/workflows/ci.yml/badge.svg)](https://github.com/adibirzu/multillm/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/multillm.svg)](https://pypi.org/project/multillm/)
@@ -74,7 +74,7 @@ Claude Code / OpenAI SDK / curl
    └────────┬───────────┘
             │
    ┌────────┴───────────┐
-   │  16 backends       │
+   │  15 backends       │
    │  Ollama / LM Studio│
    │  OpenAI / Anthropic│
    │  Gemini / Groq …   │
@@ -103,7 +103,6 @@ Data lives in `MULTILLM_HOME` (defaults to `~/.multillm/` or the compose-mounted
 | Fireworks     | Cloud      | API key        | ✓ (SSE)   |
 | Azure OpenAI  | Cloud      | API key        | ✓ (SSE)   |
 | AWS Bedrock   | Cloud      | Cloud IAM      | ✓ (SSE)   |
-| OCA           | Enterprise | OAuth (PKCE)   | ✓ (SSE)   |
 
 ## Plugin / Slash Commands
 

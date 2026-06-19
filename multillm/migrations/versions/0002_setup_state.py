@@ -59,12 +59,8 @@ def upgrade() -> None:
     if not _table_exists("admin_users"):
         op.create_table(
             "admin_users",
-            sa.Column(
-                "id", sa.Integer(), primary_key=True, autoincrement=True
-            ),
-            sa.Column(
-                "email", sa.Text(), nullable=False, unique=True
-            ),
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column("email", sa.Text(), nullable=False, unique=True),
             sa.Column("password_hash", sa.Text(), nullable=False),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
         )
@@ -74,8 +70,7 @@ def upgrade() -> None:
     # already-stamped DB is a no-op.
     op.execute(
         sa.text(
-            "INSERT OR IGNORE INTO system (key, value) "
-            "VALUES ('setup_complete', '0')"
+            "INSERT OR IGNORE INTO system (key, value) VALUES ('setup_complete', '0')"
         )
     )
 
@@ -88,6 +83,4 @@ def downgrade() -> None:
         op.drop_table("setup_state")
     # Intentional: do not drop ``system`` on downgrade because Phase 2b
     # and beyond rely on it. Removing the setup_complete row instead.
-    op.execute(
-        sa.text("DELETE FROM system WHERE key = 'setup_complete'")
-    )
+    op.execute(sa.text("DELETE FROM system WHERE key = 'setup_complete'"))

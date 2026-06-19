@@ -25,8 +25,10 @@ def home_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("MULTILLM_HOME", str(tmp_path))
     # Reload the modules so the env override is picked up at import time.
     import multillm.config as _config
+
     importlib.reload(_config)
     import multillm.migrations.backup as _backup  # noqa: F401  (forces RED until module exists)
+
     importlib.reload(_backup)
     return tmp_path
 
@@ -45,7 +47,9 @@ def populated_db(tmp_path: Path) -> Path:
     return db_path
 
 
-def test_create_backup_returns_path_under_backups_dir(home_dir: Path, populated_db: Path) -> None:
+def test_create_backup_returns_path_under_backups_dir(
+    home_dir: Path, populated_db: Path
+) -> None:
     """Test 1: returned path lives under ~/.multillm/backups and matches the schema."""
     from multillm.migrations.backup import BACKUP_DIR, create_backup
 
@@ -56,7 +60,9 @@ def test_create_backup_returns_path_under_backups_dir(home_dir: Path, populated_
     assert target.suffix == ".db"
 
 
-def test_create_backup_is_byte_identical_to_source(home_dir: Path, populated_db: Path) -> None:
+def test_create_backup_is_byte_identical_to_source(
+    home_dir: Path, populated_db: Path
+) -> None:
     """Test 2: the backup file is byte-identical to the source DB."""
     from multillm.migrations.backup import create_backup
 
@@ -117,8 +123,10 @@ def test_create_backup_honors_multillm_home_override(
 
     # Reload modules so the override is honored.
     import multillm.config as _config
+
     importlib.reload(_config)
     import multillm.migrations.backup as backup_mod
+
     importlib.reload(backup_mod)
 
     target = backup_mod.create_backup(populated_db, target_rev="0001_smoke_test")

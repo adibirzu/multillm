@@ -2,7 +2,7 @@
 
 ## Overview
 
-MultiLLM is a unified LLM gateway that proxies requests to 16+ backends through a single Anthropic-compatible API. It provides token tracking, cost estimation, shared cross-LLM memory, circuit breakers, health probes, and a real-time dashboard.
+MultiLLM is a unified LLM gateway that proxies requests to 15+ backends through a single Anthropic-compatible API. It provides token tracking, cost estimation, shared cross-LLM memory, circuit breakers, health probes, and a real-time dashboard.
 
 **Gateway URL**: `http://localhost:8080`
 **Dashboard**: `http://localhost:8080/dashboard`
@@ -28,13 +28,12 @@ Claude Code → HTTP requests → FastAPI Gateway (port 8080) → Backend adapte
 - **`multillm/discovery.py`** — Dynamic model discovery + installed-aware local routing (`resolve_local_target`)
 - **`multillm/service.py`** — OS-start service installer (launchd plist / systemd user unit)
 
-## Available Backends (16)
+## Available Backends (15)
 
 | Type | Backends |
 |------|----------|
 | Local | Ollama, LM Studio, Codex CLI, Gemini CLI |
 | Cloud | OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek, Mistral, Together, xAI, Fireworks, Azure OpenAI, AWS Bedrock |
-| Enterprise | OCA (Oracle Code Assist) |
 
 ## Plugin Commands (Slash Commands)
 
@@ -159,11 +158,21 @@ curl -X DELETE http://localhost:8080/api/memory/{id}
 
 ### Usage & Sessions
 - `GET /api/dashboard?hours=168&project=name` — Aggregated stats with derived metrics and optional project filter
+- `GET /api/dashboard-bundle?hours=168&refresh=true` — Single SWR-cached payload (gateway SQL + Claude/Codex/Gemini scans). Served instantly from a disk-persisted cache and revalidated in the background; `refresh=true` forces a fresh compute. Response `performance.cacheState` is `fresh|stale-refreshing|cold|forced`.
 - `GET /api/sessions?hours=168&limit=50` — Session list
 - `GET /api/sessions/{id}` — Session detail with per-request breakdown
 - `GET /api/active-sessions` — Currently active sessions
 - `GET /api/claude-stats` — Claude Code token usage from ~/.claude/
 - `GET /usage` — Usage summary
+
+### Cost Prediction & Budgets
+- `GET /api/cost/forecast?hours=168&project=name` — Burn-rate (gateway live + per-source window avg), projected spend per day/week/month, and quota-exhaustion ETA per usage limit. Reuses the cached bundle (no extra scan).
+- `POST /api/cost/estimate` — Pre-flight prompt pricing across candidate model aliases. Body: `{"prompt":"...","models":["openai/gpt-4o",...],"expected_output_tokens":500}`. Returns estimates sorted cheapest-first (tiktoken `cl100k_base`), flags free local models.
+- `POST /api/council` — Query several models in parallel, cost-aware. Body: `{"prompt":"...","models":[...],"max_tokens":2048,"temperature":0.7}`. Returns a pre-flight cheapest-first cost estimate, each model's response with its **actual** token cost, and combined totals. One model failing does not sink the rest. Backs the `/llm-council` command.
+- `GET /api/routing/decision?prompt=...&bias=...` — Log-driven router's pick for a prompt (chosen model + per-candidate reliability/health/speed/cost breakdown). Read-only.
+- `POST /api/fusion` — Thought-level **fusion**: panel → judge → synthesis. Body: `{"prompt":"...","fusion_panel":[...],"fusion_judge":"...","max_tokens":1024}`. Dispatches the panel in parallel, then one judge call produces a structured analysis (consensus / contradictions / partial coverage / unique insights / blind spots) and a grounded final answer. Returns the full result (panel + analysis + answer + cost). Degrades gracefully: 1 panel success → returns it; judge failure → best panel answer.
+- `GET /api/budgets` — Budget status: caps, gateway-metered spend (rolling 24h/30d), %used, alert states (`ok|warn|exceeded`), enforcement flag.
+- `PUT /api/budgets` — Set budget config. Body: `{"enabled":true,"daily_usd":10,"monthly_usd":200,"alert_thresholds":[0.8,1.0],"per_project":{"name":{"daily_usd":5}}}`. When `enabled`, an exceeded global/project cap blocks new **cloud** requests with HTTP 402 (local backends are free, never blocked).
 
 ### Health & Resilience
 - `GET /health` — Basic health check
@@ -192,6 +201,69 @@ The gateway routes to the LLM the user actually has installed locally:
 - **Fallback** (`_get_fallback_model`) prefers the configured `fallback_chain`, then `resolve_local_target()` — so it never targets a model the user hasn't pulled.
 - **`local_first` setting** (default `true`): an unknown/unavailable model alias degrades to the best installed local model instead of returning 400.
 - **On-demand startup** (`local_launch.py`, `local_autostart` setting default `true`): when fallback needs a local model but the daemon is stopped, the gateway starts the installed backend (`ollama serve` / `lms server start`), waits for readiness, marks it healthy, re-discovers, then routes. Only localhost URLs are auto-started; spawning is per-backend locked. Manual control: `POST /api/local/start {"backend":"ollama"}` and `GET /api/local/status`.
+
+## Quota-Aware Failover (`failover.py`)
+
+"Continue working when out of tokens." When a cloud backend returns a quota /
+credit / rate-limit error (HTTP 429/402 or an `insufficient_quota`-style body),
+the gateway does not surface the error — it walks the configured `fallback_chain`
+(cloud or local), trying each provider until one succeeds, then appends the best
+installed local model as a last resort. The response carries a `[Failover: ...]`
+notice. Plain 4xx client errors (400, etc.) are NOT failed over.
+
+- `is_quota_error()` detects 429/402 + quota markers; `build_failover_candidates()`
+  builds the ordered, de-duplicated provider list (skipping the failed backend).
+- Set `fallback_chain` to your preferred provider order for cross-cloud failover,
+  e.g. `["anthropic/claude-sonnet-4-6","openai/gpt-4o","deepseek/chat","ollama/<model>"]`.
+
+## Model Fusion & Auto-Routing (`fusion.py`, `complexity.py`)
+
+Thought-level fusion (OpenRouter-Fusion / FusionFactory style): combine a panel of
+models into one answer that beats any single model.
+
+- **`fusion` model slug** on `/v1/messages` (`{"model":"fusion"}`): runs the
+  panel→judge→synthesis pipeline and returns a single Anthropic response (JSON or
+  SSE), so any client treats it like one model. Recursion is blocked (a panel/judge
+  member cannot be `fusion`/`auto`).
+- **`auto` model slug**: `complexity.estimate_complexity()` scores the prompt; if
+  it clears `fusion_auto_threshold` (default 0.6) the request escalates to fusion,
+  otherwise it routes to a single capable model (`fusion_judge`). This is the
+  "selective invocation" — don't pay 2–3× latency for simple prompts.
+- **Pipeline**: panel dispatched in parallel (reuses the council query path, each
+  sub-call recorded for accurate cost), then ONE judge call yields the structured
+  analysis + a `===FINAL ANSWER===` section. Cost = Σ panel + judge.
+- **Settings**: `fusion_panel` (list), `fusion_judge` (alias), `fusion_auto_threshold`.
+  Default panel is free/authenticated backends; unavailable members degrade
+  gracefully.
+
+## Log-Driven Query Routing (`router.py`)
+
+The "routing between LLMs" brain — learns from the gateway's own usage logs which
+model performs best, the FusionFactory query-level fusion idea.
+
+- **`auto` model slug**: hard prompts (complexity ≥ `fusion_auto_threshold`) escalate
+  to fusion; easy prompts go to `router.choose_model()`, which picks the single best
+  model from the `routing_pool` (defaults to `fusion_panel`).
+- **Signals** (per candidate): reliability (`1 - errorRate` from logs), live health
+  (`score_backend`), speed (inverse avg latency), cost (inverse avg $). Blended as
+  `bias·quality + (1-bias)·efficiency`; prompt complexity nudges the effective bias
+  toward quality. `tracking.get_model_routing_stats()` supplies the per-model history.
+- **Knob**: `routing_quality_bias` setting (0 = cheapest/fastest … 1 = highest quality).
+- **Inspect**: `GET /api/routing/decision?prompt=...&bias=...` returns the choice +
+  per-candidate breakdown (read-only; sends the prompt nowhere).
+
+## Telemetry (Langfuse + OCI APM)
+
+Every LLM call is recorded as a Langfuse generation (`trace_llm_generation`) and
+an OCI APM span (`trace_llm_call`) with model, tokens, cost, latency, project.
+
+- **Langfuse**: set `LANGFUSE_ENABLED=true`, `LANGFUSE_HOST`, and keys (`.env`).
+- **OCI APM**: set `OCI_APM_DOMAIN_ID`, `OCI_APM_DATA_KEY`, and
+  **`OCI_APM_DATA_UPLOAD_ENDPOINT`** (the domain-specific data upload host — the
+  generic `apm-trace.<region>` host 404s; see KB-001). OTLP paths are built by
+  `tracking._oci_apm_signal_endpoint()`: `/opentelemetry/{private|public}/v1/traces`
+  and `/opentelemetry/v1/metrics`. `OCI_APM_METRICS_ENABLED` defaults `false`
+  (many domains accept traces but not OTLP metrics); traces always flow.
 
 ## OS-Start Service
 
@@ -228,7 +300,6 @@ Codex CLI and Gemini CLI support configurable sandbox modes:
 
 ```
 ollama/qwen3-30b, ollama/llama3.3
-oca/gpt5, oca/gpt-4o
 openai/gpt-4o, openai/o1
 gemini/flash, gemini/pro
 groq/llama-3.3-70b
@@ -249,7 +320,7 @@ Tests cover converters, gateway, memory, streaming, tracking, sessions, discover
 ## Development Notes
 
 - Gateway uses **inline routing functions** in `gateway.py`, not the adapter registry — both must be kept in sync
-- Cost tracking for all 16 backends is in `COST_TABLE` in `tracking.py`
-- Local backends (ollama, lmstudio, codex_cli, gemini_cli, oca) are $0 cost
+- Cost tracking for all 15 backends is in `COST_TABLE` in `tracking.py`
+- Local backends (ollama, lmstudio, codex_cli, gemini_cli) are $0 cost
 - Circuit breaker: 5 failures → open, 60s recovery → half-open probe
 - `CancelledError` is NOT counted as a backend failure (important for half-open probes)

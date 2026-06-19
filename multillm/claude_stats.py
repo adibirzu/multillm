@@ -30,10 +30,30 @@ PROJECTS_DIR = CLAUDE_DIR / "projects"
 
 # Anthropic pricing per 1M tokens (estimated for Max plan / API)
 CLAUDE_PRICING = {
-    "claude-opus-4-5-20251101": {"input": 15.0, "output": 75.0, "cache_read": 1.5, "cache_create": 18.75},
-    "claude-opus-4-6":          {"input": 15.0, "output": 75.0, "cache_read": 1.5, "cache_create": 18.75},
-    "claude-sonnet-4-6":        {"input": 3.0,  "output": 15.0, "cache_read": 0.3, "cache_create": 3.75},
-    "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.0, "cache_read": 0.08, "cache_create": 1.0},
+    "claude-opus-4-5-20251101": {
+        "input": 15.0,
+        "output": 75.0,
+        "cache_read": 1.5,
+        "cache_create": 18.75,
+    },
+    "claude-opus-4-6": {
+        "input": 15.0,
+        "output": 75.0,
+        "cache_read": 1.5,
+        "cache_create": 18.75,
+    },
+    "claude-sonnet-4-6": {
+        "input": 3.0,
+        "output": 15.0,
+        "cache_read": 0.3,
+        "cache_create": 3.75,
+    },
+    "claude-haiku-4-5-20251001": {
+        "input": 0.80,
+        "output": 4.0,
+        "cache_read": 0.08,
+        "cache_create": 1.0,
+    },
 }
 
 
@@ -154,11 +174,15 @@ def _add_usage(target: dict, usage: dict) -> None:
     target["inputTokens"] += int(usage.get("inputTokens", 0) or 0)
     target["outputTokens"] += int(usage.get("outputTokens", 0) or 0)
     target["cacheReadInputTokens"] += int(usage.get("cacheReadInputTokens", 0) or 0)
-    target["cacheCreationInputTokens"] += int(usage.get("cacheCreationInputTokens", 0) or 0)
+    target["cacheCreationInputTokens"] += int(
+        usage.get("cacheCreationInputTokens", 0) or 0
+    )
 
 
 @lru_cache(maxsize=4096)
-def _read_project_session_events_cached(path_str: str, mtime_ns: int, size: int, project_dir: str) -> tuple[dict, ...]:
+def _read_project_session_events_cached(
+    path_str: str, mtime_ns: int, size: int, project_dir: str
+) -> tuple[dict, ...]:
     del mtime_ns, size
 
     events: list[dict] = []
@@ -197,10 +221,18 @@ def _read_project_session_events_cached(path_str: str, mtime_ns: int, size: int,
                     if model:
                         event["model"] = model
                         event["usage"] = {
-                            "inputTokens": int(usage_payload.get("input_tokens", 0) or 0),
-                            "outputTokens": int(usage_payload.get("output_tokens", 0) or 0),
-                            "cacheReadInputTokens": int(usage_payload.get("cache_read_input_tokens", 0) or 0),
-                            "cacheCreationInputTokens": int(usage_payload.get("cache_creation_input_tokens", 0) or 0),
+                            "inputTokens": int(
+                                usage_payload.get("input_tokens", 0) or 0
+                            ),
+                            "outputTokens": int(
+                                usage_payload.get("output_tokens", 0) or 0
+                            ),
+                            "cacheReadInputTokens": int(
+                                usage_payload.get("cache_read_input_tokens", 0) or 0
+                            ),
+                            "cacheCreationInputTokens": int(
+                                usage_payload.get("cache_creation_input_tokens", 0) or 0
+                            ),
                         }
                 events.append(event)
     except OSError:
@@ -209,15 +241,21 @@ def _read_project_session_events_cached(path_str: str, mtime_ns: int, size: int,
     return tuple(events)
 
 
-def _read_project_session_events(session_file: Path, project_dir: str) -> tuple[dict, ...]:
+def _read_project_session_events(
+    session_file: Path, project_dir: str
+) -> tuple[dict, ...]:
     try:
         stat = session_file.stat()
     except OSError:
         return ()
-    return _read_project_session_events_cached(str(session_file), stat.st_mtime_ns, stat.st_size, project_dir)
+    return _read_project_session_events_cached(
+        str(session_file), stat.st_mtime_ns, stat.st_size, project_dir
+    )
 
 
-def _load_windowed_stats(hours: Optional[int], project: Optional[str]) -> Optional[dict]:
+def _load_windowed_stats(
+    hours: Optional[int], project: Optional[str]
+) -> Optional[dict]:
     if not PROJECTS_DIR.exists():
         return None
 
@@ -249,14 +287,19 @@ def _load_windowed_stats(hours: Optional[int], project: Optional[str]) -> Option
 
             session_id = event.get("sessionId") or session_file.stem
             cwd = event.get("cwd", "") or ""
-            session = sessions.setdefault(session_id, _empty_session(session_id, session_project, cwd))
+            session = sessions.setdefault(
+                session_id, _empty_session(session_id, session_project, cwd)
+            )
             session["_matched"] = True
 
             if timestamp is not None:
                 iso_timestamp = timestamp.isoformat()
                 if not session["timestamp"] or iso_timestamp < session["timestamp"]:
                     session["timestamp"] = iso_timestamp
-                if not session["lastTimestamp"] or iso_timestamp > session["lastTimestamp"]:
+                if (
+                    not session["lastTimestamp"]
+                    or iso_timestamp > session["lastTimestamp"]
+                ):
                     session["lastTimestamp"] = iso_timestamp
                 day = _local_day(timestamp)
                 day_activity = daily_activity.setdefault(
@@ -293,7 +336,9 @@ def _load_windowed_stats(hours: Optional[int], project: Optional[str]) -> Option
             )
             daily_tokens.setdefault(day, {})
             daily_tokens[day][model] = daily_tokens[day].get(model, 0) + token_total
-            daily_activity.setdefault(day, {"date": day, "messageCount": 0, "sessionIds": set()})
+            daily_activity.setdefault(
+                day, {"date": day, "messageCount": 0, "sessionIds": set()}
+            )
             daily_activity[day]["messageCount"] += 1
 
     filtered_sessions = []
@@ -313,22 +358,28 @@ def _load_windowed_stats(hours: Optional[int], project: Optional[str]) -> Option
     daily_activity_rows = []
     for day in sorted(daily_activity):
         row = daily_activity[day]
-        daily_activity_rows.append({
-            "date": day,
-            "messageCount": row.get("messageCount", 0),
-            "sessionCount": len(row.get("sessionIds", set())),
-        })
+        daily_activity_rows.append(
+            {
+                "date": day,
+                "messageCount": row.get("messageCount", 0),
+                "sessionCount": len(row.get("sessionIds", set())),
+            }
+        )
 
     latest_tokens = {}
     latest_activity = {}
     latest_date = daily_model_tokens[-1]["date"] if daily_model_tokens else ""
     if latest_date:
         latest_tokens = daily_model_tokens[-1]["tokensByModel"]
-        latest_activity = next((row for row in daily_activity_rows if row.get("date") == latest_date), {})
+        latest_activity = next(
+            (row for row in daily_activity_rows if row.get("date") == latest_date), {}
+        )
 
     return {
         "totalSessions": len(filtered_sessions),
-        "totalMessages": sum(session.get("messageCount", 0) for session in filtered_sessions),
+        "totalMessages": sum(
+            session.get("messageCount", 0) for session in filtered_sessions
+        ),
         "modelUsage": _with_estimated_cost(model_usage),
         "dailyActivity": daily_activity_rows,
         "dailyModelTokens": daily_model_tokens,
@@ -340,7 +391,9 @@ def _load_windowed_stats(hours: Optional[int], project: Optional[str]) -> Option
     }
 
 
-def _build_latest_day_summary(daily: list[dict], daily_model: list[dict]) -> tuple[dict, str, dict]:
+def _build_latest_day_summary(
+    daily: list[dict], daily_model: list[dict]
+) -> tuple[dict, str, dict]:
     from datetime import date
 
     today_str = date.today().isoformat()
@@ -362,7 +415,9 @@ def _build_latest_day_summary(daily: list[dict], daily_model: list[dict]) -> tup
 
 
 @ttl_cache(seconds=15.0, maxsize=128)
-def get_claude_code_stats(hours: Optional[int] = None, project: Optional[str] = None) -> dict:
+def get_claude_code_stats(
+    hours: Optional[int] = None, project: Optional[str] = None
+) -> dict:
     """Get comprehensive Claude Code usage stats."""
     stats = _load_stats()
     if not stats:
@@ -377,7 +432,11 @@ def get_claude_code_stats(hours: Optional[int] = None, project: Optional[str] = 
         lifetime_daily_model,
     )
 
-    filtered = _load_windowed_stats(hours=hours, project=project) if (hours or project) else None
+    filtered = (
+        _load_windowed_stats(hours=hours, project=project)
+        if (hours or project)
+        else None
+    )
 
     response = {
         "available": True,
@@ -438,5 +497,7 @@ def _load_session_history(limit: int = 50) -> list[dict]:
         sessions[sid]["lastTimestamp"] = e.get("timestamp", 0)
 
     # Sort by timestamp descending, return last N
-    sorted_sessions = sorted(sessions.values(), key=lambda s: s.get("timestamp", 0), reverse=True)
+    sorted_sessions = sorted(
+        sessions.values(), key=lambda s: s.get("timestamp", 0), reverse=True
+    )
     return sorted_sessions[:limit]

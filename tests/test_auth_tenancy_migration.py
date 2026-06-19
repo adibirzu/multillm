@@ -11,7 +11,6 @@ Covers:
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from pathlib import Path
 
@@ -28,18 +27,22 @@ def tmp_db(tmp_path, monkeypatch):
 
 def _run_up(target: str = "head") -> None:
     from multillm.migrations.runner import migrate_up
+
     migrate_up(target)
 
 
 def _run_down(target: str) -> None:
     from multillm.migrations.runner import migrate_down
+
     migrate_down(target)
 
 
 def _table_names(db_path: Path) -> set[str]:
     conn = sqlite3.connect(db_path)
     try:
-        rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
         return {r[0] for r in rows}
     finally:
         conn.close()
@@ -89,7 +92,7 @@ def test_backfill_populates_existing_rows(tmp_db: Path) -> None:
                 ('2026-05-18T10:01:00', 'openai', 'gpt-4o',  200, 60),
                 ('2026-05-18T10:02:00', 'anthropic','claude-3', 300, 70),
                 ('2026-05-18T10:03:00', 'gemini', 'flash',  400, 80),
-                ('2026-05-18T10:04:00', 'oca',    'gpt5',   500, 90);
+                ('2026-05-18T10:04:00', 'codex_cli', 'gpt-5-4', 500, 90);
             """
         )
         conn.commit()

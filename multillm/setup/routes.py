@@ -27,7 +27,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -109,7 +109,11 @@ async def _probe_http(url: str, models_key: str, name_field: str) -> dict[str, A
         async with httpx.AsyncClient(timeout=2.0) as client:
             r = await client.get(url)
             if r.status_code >= 400:
-                return {"reachable": False, "models": [], "error": f"HTTP {r.status_code}"}
+                return {
+                    "reachable": False,
+                    "models": [],
+                    "error": f"HTTP {r.status_code}",
+                }
             data = r.json()
             entries = data.get(models_key, []) if isinstance(data, dict) else []
             models = [e.get(name_field, "") for e in entries if isinstance(e, dict)]
@@ -153,7 +157,9 @@ async def _probe_one(name: str, spec: dict[str, Any]) -> dict[str, Any]:
 async def wizard(request: Request):
     gone = _gone_if_complete()
     if gone is not None:
-        return JSONResponse(status_code=410, content={"error": "setup_already_complete"})
+        return JSONResponse(
+            status_code=410, content={"error": "setup_already_complete"}
+        )
 
     conn = _open_conn()
     try:
@@ -178,9 +184,7 @@ async def post_admin(payload: dict[str, Any]) -> JSONResponse:
     password = payload.get("password") or ""
 
     if not _EMAIL_RE.match(email):
-        return JSONResponse(
-            status_code=400, content={"error": "invalid_email"}
-        )
+        return JSONResponse(status_code=400, content={"error": "invalid_email"})
 
     if len(password) < MIN_PASSWORD_LEN:
         return JSONResponse(
@@ -224,7 +228,9 @@ async def post_backends(payload: dict[str, str]) -> JSONResponse:
     finally:
         conn.close()
 
-    return JSONResponse(content={"state": "backends_configured", "configured": list(filtered)})
+    return JSONResponse(
+        content={"state": "backends_configured", "configured": list(filtered)}
+    )
 
 
 @router.get("/probe-local")

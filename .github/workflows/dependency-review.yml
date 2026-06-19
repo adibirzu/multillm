@@ -28,6 +28,11 @@ jobs:
       # action v4
       # pinned per OSS-13
       - name: Dependency Review
+        # Requires the GitHub Dependency graph + Advanced Security to be enabled
+        # on the repo; until then the action errors ("not supported on this
+        # repository"). Keep it non-fatal so it doesn't block PRs — re-enable as
+        # a required gate once Advanced Security is turned on.
+        continue-on-error: true
         uses: actions/dependency-review-action@4901385134134e04cec5fbe5ddfe3b2c5bd5d976
         with:
           fail-on-severity: high

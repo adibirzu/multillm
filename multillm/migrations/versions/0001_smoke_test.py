@@ -16,6 +16,7 @@ Revision ID: 0001_smoke_test
 Revises: <base>
 Create Date: 2026-05-17
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

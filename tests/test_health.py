@@ -3,10 +3,8 @@
 
 """Tests for the health check module."""
 
-import asyncio
 import pytest
-import time
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 
 from multillm.health import (
     BackendHealth,
@@ -105,6 +103,7 @@ class TestCheckAllBackends:
     @pytest.mark.asyncio
     async def test_check_marks_local_backends(self):
         """Test that probes run and update health state."""
+
         # Mock all probes to return quickly
         async def mock_probe_ok():
             return True, 50.0, ""
@@ -117,10 +116,17 @@ class TestCheckAllBackends:
             "openai": lambda: mock_probe_fail(),
         }
 
-        with patch("multillm.health.BACKEND_PROBES", probes), \
-             patch("multillm.health._probe_anthropic", return_value=(False, 0, "not configured")), \
-             patch("multillm.health._probe_oca", return_value=(False, 0, "not configured")), \
-             patch("multillm.health._probe_gemini", return_value=(False, 0, "not configured")):
+        with (
+            patch("multillm.health.BACKEND_PROBES", probes),
+            patch(
+                "multillm.health._probe_anthropic",
+                return_value=(False, 0, "not configured"),
+            ),
+            patch(
+                "multillm.health._probe_gemini",
+                return_value=(False, 0, "not configured"),
+            ),
+        ):
             await check_all_backends()
 
         assert _health["ollama"].status == "healthy"
@@ -133,10 +139,17 @@ class TestCheckAllBackends:
 
         probes = {"slow_service": lambda: mock_probe_slow()}
 
-        with patch("multillm.health.BACKEND_PROBES", probes), \
-             patch("multillm.health._probe_anthropic", return_value=(False, 0, "not configured")), \
-             patch("multillm.health._probe_oca", return_value=(False, 0, "not configured")), \
-             patch("multillm.health._probe_gemini", return_value=(False, 0, "not configured")):
+        with (
+            patch("multillm.health.BACKEND_PROBES", probes),
+            patch(
+                "multillm.health._probe_anthropic",
+                return_value=(False, 0, "not configured"),
+            ),
+            patch(
+                "multillm.health._probe_gemini",
+                return_value=(False, 0, "not configured"),
+            ),
+        ):
             await check_all_backends()
 
         assert _health["slow_service"].status == "degraded"
@@ -148,10 +161,17 @@ class TestCheckAllBackends:
 
         probes = {"failing": lambda: mock_probe_err()}
 
-        with patch("multillm.health.BACKEND_PROBES", probes), \
-             patch("multillm.health._probe_anthropic", return_value=(False, 0, "not configured")), \
-             patch("multillm.health._probe_oca", return_value=(False, 0, "not configured")), \
-             patch("multillm.health._probe_gemini", return_value=(False, 0, "not configured")):
+        with (
+            patch("multillm.health.BACKEND_PROBES", probes),
+            patch(
+                "multillm.health._probe_anthropic",
+                return_value=(False, 0, "not configured"),
+            ),
+            patch(
+                "multillm.health._probe_gemini",
+                return_value=(False, 0, "not configured"),
+            ),
+        ):
             await check_all_backends()
 
         assert _health["failing"].status == "unhealthy"

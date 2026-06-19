@@ -69,4 +69,7 @@ regexes = [
     '''sk-test-[A-Za-z0-9]+''',
     '''REPLACE_ME''',
     '''<your-.*>''',
+    # Fake OCID used as a test fixture in an earlier commit (.test suffix — not
+    # a real Oracle Cloud id). Allowlisted so the full-history scan ignores it.
+    '''ocid1\.tenancy\.test''',
 ]

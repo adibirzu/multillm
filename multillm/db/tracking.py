@@ -129,8 +129,7 @@ class TrackingRepoSqlite:
                 "  COALESCE(SUM(output_tokens), 0) AS total_output_tokens, "
                 "  COALESCE(SUM(cost_estimate_usd), 0.0) AS total_cost_usd, "
                 "  COALESCE(SUM(CASE WHEN status != 'ok' THEN 1 ELSE 0 END), 0) AS error_count "
-                "FROM usage"
-                + base_filter_sql,
+                "FROM usage" + base_filter_sql,
                 base_params,
             ).fetchone()
 
@@ -139,9 +138,7 @@ class TrackingRepoSqlite:
                 "  COUNT(*) AS requests, "
                 "  COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens, "
                 "  COALESCE(SUM(cost_estimate_usd), 0.0) AS cost "
-                "FROM usage"
-                + base_filter_sql
-                + " GROUP BY backend ORDER BY cost DESC",
+                "FROM usage" + base_filter_sql + " GROUP BY backend ORDER BY cost DESC",
                 base_params,
             ).fetchall()
 

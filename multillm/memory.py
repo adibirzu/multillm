@@ -94,15 +94,27 @@ def _init_memory_db(conn: sqlite3.Connection) -> None:
     try:
         conn.execute("SELECT tenant_id FROM memories LIMIT 1")
     except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE memories ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
-        conn.execute("UPDATE memories SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_tenant ON memories(tenant_id)")
+        conn.execute(
+            "ALTER TABLE memories ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
+        )
+        conn.execute(
+            "UPDATE memories SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memories_tenant ON memories(tenant_id)"
+        )
     try:
         conn.execute("SELECT tenant_id FROM shared_context LIMIT 1")
     except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE shared_context ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'")
-        conn.execute("UPDATE shared_context SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_shared_context_tenant ON shared_context(tenant_id)")
+        conn.execute(
+            "ALTER TABLE shared_context ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
+        )
+        conn.execute(
+            "UPDATE shared_context SET tenant_id = 'default' WHERE tenant_id IS NULL OR tenant_id = ''"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_shared_context_tenant ON shared_context(tenant_id)"
+        )
 
 
 @contextmanager
@@ -118,6 +130,7 @@ def _get_memory_db():
 
 
 # ── Memory CRUD ──────────────────────────────────────────────────────────────
+
 
 def store_memory(
     title: str,
@@ -141,8 +154,18 @@ def store_memory(
             """INSERT INTO memories
                (id, created_at, updated_at, project, source_llm, category, title, content, metadata, tenant_id)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (mem_id, now, now, project, source_llm, category, title, content,
-             json.dumps(metadata or {}), tenant_id or "default"),
+            (
+                mem_id,
+                now,
+                now,
+                project,
+                source_llm,
+                category,
+                title,
+                content,
+                json.dumps(metadata or {}),
+                tenant_id or "default",
+            ),
         )
     return mem_id
 
@@ -207,7 +230,9 @@ def list_memories(
 def get_memory(memory_id: str) -> Optional[dict]:
     """Get a single memory by ID."""
     with _get_memory_db() as conn:
-        row = conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM memories WHERE id = ?", (memory_id,)
+        ).fetchone()
     return dict(row) if row else None
 
 
@@ -219,6 +244,7 @@ def delete_memory(memory_id: str) -> bool:
 
 
 # ── Shared Context (cross-LLM communication) ────────────────────────────────
+
 
 def share_context(
     session_id: str,
@@ -236,7 +262,16 @@ def share_context(
             """INSERT INTO shared_context
                (id, session_id, created_at, source_llm, target_llm, context_type, content, expires_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (ctx_id, session_id, now, source_llm, target_llm, context_type, content, now + ttl_seconds),
+            (
+                ctx_id,
+                session_id,
+                now,
+                source_llm,
+                target_llm,
+                context_type,
+                content,
+                now + ttl_seconds,
+            ),
         )
     return ctx_id
 
@@ -276,8 +311,8 @@ _DEFAULT_SETTINGS = {
     # on demand before falling back to it.
     "local_autostart": True,
     "auto_orchestration_enabled": True,
-    "auto_second_opinion_model": "oca/gpt5",
-    "auto_council_models": ["ollama/qwen3-30b", "oca/gpt5", "gemini/flash"],
+    "auto_second_opinion_model": "codex/gpt-5-4",
+    "auto_council_models": ["ollama/qwen3-30b", "codex/gpt-5-4", "gemini/flash"],
     "auto_share_context": True,
     "usage_limits": {
         "claude_opus": 35_000_000,
@@ -306,7 +341,9 @@ def get_settings() -> dict:
 def get_setting(key: str, default=None):
     """Get a single setting value."""
     with _get_memory_db() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (key,)
+        ).fetchone()
     if row:
         try:
             return json.loads(row["value"])

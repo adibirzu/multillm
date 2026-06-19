@@ -26,7 +26,9 @@ def _normalize_codex_model_name(value: str) -> str:
 
 
 @lru_cache(maxsize=16)
-def _load_codex_profiles_cached(path_str: str, mtime_ns: int, size: int) -> tuple[dict, str]:
+def _load_codex_profiles_cached(
+    path_str: str, mtime_ns: int, size: int
+) -> tuple[dict, str]:
     del mtime_ns, size
 
     try:
@@ -40,8 +42,7 @@ def _load_codex_profiles_cached(path_str: str, mtime_ns: int, size: int) -> tupl
         profiles = {}
 
     normalized_profiles = {
-        str(name): cfg for name, cfg in profiles.items()
-        if isinstance(cfg, dict)
+        str(name): cfg for name, cfg in profiles.items() if isinstance(cfg, dict)
     }
     default_profile = str(payload.get("profile") or "").strip()
     return normalized_profiles, default_profile
@@ -54,7 +55,9 @@ def _load_codex_profiles() -> tuple[dict, str]:
         stat = CODEX_CONFIG_FILE.stat()
     except OSError:
         return {}, ""
-    return _load_codex_profiles_cached(str(CODEX_CONFIG_FILE), stat.st_mtime_ns, stat.st_size)
+    return _load_codex_profiles_cached(
+        str(CODEX_CONFIG_FILE), stat.st_mtime_ns, stat.st_size
+    )
 
 
 def _resolve_codex_exec_target(selector: str) -> tuple[list[str], str]:
@@ -94,17 +97,32 @@ def _resolve_codex_exec_target(selector: str) -> tuple[list[str], str]:
             model_name = str(profile_cfg.get("model") or "").strip()
             return ["-p", profile_name], model_name or normalized_model or target
 
-    fallback_model = normalized_model or target or os.getenv("CODEX_DEFAULT_MODEL", "gpt-5.4")
+    fallback_model = (
+        normalized_model or target or os.getenv("CODEX_DEFAULT_MODEL", "gpt-5.4")
+    )
     return ["-m", fallback_model], fallback_model
 
 
-async def _run_codex_exec(prompt: str, sandbox: str, exec_target: list[str]) -> tuple[int, str, str]:
+async def _run_codex_exec(
+    prompt: str, sandbox: str, exec_target: list[str]
+) -> tuple[int, str, str]:
     codex_bin = resolve_cli_binary("codex", env_var="CODEX_CLI_PATH")
     if not codex_bin:
         raise FileNotFoundError("codex")
 
+    # `--full-auto` was removed in Codex CLI 0.140+; the sandbox policy is set
+    # explicitly via `-s <mode>` (exec is non-interactive, so no approval flag
+    # is needed). `--skip-git-repo-check` is required because the gateway runs
+    # from a non-repo working directory (launchd home), which Codex otherwise
+    # refuses to execute in ("not inside a trusted directory").
     proc = await asyncio.create_subprocess_exec(
-        codex_bin, "exec", "--full-auto", "-s", sandbox, *exec_target, "-",
+        codex_bin,
+        "exec",
+        "-s",
+        sandbox,
+        "--skip-git-repo-check",
+        *exec_target,
+        "-",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -134,10 +152,14 @@ class CodexCLIAdapter(BaseAdapter):
 
         # Per-request sandbox override via metadata, else env var, else default
         metadata = body.get("metadata", {})
-        sandbox = metadata.get("sandbox_mode") or os.getenv("CODEX_SANDBOX", "read-only")
+        sandbox = metadata.get("sandbox_mode") or os.getenv(
+            "CODEX_SANDBOX", "read-only"
+        )
 
         try:
-            returncode, text, stderr = await _run_codex_exec(prompt, sandbox, exec_target)
+            returncode, text, stderr = await _run_codex_exec(
+                prompt, sandbox, exec_target
+            )
 
             # Route aliases may target a model while the local machine only has a profile for it.
             if (
@@ -146,18 +168,33 @@ class CodexCLIAdapter(BaseAdapter):
                 and resolved_model
                 and "config profile" in stderr.lower()
             ):
-                returncode, text, stderr = await _run_codex_exec(prompt, sandbox, ["-m", resolved_model])
+                returncode, text, stderr = await _run_codex_exec(
+                    prompt, sandbox, ["-m", resolved_model]
+                )
 
             if returncode != 0 and not text:
-                text = f"Codex CLI error (rc={returncode}): {stderr[:500]}"
+                # Surface a genuine failure as an error rather than returning the
+                # stderr as if it were the model's answer — otherwise council /
+                # fusion treat the failure as a successful response.
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Codex CLI error (rc={returncode}): {stderr[:300]}",
+                )
         except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail="Codex CLI timed out after 180s")
+            raise HTTPException(
+                status_code=504, detail="Codex CLI timed out after 180s"
+            )
         except FileNotFoundError:
-            raise HTTPException(status_code=500, detail="Codex CLI not found. Install: npm i -g @openai/codex")
+            raise HTTPException(
+                status_code=500,
+                detail="Codex CLI not found. Install: npm i -g @openai/codex",
+            )
 
         return make_anthropic_response(
-            text=text, model=model_alias,
-            input_tokens=len(prompt) // 4, output_tokens=len(text) // 4,
+            text=text,
+            model=model_alias,
+            input_tokens=len(prompt) // 4,
+            output_tokens=len(text) // 4,
         )
 
     async def stream(self, body: dict, model: str, model_alias: str):

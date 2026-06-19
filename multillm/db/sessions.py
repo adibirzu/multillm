@@ -78,9 +78,7 @@ class SessionRepoSqlite:
             ).fetchone()
         return dict(row) if row else None
 
-    def create_session(
-        self, tenant_id: str, session: dict[str, Any]
-    ) -> dict[str, Any]:
+    def create_session(self, tenant_id: str, session: dict[str, Any]) -> dict[str, Any]:
         """Insert a new session row for this tenant."""
         session_id = session.get("id") or f"sess_{uuid.uuid4().hex[:12]}"
         now = session.get("started_at", time.time())
@@ -120,8 +118,7 @@ class SessionRepoSqlite:
             # Read-then-write inside one connection scope is safe because
             # _conn yields a single Connection and commits at exit.
             row = conn.execute(
-                "SELECT models_used FROM sessions "
-                "WHERE tenant_id = ? AND id = ?",
+                "SELECT models_used FROM sessions WHERE tenant_id = ? AND id = ?",
                 (tenant_id, session_id),
             ).fetchone()
             if row is None:
@@ -142,6 +139,13 @@ class SessionRepoSqlite:
                 "  total_cost_usd = total_cost_usd + ?, "
                 "  models_used = ? "
                 "WHERE tenant_id = ? AND id = ?",
-                (now, input_tokens, output_tokens, cost,
-                 json.dumps(models), tenant_id, session_id),
+                (
+                    now,
+                    input_tokens,
+                    output_tokens,
+                    cost,
+                    json.dumps(models),
+                    tenant_id,
+                    session_id,
+                ),
             )

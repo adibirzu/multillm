@@ -354,7 +354,6 @@
   .backend-anthropic { background: #6c5ce733; color: #a29bfe; }
   .backend-openai { background: #74b9ff33; color: #74b9ff; }
   .backend-gemini { background: #fdcb6e33; color: #fdcb6e; }
-  .backend-oca { background: #e1705533; color: #e17055; }
   .backend-openrouter { background: #fd79a833; color: #fd79a8; }
   .backend-codex_cli { background: #55efc433; color: #55efc4; }
   .backend-claude_code { background: #d4a0ff33; color: #d4a0ff; }
@@ -665,6 +664,68 @@
     </div>
   </div>
 
+  <!-- Council: ask multiple models -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <span>Council — Ask Multiple Models</span>
+      <span style="font-size:10px;color:var(--text-dim)">2nd / 3rd opinions, cost-aware</span>
+    </div>
+    <div class="panel-body" style="padding:14px 16px">
+      <textarea id="councilPrompt" rows="3" placeholder="Ask a question to several models at once…"
+        style="width:100%;box-sizing:border-box;background:var(--bg2,#15151f);color:var(--text);border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:10px;font:inherit;font-size:13px;resize:vertical"></textarea>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
+        <input id="councilModels" type="text" placeholder="models (comma-separated) — blank = defaults"
+          style="flex:1;min-width:240px;background:var(--bg2,#15151f);color:var(--text);border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:8px 10px;font:inherit;font-size:12px">
+        <button id="councilAsk" type="button"
+          style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 18px;font:inherit;font-weight:600;cursor:pointer">Ask Council</button>
+      </div>
+      <div id="councilResult" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <!-- Smart Routing -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <span>Smart Routing</span>
+      <span style="font-size:10px;color:var(--text-dim)">which model the router picks, and why</span>
+    </div>
+    <div class="panel-body" style="padding:14px 16px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input id="routePrompt" type="text" placeholder="Type a prompt to see which model the router would choose…"
+          style="flex:1;min-width:260px;background:var(--bg2,#15151f);color:var(--text);border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:9px 11px;font:inherit;font-size:13px">
+        <label style="font-size:11px;color:var(--text-dim)">bias
+          <input id="routeBias" type="range" min="0" max="1" step="0.1" value="0.5" style="vertical-align:middle">
+          <span id="routeBiasVal" style="color:var(--text)">0.5</span>
+        </label>
+        <button id="routeGo" type="button"
+          style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 18px;font:inherit;font-weight:600;cursor:pointer">Route</button>
+      </div>
+      <div id="routeResult" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <!-- Cost Forecast & Burn Rate -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <span>Cost Forecast &amp; Burn Rate</span>
+      <span style="font-size:10px;color:var(--text-dim)">predicted spend and time-to-quota</span>
+    </div>
+    <div class="panel-body" id="costForecast" style="padding:12px 16px">
+      <div class="loading">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Budgets & Alerts -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <span>Budgets &amp; Alerts</span>
+      <span style="font-size:10px;color:var(--text-dim)">gateway-metered cloud spend caps</span>
+    </div>
+    <div class="panel-body" id="budgetsPanel" style="padding:12px 16px">
+      <div class="loading">Loading...</div>
+    </div>
+  </div>
+
   <!-- Usage Limits -->
   <div class="panel" style="margin-bottom:24px">
     <div class="panel-header" id="limitsHeader">Weekly Usage &amp; Cost</div>
@@ -857,7 +918,7 @@ const API = window.location.origin;
 const BACKEND_COLORS = {
   gateway: '#6c5ce7',
   ollama: '#00b894', anthropic: '#a29bfe', openai: '#74b9ff',
-  gemini: '#fdcb6e', oca: '#e17055', openrouter: '#fd79a8',
+  gemini: '#fdcb6e', openrouter: '#fd79a8',
   codex_cli: '#55efc4', lmstudio: '#81ecec',
   groq: '#f97220', deepseek: '#536dfe', mistral: '#ff6f00',
   together: '#7c4dff', xai: '#e0e0e0', fireworks: '#ff5252',
@@ -874,7 +935,6 @@ const PROVIDERS = {
   anthropic:    { label: 'Anthropic',   icon: '🧠', type: 'cloud' },
   gemini:       { label: 'Gemini',      icon: '💎', type: 'cloud' },
   openrouter:   { label: 'OpenRouter',  icon: '🔀', type: 'cloud' },
-  oca:          { label: 'OCA',         icon: '☁️', type: 'cloud' },
   groq:         { label: 'Groq',        icon: '⚡', type: 'cloud' },
   deepseek:     { label: 'DeepSeek',    icon: '🔍', type: 'cloud' },
   mistral:      { label: 'Mistral',     icon: '🌬️', type: 'cloud' },
@@ -1732,7 +1792,269 @@ function renderDashboard(payload) {
   renderUnifiedLedger(payload.unified);
   renderRoutingReliability(payload.stats);
 
-  document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  document.getElementById('lastUpdate').textContent = freshnessLabel(payload.performance);
+}
+
+// Council: fire one prompt at several models, show pre-flight cost then each
+// response with its actual cost. Wired to POST /api/council.
+function wireCouncil() {
+  const btn = document.getElementById('councilAsk');
+  if (!btn || btn._wired) return;
+  btn._wired = true;
+  btn.addEventListener('click', askCouncil);
+}
+
+// Smart Routing: show which model the log-driven router would pick for a prompt
+// at a given quality/cost bias, with the per-candidate breakdown.
+function wireRouting() {
+  const btn = document.getElementById('routeGo');
+  if (!btn || btn._wired) return;
+  btn._wired = true;
+  const slider = document.getElementById('routeBias');
+  const val = document.getElementById('routeBiasVal');
+  if (slider && val) slider.addEventListener('input', () => { val.textContent = slider.value; });
+  btn.addEventListener('click', runRouting);
+  document.getElementById('routePrompt').addEventListener('keydown', e => { if (e.key === 'Enter') runRouting(); });
+}
+
+async function runRouting() {
+  const out = document.getElementById('routeResult');
+  const prompt = (document.getElementById('routePrompt').value || '').trim();
+  if (!prompt) { out.innerHTML = '<div style="color:var(--accent4);font-size:12px">Enter a prompt first.</div>'; return; }
+  const bias = document.getElementById('routeBias').value;
+  out.innerHTML = '<div class="loading">Routing…</div>';
+  try {
+    const d = await fetchJSON(`${API}/api/routing/decision?prompt=${encodeURIComponent(prompt)}&bias=${bias}`);
+    out.innerHTML = renderRouting(d);
+  } catch (e) {
+    out.innerHTML = `<div style="color:var(--accent4);font-size:12px">Routing failed: ${e.message || e}</div>`;
+  }
+}
+
+function renderRouting(d) {
+  const reasons = (d.complexityReasons && d.complexityReasons.length) ? ` · ${d.complexityReasons.join(', ')}` : '';
+  const head = `<div style="margin-bottom:8px">
+    <span style="font-size:12px;color:var(--text-dim)">Picks</span>
+    <b style="color:var(--accent2);font-size:14px"> ${d.model || '—'}</b>
+    <span style="font-size:11px;color:var(--text-dim)"> · complexity ${d.complexity}, effective bias ${d.effectiveBias}${reasons}</span>
+  </div>`;
+  const rows = (d.candidates || []).map(c => {
+    const win = c.model === d.model;
+    return `<tr style="${win ? 'background:rgba(0,184,148,0.08)' : ''}">
+      <td style="padding:4px 8px;${win ? 'font-weight:600;color:var(--accent2)' : ''}">${c.model}</td>
+      <td style="padding:4px 8px;text-align:right">${c.score}</td>
+      <td style="padding:4px 8px;text-align:right">${c.reliability}</td>
+      <td style="padding:4px 8px;text-align:right">${c.health}</td>
+      <td style="padding:4px 8px;text-align:right">${c.speed}</td>
+      <td style="padding:4px 8px;text-align:right">${c.cost}</td>
+      <td style="padding:4px 8px;text-align:right;color:var(--text-dim)">${c.requests}</td>
+    </tr>`;
+  }).join('');
+  const table = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="color:var(--text-dim);text-align:left">
+      <th style="padding:4px 8px">Model</th><th style="padding:4px 8px;text-align:right">Score</th>
+      <th style="padding:4px 8px;text-align:right">Reliab.</th><th style="padding:4px 8px;text-align:right">Health</th>
+      <th style="padding:4px 8px;text-align:right">Speed</th><th style="padding:4px 8px;text-align:right">Cost</th>
+      <th style="padding:4px 8px;text-align:right">Reqs</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  return head + table;
+}
+
+async function askCouncil() {
+  const btn = document.getElementById('councilAsk');
+  const out = document.getElementById('councilResult');
+  const prompt = (document.getElementById('councilPrompt').value || '').trim();
+  if (!prompt) { out.innerHTML = '<div style="color:var(--accent4);font-size:12px">Enter a prompt first.</div>'; return; }
+  const modelsRaw = (document.getElementById('councilModels').value || '').trim();
+  const models = modelsRaw ? modelsRaw.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+
+  btn.disabled = true; btn.textContent = 'Asking…';
+  out.innerHTML = '<div class="loading">Querying models in parallel…</div>';
+  try {
+    const body = {prompt, max_tokens: 1024};
+    if (models) body.models = models;
+    const d = await fetchJSON(`${API}/api/council`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    out.innerHTML = renderCouncil(d);
+  } catch (e) {
+    out.innerHTML = `<div style="color:var(--accent4);font-size:12px">Council failed: ${e.message || e}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Ask Council';
+  }
+}
+
+function renderCouncil(d) {
+  const est = (d.preflightEstimate && d.preflightEstimate.estimates) || [];
+  const estChips = est.map(e =>
+    `<span style="display:inline-block;background:var(--bg2,#15151f);border:1px solid var(--border,#2a2a3a);border-radius:12px;padding:2px 10px;margin:2px;font-size:11px;color:${e.isFree ? 'var(--accent2)' : 'var(--text-dim)'}">${e.alias}: ${e.isFree ? 'free' : fmtCostP(e.estimatedCostUSD)}</span>`
+  ).join('');
+
+  const cards = (d.responses || []).map(r => {
+    if (r.error) {
+      return `<div style="border:1px solid var(--accent4);border-radius:8px;padding:10px;margin-bottom:10px">
+        <div style="font-weight:600;color:var(--accent4)">${r.alias}</div>
+        <div style="font-size:12px;color:var(--text-dim)">⚠ ${r.error}</div></div>`;
+    }
+    const escaped = (r.text || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    return `<div style="border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:10px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div style="font-weight:600;color:var(--accent5)">${r.alias}</div>
+        <div style="font-size:11px;color:var(--text-dim)">${fmtCostP(r.actualCostUSD)} · ${r.inputTokens}/${r.outputTokens} tok · ${Math.round(r.latencyMs)}ms</div>
+      </div>
+      <div style="font-size:13px;white-space:pre-wrap;margin-top:6px">${escaped}</div>
+    </div>`;
+  }).join('');
+
+  const t = d.totals || {};
+  const totalLine = `<div style="font-size:12px;color:var(--text-dim);margin-top:6px">Total actual spend: <b style="color:var(--text)">${fmtCostP(t.actualCostUSD)}</b> across ${t.modelsSucceeded}/${t.modelsQueried} models</div>`;
+
+  return `<div style="margin-bottom:10px"><span style="font-size:11px;color:var(--text-dim)">Pre-flight estimate:</span> ${estChips}</div>${cards}${totalLine}`;
+}
+
+// Small currency formatter that keeps sub-cent precision for per-call costs.
+function fmtCostP(n) {
+  if (!n) return '$0';
+  return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits: n < 0.01 ? 4 : 2, maximumFractionDigits: 4});
+}
+
+// Cost forecast: burn-rate, projected spend, and time-to-quota. Fetched
+// separately so a slow/absent forecast never blocks the main dashboard render.
+async function loadCostForecast() {
+  const el = document.getElementById('costForecast');
+  if (!el) return;
+  try {
+    const hours = getHours();
+    const projectParam = currentProjectParam();
+    const fc = await fetchJSON(`${API}/api/cost/forecast?hours=${hours}${projectParam}`);
+    el.innerHTML = renderCostForecast(fc);
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--text-dim);font-size:12px">Forecast unavailable: ${e.message || e}</div>`;
+  }
+}
+
+function renderCostForecast(fc) {
+  const p = fc.projected || {};
+  const gw = (fc.burnRate && fc.burnRate.gateway) || {};
+  const etas = fc.quotaETAs || [];
+
+  const cards = `
+    <div class="stat-card">
+      <div class="label">Projected / day</div>
+      <div class="value" style="color:var(--accent5)">${fmtCost(p.perDayUSD)}</div>
+      <div class="sub">${p.basis || ''}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Projected / month</div>
+      <div class="value" style="color:var(--accent5)">${fmtCost(p.monthEndUSD)}</div>
+      <div class="sub">${fmtCost(p.windowSpendUSD)} in last ${p.windowDays || 0}d</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Gateway burn (live)</div>
+      <div class="value token-num">${fmt(gw.tokensPerMin)}<span style="font-size:11px;color:var(--text-dim)">/min</span></div>
+      <div class="sub">${fmtCost(gw.costPerHourUSD)}/hr</div>
+    </div>`;
+
+  let etaRows = '';
+  if (etas.length) {
+    etaRows = etas.slice(0, 6).map(e => {
+      const danger = e.exhaustsToday ? 'var(--danger, #ef4444)' : 'var(--text)';
+      return `<tr>
+        <td style="padding:4px 8px">${e.label || e.source}</td>
+        <td style="padding:4px 8px;text-align:right">${fmt(e.remainingTokens)}</td>
+        <td style="padding:4px 8px;text-align:right">${fmt(e.tokensPerHour)}/h</td>
+        <td style="padding:4px 8px;text-align:right;color:${danger};font-weight:600">${e.etaText}${e.exhaustsToday ? ' ⚠' : ''}</td>
+      </tr>`;
+    }).join('');
+    etaRows = `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:12px">
+      <thead><tr style="color:var(--text-dim);text-align:left">
+        <th style="padding:4px 8px">Quota</th>
+        <th style="padding:4px 8px;text-align:right">Remaining</th>
+        <th style="padding:4px 8px;text-align:right">Burn</th>
+        <th style="padding:4px 8px;text-align:right">Runs out in</th>
+      </tr></thead><tbody>${etaRows}</tbody></table>`;
+  } else {
+    etaRows = `<div style="color:var(--text-dim);font-size:12px;margin-top:10px">No quotas with remaining headroom and active burn — nothing forecast to exhaust.</div>`;
+  }
+
+  return `<div class="stat-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">${cards}</div>${etaRows}`;
+}
+
+// Budgets: caps vs spend with alert colouring. Configure via PUT /api/budgets.
+async function loadBudgets() {
+  const el = document.getElementById('budgetsPanel');
+  if (!el) return;
+  try {
+    const b = await fetchJSON(`${API}/api/budgets`);
+    el.innerHTML = renderBudgets(b);
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--text-dim);font-size:12px">Budgets unavailable: ${e.message || e}</div>`;
+  }
+}
+
+function budgetStateColor(state) {
+  return state === 'exceeded' ? '#ef4444' : state === 'warn' ? '#f59e0b' : 'var(--accent2)';
+}
+
+function budgetBar(window, w) {
+  if (!w) return '';
+  const pct = Math.min(100, w.percentUsed || 0);
+  const color = budgetStateColor(w.state);
+  return `<div style="margin:6px 0">
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim)">
+      <span>${window}</span>
+      <span style="color:${color}">${fmtCost(w.spentUSD)} / ${fmtCost(w.capUSD)} (${w.percentUsed}%)</span>
+    </div>
+    <div style="height:6px;background:var(--surface2,#222);border-radius:3px;overflow:hidden;margin-top:3px">
+      <div style="height:100%;width:${pct}%;background:${color}"></div>
+    </div>
+  </div>`;
+}
+
+function renderBudgets(b) {
+  const g = b.global || {};
+  const hasCaps = g.daily || g.monthly || (b.projects && b.projects.length);
+  if (!hasCaps) {
+    return `<div style="color:var(--text-dim);font-size:12px">
+      No budgets configured. Set caps with:<br>
+      <code style="font-size:11px">curl -X PUT ${API}/api/budgets -d '{"enabled":true,"daily_usd":10,"monthly_usd":200}'</code>
+    </div>`;
+  }
+  const enforce = b.enabled
+    ? `<span style="color:var(--accent2);font-size:11px">enforcement ON</span>`
+    : `<span style="color:var(--text-dim);font-size:11px">monitoring only</span>`;
+
+  let alertBanner = '';
+  if (b.alerts && b.alerts.length) {
+    alertBanner = b.alerts.map(a =>
+      `<div style="font-size:12px;color:${budgetStateColor(a.state)};margin-bottom:4px">⚠ ${a.message}</div>`
+    ).join('');
+  }
+
+  const globalBlock = `<div style="margin-bottom:10px">
+    <div style="font-weight:600;margin-bottom:2px">All gateway spend ${enforce}</div>
+    ${budgetBar('Today', g.daily)}${budgetBar('Month', g.monthly)}
+  </div>`;
+
+  const projectBlocks = (b.projects || []).map(p => `<div style="margin-bottom:10px">
+    <div style="font-weight:600;margin-bottom:2px">${p.label}</div>
+    ${budgetBar('Today', p.daily)}${budgetBar('Month', p.monthly)}
+  </div>`).join('');
+
+  return alertBanner + globalBlock + projectBlocks;
+}
+
+// Translate the bundle's SWR cache metadata into a short status the user reads.
+// stale-refreshing → data is showing now but a background recompute is running.
+function freshnessLabel(perf) {
+  const now = new Date().toLocaleTimeString();
+  if (!perf || !perf.cacheState) return 'Updated ' + now;
+  const age = perf.ageSeconds != null ? Math.round(perf.ageSeconds) : null;
+  const asOf = age != null && age > 2 ? ` (data ${age < 90 ? age + 's' : Math.round(age / 60) + 'm'} old)` : '';
+  switch (perf.cacheState) {
+    case 'stale-refreshing': return `Updated ${now} · refreshing in background${asOf}`;
+    case 'cold': return `Updated ${now} · first scan${asOf}`;
+    case 'forced': return `Updated ${now} · fresh scan`;
+    default: return `Updated ${now}${asOf}`;
+  }
 }
 
 // Routing & Reliability: live adaptive scores + status/error mix from collected data.
@@ -1817,8 +2139,9 @@ async function loadDashboard(force = false) {
     const projectParam = currentProjectParam();
     setCalculationState(hours);
 
+    const refreshParam = force ? '&refresh=true' : '';
     const [bundle, backends, cacheStats, active, otelStatus, status] = await Promise.all([
-      fetchJSON(`${API}/api/dashboard-bundle?hours=${hours}&session_limit=50${projectParam}`, options),
+      fetchJSON(`${API}/api/dashboard-bundle?hours=${hours}&session_limit=50${projectParam}${refreshParam}`, options),
       optionalFetchJSON(`${API}/api/backends?refresh=false`, {backends: {}}, options),
       optionalFetchJSON(`${API}/api/cache`, {}, options),
       optionalFetchJSON(`${API}/api/active-sessions`, [], options),
@@ -1836,6 +2159,8 @@ async function loadDashboard(force = false) {
     const unified = bundle.unified || {};
     const performance = bundle.performance || {};
     renderDashboard({stats, sessions, backends, cacheStats, claudeStats, codexStats, geminiStats, unified, active, otelStatus, status, performance});
+    loadCostForecast();
+    loadBudgets();
   } catch (error) {
     if (error.name !== 'AbortError' && requestId === loadSequence) {
       renderDashboardError(error);
@@ -2196,7 +2521,6 @@ const WEEKLY_LIMITS = {
   'Claude Opus':   { limit: 35_000_000, color: 'var(--accent)' },
   'Claude Sonnet': { limit: 70_000_000, color: 'var(--accent5)' },
   'Codex CLI':     { limit: 70_000_000, color: 'var(--accent2)' },
-  'OCA':           { limit: 350_000_000, color: 'var(--accent3)' },
   'Gemini':        { limit: 14_000_000, color: '#e17055' },
   'Gemini API':    { limit: 14_000_000, color: '#e17055' },
   'Groq':          { limit: 42_000, color: '#f97220' },       // Groq free tier
@@ -2262,9 +2586,7 @@ function renderProviderStrip(backends, usageByBackend, directStatus = {}) {
       } else if (id === 'codex_cli') {
         statusText = direct.status === 'external_usage'
           ? `external ${direct.externalSessions || direct.sessions || 0} sessions`
-          : direct.status === 'oca_only'
-            ? `OCA only · ${direct.sessions || 0} sessions`
-            : `${direct.sessions || 0} sessions`;
+          : `${direct.sessions || 0} sessions`;
       } else if (id === 'gemini_cli') {
         statusText = `${direct.sessions || 0} sessions`;
       } else {
@@ -2322,7 +2644,7 @@ function renderLimits(unified, gwStats) {
   });
 
   const backendToLimit = {
-    oca: 'OCA', gemini: 'Gemini API',
+    gemini: 'Gemini API',
     groq: 'Groq', deepseek: 'DeepSeek', mistral: 'Mistral',
     together: 'Together', xai: 'xAI', fireworks: 'Fireworks',
     azure_openai: 'Azure', bedrock: 'Bedrock',
@@ -2575,8 +2897,6 @@ function renderCodexModelUsage(data) {
     return;
   }
 
-  const savedByOCA = data.savedByOCA || 0;
-
   const modelRows = Object.entries(byModel).map(([model, u]) => `<tr>
     <td style="font-weight:600;color:#55efc4">${model}</td>
     <td class="token-num">${fmt(u.inputTokens || 0)}</td>
@@ -2589,9 +2909,8 @@ function renderCodexModelUsage(data) {
   </tr>`);
 
   const providerRows = Object.entries(byProvider).map(([prov, u]) => {
-    const ocaBadge = u.isOCA ? ' <span style="background:#55efc422;color:#55efc4;padding:1px 4px;border-radius:3px;font-size:9px">FREE</span>' : '';
     return `<tr>
-      <td style="font-weight:600;color:#81ecec">${prov}${ocaBadge}</td>
+      <td style="font-weight:600;color:#81ecec">${prov}</td>
       <td class="token-num">${fmt(u.inputTokens || 0)}</td>
       <td class="token-num">${fmt(u.outputTokens || 0)}</td>
       <td class="token-num" style="color:var(--text-dim)">${fmt(u.cachedTokens || 0)}</td>
@@ -2609,7 +2928,6 @@ function renderCodexModelUsage(data) {
       ${fmt(data.totalCachedTokens || 0)} cached / ${fmt(data.totalRealNetTokens || 0)} net &middot;
       Actual: <span style="color:var(--accent3)">${fmtCost(data.totalActualCostUSD)}</span>
       &middot; List price: <span style="color:var(--text-dim)">${fmtCost(data.totalListPriceUSD)}</span>
-      ${savedByOCA > 0 ? `&middot; <span style="color:#55efc4;font-weight:600">Saved ${fmtCost(savedByOCA)} via OCA</span>` : ''}
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap">
       <div style="flex:1 1 420px;min-width:0;overflow-x:auto">
@@ -2639,10 +2957,7 @@ function renderCodexHistory(data) {
   const rows = sessions.map(s => {
     const title = (s.title || s.firstMessage || '').substring(0, 60);
     const proj = s.project || '—';
-    const isOCA = s.provider && s.provider.toLowerCase().startsWith('oca');
-    const costCell = isOCA
-      ? `<td class="token-num" style="color:#55efc4">$0 <span style="font-size:9px;color:var(--text-dim)">(${fmtCost(s.listPriceUSD)} list)</span></td>`
-      : `<td class="token-num" style="color:var(--accent3)">${fmtCost(s.actualCostUSD)}</td>`;
+    const costCell = `<td class="token-num" style="color:var(--accent3)">${fmtCost(s.actualCostUSD)}</td>`;
     return `<tr>
       <td style="white-space:nowrap">${s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}</td>
       <td style="color:#55efc4">${s.model}</td>
@@ -2742,7 +3057,6 @@ function renderUnifiedLedger(data) {
     const avail = s.available ? '●' : '○';
     const actualCost = s.actualCostUSD || s.costUSD || 0;
     const listPrice = s.listPriceUSD || actualCost;
-    const saved = s.savedByOCA || 0;
     const focused = dashboardState.source === s.source;
     return `<div onclick="setSourceFilter('${s.source}')" style="flex:1;min-width:180px;background:${color}11;border:1px solid ${focused ? color : color + '33'};border-radius:8px;padding:12px;cursor:pointer">
       <div style="font-size:10px;color:${color};text-transform:uppercase;letter-spacing:1px">${avail} ${label}</div>
@@ -2753,7 +3067,6 @@ function renderUnifiedLedger(data) {
         ${s.messages ? ` · ${fmt(s.messages)} msgs` : ''}
         ${s.requests ? ` · ${s.requests} reqs` : ''}
       </div>
-      ${saved > 0 ? `<div style="font-size:10px;color:#55efc4;margin-top:2px;font-weight:600">Saved ${fmtCost(saved)} via OCA</div>` : ''}
       ${s.dataAsOf ? `<div style="font-size:9px;color:var(--text-dim);margin-top:2px">data as of ${s.dataAsOf}</div>` : ''}
     </div>`;
   });
@@ -2789,7 +3102,6 @@ function renderUnifiedLedger(data) {
       <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px">Grand Total — All LLMs</div>
       <div style="font-size:32px;font-weight:800;color:var(--accent3);margin:4px 0" class="token-num">${fmt(grandTokens)} tokens</div>
       <div style="font-size:16px;color:var(--accent3)">${fmtCost(grandCost)} actual${grandSaved > 0 ? ` <span style="font-size:12px;color:var(--text-dim);text-decoration:line-through">${fmtCost(grandListPrice)} list</span>` : ''}</div>
-      ${grandSaved > 0 ? `<div style="font-size:13px;color:#55efc4;font-weight:600;margin-top:4px">Saved ${fmtCost(grandSaved)} via OCA</div>` : ''}
     </div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
       ${sourceCards.join('')}
@@ -2945,7 +3257,7 @@ async function showBackendDrilldown(backend) {
           <div class="stat-card" style="padding:12px"><div class="label">Sessions</div><div class="value" style="font-size:20px">${fmt(payload.codexStats.totalSessions || 0)}</div></div>
           <div class="stat-card" style="padding:12px"><div class="label">Tokens</div><div class="value token-num" style="font-size:20px">${fmt(payload.codexStats.totalTokens || 0)}</div></div>
           <div class="stat-card" style="padding:12px"><div class="label">Actual Cost</div><div class="value" style="font-size:20px">${fmtCost(payload.codexStats.totalActualCostUSD || 0)}</div></div>
-          <div class="stat-card" style="padding:12px"><div class="label">Saved via OCA</div><div class="value" style="font-size:20px;color:#55efc4">${fmtCost(payload.codexStats.savedByOCA || 0)}</div></div>
+          <div class="stat-card" style="padding:12px"><div class="label">List Price</div><div class="value" style="font-size:20px;color:var(--text-dim)">${fmtCost(payload.codexStats.totalListPriceUSD || 0)}</div></div>
         </div>
         <div class="panels" style="margin-bottom:0">
           <div class="panel">
@@ -3222,6 +3534,8 @@ document.addEventListener('visibilitychange', () => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 updateLiveToggle();
+wireCouncil();
+wireRouting();
 loadDashboard(true);
 startLiveTicker();
 </script>

@@ -21,7 +21,9 @@ def test_loopback_host_detection():
 
 
 def test_remote_bind_requires_auth_by_default():
-    result = validate_gateway_exposure(host="0.0.0.0", api_key="", allow_unauthenticated_remote=False)
+    result = validate_gateway_exposure(
+        host="0.0.0.0", api_key="", allow_unauthenticated_remote=False
+    )
 
     assert result.ok is False
     assert result.severity == "critical"
@@ -29,7 +31,9 @@ def test_remote_bind_requires_auth_by_default():
 
 
 def test_remote_bind_with_auth_is_allowed():
-    result = validate_gateway_exposure(host="0.0.0.0", api_key="secret", allow_unauthenticated_remote=False)
+    result = validate_gateway_exposure(
+        host="0.0.0.0", api_key="secret", allow_unauthenticated_remote=False
+    )
 
     assert result.ok is True
     assert result.severity == "ok"
@@ -44,7 +48,9 @@ def test_parse_cors_origins_defaults_to_loopback_origins():
 
 
 def test_parse_cors_origins_supports_explicit_values():
-    origins = parse_cors_origins("https://example.com, http://localhost:3000", port=8080)
+    origins = parse_cors_origins(
+        "https://example.com, http://localhost:3000", port=8080
+    )
 
     assert origins == ["https://example.com", "http://localhost:3000"]
 

@@ -19,19 +19,26 @@ Configuration (via settings or env vars):
 import json
 import logging
 import os
-import time
 from typing import Optional
 
 log = logging.getLogger("multillm.caching")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-LANGCACHE_ENABLED = os.getenv("LANGCACHE_ENABLED", "false").lower() in ("true", "1", "yes")
+LANGCACHE_ENABLED = os.getenv("LANGCACHE_ENABLED", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 LANGCACHE_HOST = os.getenv("LANGCACHE_HOST", "")
 LANGCACHE_CACHE_ID = os.getenv("LANGCACHE_CACHE_ID", "")
 LANGCACHE_API_KEY = os.getenv("LANGCACHE_API_KEY", "")
 LANGCACHE_THRESHOLD = float(os.getenv("LANGCACHE_THRESHOLD", "0.92"))
-LANGCACHE_CROSS_MODEL = os.getenv("LANGCACHE_CROSS_MODEL", "false").lower() in ("true", "1", "yes")
+LANGCACHE_CROSS_MODEL = os.getenv("LANGCACHE_CROSS_MODEL", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 # ── Cache client ─────────────────────────────────────────────────────────────
 
@@ -55,13 +62,20 @@ def _get_client():
 
     try:
         from langcache import LangCache
+
         _cache_client = LangCache(
-            server_url=f"https://{LANGCACHE_HOST}" if not LANGCACHE_HOST.startswith("http") else LANGCACHE_HOST,
+            server_url=f"https://{LANGCACHE_HOST}"
+            if not LANGCACHE_HOST.startswith("http")
+            else LANGCACHE_HOST,
             cache_id=LANGCACHE_CACHE_ID,
             api_key=LANGCACHE_API_KEY,
         )
-        log.info("LangCache connected (host=%s, cache=%s, threshold=%.2f)",
-                 LANGCACHE_HOST, LANGCACHE_CACHE_ID, LANGCACHE_THRESHOLD)
+        log.info(
+            "LangCache connected (host=%s, cache=%s, threshold=%.2f)",
+            LANGCACHE_HOST,
+            LANGCACHE_CACHE_ID,
+            LANGCACHE_THRESHOLD,
+        )
         return _cache_client
     except ImportError:
         log.warning("langcache package not installed. Run: pip install langcache")
@@ -100,7 +114,9 @@ def _extract_prompt_text(body: dict) -> str:
     return "\n".join(parts)
 
 
-def _make_attributes(model_alias: str, backend: str, project: str, for_search: bool = False) -> dict:
+def _make_attributes(
+    model_alias: str, backend: str, project: str, for_search: bool = False
+) -> dict:
     """Create cache attributes for scoping.
 
     When LANGCACHE_CROSS_MODEL is True and for_search is True, omits model/backend
@@ -116,6 +132,7 @@ def _make_attributes(model_alias: str, backend: str, project: str, for_search: b
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+
 
 async def cache_search(
     body: dict,
@@ -157,6 +174,7 @@ async def cache_search(
             except json.JSONDecodeError:
                 # Plain text response — wrap in Anthropic format
                 from .converters import make_anthropic_response
+
                 resp = make_anthropic_response(
                     text=result.response,
                     model=f"{model_alias} (cached)",
@@ -203,7 +221,9 @@ async def cache_store(
         return False
 
     # Don't cache tool_use responses (they're context-dependent)
-    has_tool_use = any(b.get("type") == "tool_use" for b in content if isinstance(b, dict))
+    has_tool_use = any(
+        b.get("type") == "tool_use" for b in content if isinstance(b, dict)
+    )
     if has_tool_use:
         return False
 
@@ -216,7 +236,9 @@ async def cache_store(
             attributes=_make_attributes(model_alias, backend, project),
         )
         _cache_stats["stores"] += 1
-        log.debug("Cached response for model=%s (%d chars)", model_alias, len(response_json))
+        log.debug(
+            "Cached response for model=%s (%d chars)", model_alias, len(response_json)
+        )
         return True
 
     except Exception as e:

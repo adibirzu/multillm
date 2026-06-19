@@ -2,12 +2,11 @@
 # Copyright 2026 MultiLLM contributors
 
 """Tests for the tracking module."""
-import pytest
+
 from multillm.tracking import record_usage, get_usage_summary, get_project_summary
 
 
 class TestUsageTracking:
-
     def test_record_and_query(self):
         record_usage(
             project="test-track",
@@ -56,7 +55,9 @@ class TestUsageTracking:
         )
 
         summary = get_usage_summary(project="test-cost", hours=1)
-        entry = next((s for s in summary if s["model_alias"] == "anthropic/claude"), None)
+        entry = next(
+            (s for s in summary if s["model_alias"] == "anthropic/claude"), None
+        )
         assert entry is not None
         assert entry["total_cost_usd"] > 0  # Should have non-zero cost for Anthropic
 
@@ -74,7 +75,9 @@ class TestUsageTracking:
         )
 
         summary = get_usage_summary(project="test-cache", hours=1)
-        entry = next((s for s in summary if s["model_alias"] == "anthropic/claude"), None)
+        entry = next(
+            (s for s in summary if s["model_alias"] == "anthropic/claude"), None
+        )
         assert entry is not None
         assert entry["total_cache_read_input"] >= 500
         assert entry["total_cache_creation_input"] >= 200
@@ -130,3 +133,56 @@ class TestUsageTracking:
         assert "ollama/llama3" in models
         assert "gemini/flash" in models
         assert "openai/gpt-4o" in models
+
+
+class TestOCIAPMEndpoints:
+    """OCI APM OTLP signal paths must match the documented format (KB: 404 fix)."""
+
+    def test_traces_endpoint_uses_private_v1_traces(self, monkeypatch):
+        from multillm import tracking, config
+
+        monkeypatch.setattr(
+            config,
+            "OCI_APM_ENDPOINT",
+            "https://apm-trace.eu-frankfurt-1.oci.oraclecloud.com/20200101/opentelemetry/",
+        )
+        monkeypatch.setattr(tracking, "OCI_APM_ENDPOINT", config.OCI_APM_ENDPOINT)
+        monkeypatch.setattr(tracking, "OCI_APM_DATA_KEY_TYPE", "private")
+        url = tracking._oci_apm_signal_endpoint("traces")
+        assert url.endswith("/20200101/opentelemetry/private/v1/traces")
+
+    def test_traces_endpoint_supports_public_key(self, monkeypatch):
+        from multillm import tracking
+
+        monkeypatch.setattr(
+            tracking,
+            "OCI_APM_ENDPOINT",
+            "https://apm-trace.eu-frankfurt-1.oci.oraclecloud.com/20200101/opentelemetry/",
+        )
+        monkeypatch.setattr(tracking, "OCI_APM_DATA_KEY_TYPE", "public")
+        assert tracking._oci_apm_signal_endpoint("traces").endswith(
+            "/opentelemetry/public/v1/traces"
+        )
+
+    def test_metrics_endpoint_uses_v1_metrics(self, monkeypatch):
+        from multillm import tracking
+
+        monkeypatch.setattr(
+            tracking,
+            "OCI_APM_ENDPOINT",
+            "https://apm-trace.eu-frankfurt-1.oci.oraclecloud.com/20200101/opentelemetry/",
+        )
+        url = tracking._oci_apm_signal_endpoint("metrics")
+        assert url.endswith("/20200101/opentelemetry/v1/metrics")
+        assert "/metrics/" not in url  # the old bogus path that 404'd
+
+    def test_unknown_key_type_falls_back_to_private(self, monkeypatch):
+        from multillm import tracking
+
+        monkeypatch.setattr(
+            tracking,
+            "OCI_APM_ENDPOINT",
+            "https://x.oci.oraclecloud.com/20200101/opentelemetry/",
+        )
+        monkeypatch.setattr(tracking, "OCI_APM_DATA_KEY_TYPE", "garbage")
+        assert "/private/v1/traces" in tracking._oci_apm_signal_endpoint("traces")

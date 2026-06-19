@@ -32,11 +32,15 @@ class AnthropicAdapter(BaseAdapter):
         }
         body_copy = {**body, "model": model, "stream": False}
         client = get_client("anthropic")
-        r = await client.post("https://api.anthropic.com/v1/messages", json=body_copy, headers=headers)
+        r = await client.post(
+            "https://api.anthropic.com/v1/messages", json=body_copy, headers=headers
+        )
         r.raise_for_status()
         return r.json()
 
     async def stream(self, body: dict, model: str, model_alias: str):
         if err := self.validate(model):
             raise HTTPException(status_code=500, detail=err)
-        return await stream_anthropic_passthrough(ANTHROPIC_KEY, {**body, "model": model})
+        return await stream_anthropic_passthrough(
+            ANTHROPIC_KEY, {**body, "model": model}
+        )

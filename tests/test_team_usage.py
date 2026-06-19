@@ -23,10 +23,17 @@ def _clean_team_table():
 
 def _rec(**kw):
     base = dict(
-        tenant_id="adi", backend="claude", account="adi@x.com",
-        model="claude-opus-4-6", day="2026-05-30",
-        input_tokens=1000, output_tokens=500, cache_tokens=100,
-        requests=5, cost_usd=0.12, source_host="devvm",
+        tenant_id="adi",
+        backend="claude",
+        account="adi@x.com",
+        model="claude-opus-4-6",
+        day="2026-05-30",
+        input_tokens=1000,
+        output_tokens=500,
+        cache_tokens=100,
+        requests=5,
+        cost_usd=0.12,
+        source_host="devvm",
     )
     base.update(kw)
     return tu.TeamUsageRecord(**base)
@@ -52,11 +59,15 @@ def test_upsert_is_idempotent_snapshot_replace():
 
 
 def test_distinct_accounts_and_backends_split():
-    tu.record_team_usage([
-        _rec(tenant_id="adi", backend="claude", account="adi@x.com", model="m1"),
-        _rec(tenant_id="adi", backend="codex", account="adi@oa", model="gpt-5.4"),
-        _rec(tenant_id="royce", backend="claude", account="royce@y.com", model="m2"),
-    ])
+    tu.record_team_usage(
+        [
+            _rec(tenant_id="adi", backend="claude", account="adi@x.com", model="m1"),
+            _rec(tenant_id="adi", backend="codex", account="adi@oa", model="gpt-5.4"),
+            _rec(
+                tenant_id="royce", backend="claude", account="royce@y.com", model="m2"
+            ),
+        ]
+    )
     data = tu.get_team_usage(hours=720)
     assert data["totals"]["users"] == 2
     assert data["totals"]["accounts"] == 3
@@ -65,10 +76,12 @@ def test_distinct_accounts_and_backends_split():
 
 
 def test_tenant_filter():
-    tu.record_team_usage([
-        _rec(tenant_id="adi"),
-        _rec(tenant_id="royce", account="royce@y.com"),
-    ])
+    tu.record_team_usage(
+        [
+            _rec(tenant_id="adi"),
+            _rec(tenant_id="royce", account="royce@y.com"),
+        ]
+    )
     data = tu.get_team_usage(hours=720, tenant="royce")
     assert data["totals"]["users"] == 1
     assert all(u["bucket"] == "royce" for u in data["by_user"])
@@ -79,12 +92,16 @@ def test_tenant_filter():
 
 def test_record_from_dict_rejects_bad_backend():
     with pytest.raises(ValueError):
-        tu.record_from_dict({"tenant_id": "adi", "backend": "bogus", "day": "2026-05-30"})
+        tu.record_from_dict(
+            {"tenant_id": "adi", "backend": "bogus", "day": "2026-05-30"}
+        )
 
 
 def test_record_from_dict_rejects_bad_day():
     with pytest.raises(ValueError):
-        tu.record_from_dict({"tenant_id": "adi", "backend": "claude", "day": "30-05-2026"})
+        tu.record_from_dict(
+            {"tenant_id": "adi", "backend": "claude", "day": "30-05-2026"}
+        )
 
 
 def test_record_from_dict_requires_tenant():
@@ -133,10 +150,16 @@ def client():
 
 def test_ingest_endpoint_writes_and_skips_invalid(client):
     batch = {
-        "tenant_id": "adi", "source_host": "devvm",
+        "tenant_id": "adi",
+        "source_host": "devvm",
         "records": [
-            {"backend": "claude", "model": "m", "day": "2026-05-30",
-             "input_tokens": 100, "output_tokens": 50},
+            {
+                "backend": "claude",
+                "model": "m",
+                "day": "2026-05-30",
+                "input_tokens": 100,
+                "output_tokens": 50,
+            },
             {"backend": "nope", "model": "x", "day": "2026-05-30"},
         ],
     }
@@ -149,9 +172,16 @@ def test_ingest_endpoint_writes_and_skips_invalid(client):
 
 def test_ingest_inherits_batch_tenant(client):
     batch = {
-        "tenant_id": "royce", "source_host": "devvm",
-        "records": [{"backend": "gemini", "model": "gemini-2.5-pro",
-                     "day": "2026-05-30", "output_tokens": 10}],
+        "tenant_id": "royce",
+        "source_host": "devvm",
+        "records": [
+            {
+                "backend": "gemini",
+                "model": "gemini-2.5-pro",
+                "day": "2026-05-30",
+                "output_tokens": 10,
+            }
+        ],
     }
     client.post("/api/usage/ingest", json=batch)
     data = client.get("/api/team-usage?hours=720").json()
@@ -160,10 +190,21 @@ def test_ingest_inherits_batch_tenant(client):
 
 def test_team_usage_budget_flag(client, monkeypatch):
     monkeypatch.setenv("MULTILLM_USER_BUDGETS", "adi=0.10")
-    client.post("/api/usage/ingest", json={
-        "tenant_id": "adi", "source_host": "devvm",
-        "records": [{"backend": "claude", "model": "m", "day": "2026-05-30", "cost_usd": 0.5}],
-    })
+    client.post(
+        "/api/usage/ingest",
+        json={
+            "tenant_id": "adi",
+            "source_host": "devvm",
+            "records": [
+                {
+                    "backend": "claude",
+                    "model": "m",
+                    "day": "2026-05-30",
+                    "cost_usd": 0.5,
+                }
+            ],
+        },
+    )
     data = client.get("/api/team-usage?hours=720").json()
     user = next(u for u in data["by_user"] if u["bucket"] == "adi")
     assert user["over_budget"] is True

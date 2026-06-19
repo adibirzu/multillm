@@ -29,7 +29,9 @@ class GeminiAdapter(BaseAdapter):
         try:
             from google import genai
         except ImportError:
-            raise HTTPException(status_code=500, detail="google-genai package not installed")
+            raise HTTPException(
+                status_code=500, detail="google-genai package not installed"
+            )
 
         client = genai.Client(api_key=GEMINI_KEY)
         prompt = extract_text_from_anthropic(body)
@@ -44,8 +46,12 @@ class GeminiAdapter(BaseAdapter):
                 ),
             )
             text = response.text or ""
-            input_tokens = getattr(response.usage_metadata, "prompt_token_count", 0) or 0
-            output_tokens = getattr(response.usage_metadata, "candidates_token_count", 0) or 0
+            input_tokens = (
+                getattr(response.usage_metadata, "prompt_token_count", 0) or 0
+            )
+            output_tokens = (
+                getattr(response.usage_metadata, "candidates_token_count", 0) or 0
+            )
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"Gemini error: {e}")
 

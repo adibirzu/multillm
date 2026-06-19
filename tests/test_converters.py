@@ -2,8 +2,8 @@
 # Copyright 2026 MultiLLM contributors
 
 """Tests for the format converter module."""
+
 import json
-import pytest
 
 from multillm.converters import (
     anthropic_messages_to_openai,
@@ -21,12 +21,10 @@ from multillm.converters import (
 
 # ── Message Conversion ──────────────────────────────────────────────────────
 
-class TestAnthropicToOpenaiMessages:
 
+class TestAnthropicToOpenaiMessages:
     def test_simple_text_message(self):
-        msgs = anthropic_messages_to_openai(
-            [{"role": "user", "content": "Hello"}]
-        )
+        msgs = anthropic_messages_to_openai([{"role": "user", "content": "Hello"}])
         assert msgs == [{"role": "user", "content": "Hello"}]
 
     def test_system_prompt_string(self):
@@ -40,34 +38,44 @@ class TestAnthropicToOpenaiMessages:
     def test_system_prompt_list(self):
         msgs = anthropic_messages_to_openai(
             [{"role": "user", "content": "Hi"}],
-            system=[{"type": "text", "text": "Be brief."}, {"type": "text", "text": "Be helpful."}],
+            system=[
+                {"type": "text", "text": "Be brief."},
+                {"type": "text", "text": "Be helpful."},
+            ],
         )
         assert msgs[0]["content"] == "Be brief. Be helpful."
 
     def test_content_blocks_text(self):
-        msgs = anthropic_messages_to_openai([
-            {"role": "user", "content": [
-                {"type": "text", "text": "Hello"},
-                {"type": "text", "text": "World"},
-            ]},
-        ])
+        msgs = anthropic_messages_to_openai(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Hello"},
+                        {"type": "text", "text": "World"},
+                    ],
+                },
+            ]
+        )
         assert msgs[0]["content"] == "Hello\nWorld"
 
     def test_tool_use_blocks(self):
-        msgs = anthropic_messages_to_openai([
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "text", "text": "Let me check."},
-                    {
-                        "type": "tool_use",
-                        "id": "toolu_abc",
-                        "name": "get_weather",
-                        "input": {"location": "London"},
-                    },
-                ],
-            },
-        ])
+        msgs = anthropic_messages_to_openai(
+            [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Let me check."},
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_abc",
+                            "name": "get_weather",
+                            "input": {"location": "London"},
+                        },
+                    ],
+                },
+            ]
+        )
         assert len(msgs) == 1
         assert msgs[0]["role"] == "assistant"
         assert msgs[0]["content"] == "Let me check."
@@ -78,51 +86,61 @@ class TestAnthropicToOpenaiMessages:
         assert json.loads(tc["function"]["arguments"]) == {"location": "London"}
 
     def test_tool_result_blocks(self):
-        msgs = anthropic_messages_to_openai([
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": "toolu_abc",
-                        "content": "15°C, cloudy",
-                    },
-                ],
-            },
-        ])
+        msgs = anthropic_messages_to_openai(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_abc",
+                            "content": "15°C, cloudy",
+                        },
+                    ],
+                },
+            ]
+        )
         assert len(msgs) == 1
         assert msgs[0]["role"] == "tool"
         assert msgs[0]["tool_call_id"] == "toolu_abc"
         assert msgs[0]["content"] == "15°C, cloudy"
 
     def test_tool_result_with_content_list(self):
-        msgs = anthropic_messages_to_openai([
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": "toolu_abc",
-                        "content": [{"type": "text", "text": "Result here"}],
-                    },
-                ],
-            },
-        ])
+        msgs = anthropic_messages_to_openai(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_abc",
+                            "content": [{"type": "text", "text": "Result here"}],
+                        },
+                    ],
+                },
+            ]
+        )
         assert msgs[0]["content"] == "Result here"
 
     def test_image_blocks(self):
-        msgs = anthropic_messages_to_openai([
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "What's this?"},
-                    {
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": "image/png", "data": "abc123"},
-                    },
-                ],
-            },
-        ])
+        msgs = anthropic_messages_to_openai(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What's this?"},
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": "abc123",
+                            },
+                        },
+                    ],
+                },
+            ]
+        )
         assert len(msgs) == 1
         content = msgs[0]["content"]
         assert isinstance(content, list)
@@ -143,8 +161,8 @@ class TestAnthropicToOpenaiMessages:
 
 # ── Response Conversion ─────────────────────────────────────────────────────
 
-class TestOpenaiToAnthropicResponse:
 
+class TestOpenaiToAnthropicResponse:
     def test_simple_text_response(self, sample_openai_response):
         result = openai_response_to_anthropic(sample_openai_response, "openai/gpt-4o")
         assert result["type"] == "message"
@@ -157,7 +175,9 @@ class TestOpenaiToAnthropicResponse:
         assert result["usage"]["output_tokens"] == 8
 
     def test_tool_calls_response(self, sample_openai_response_with_tools):
-        result = openai_response_to_anthropic(sample_openai_response_with_tools, "openai/gpt-4o")
+        result = openai_response_to_anthropic(
+            sample_openai_response_with_tools, "openai/gpt-4o"
+        )
         assert result["stop_reason"] == "tool_use"
         assert len(result["content"]) == 1  # Only tool_use, no text (content was None)
         tool_block = result["content"][0]
@@ -166,13 +186,18 @@ class TestOpenaiToAnthropicResponse:
         assert tool_block["input"] == {"location": "London", "unit": "celsius"}
 
     def test_empty_response(self):
-        oai = {"choices": [{"message": {"content": ""}, "finish_reason": "stop"}], "usage": {}}
+        oai = {
+            "choices": [{"message": {"content": ""}, "finish_reason": "stop"}],
+            "usage": {},
+        }
         result = openai_response_to_anthropic(oai, "test")
         assert result["content"][0]["text"] == ""
 
     def test_length_stop_reason(self):
         oai = {
-            "choices": [{"message": {"content": "truncated"}, "finish_reason": "length"}],
+            "choices": [
+                {"message": {"content": "truncated"}, "finish_reason": "length"}
+            ],
             "usage": {},
         }
         result = openai_response_to_anthropic(oai, "test")
@@ -181,7 +206,11 @@ class TestOpenaiToAnthropicResponse:
     def test_prompt_cache_tokens_map(self):
         oai = {
             "choices": [{"message": {"content": "cached"}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 20, "completion_tokens": 5, "prompt_tokens_details": {"cached_tokens": 12}},
+            "usage": {
+                "prompt_tokens": 20,
+                "completion_tokens": 5,
+                "prompt_tokens_details": {"cached_tokens": 12},
+            },
         }
         result = openai_response_to_anthropic(oai, "test")
         assert result["usage"]["cache_read_input_tokens"] == 12
@@ -189,8 +218,8 @@ class TestOpenaiToAnthropicResponse:
 
 # ── Tool Definition Conversion ──────────────────────────────────────────────
 
-class TestToolConversion:
 
+class TestToolConversion:
     def test_anthropic_tools_to_openai(self):
         anthropic_tools = [
             {
@@ -212,8 +241,8 @@ class TestToolConversion:
 
 # ── Payload Builders ────────────────────────────────────────────────────────
 
-class TestPayloadBuilders:
 
+class TestPayloadBuilders:
     def test_build_openai_payload(self, sample_anthropic_request_with_system):
         payload = build_openai_payload(sample_anthropic_request_with_system, "gpt-4o")
         assert payload["model"] == "gpt-4o"
@@ -261,8 +290,8 @@ class TestPayloadBuilders:
 
 # ── Response Builders ───────────────────────────────────────────────────────
 
-class TestResponseBuilders:
 
+class TestResponseBuilders:
     def test_make_anthropic_response(self):
         resp = make_anthropic_response("Hello", "test-model", 10, 5)
         assert resp["type"] == "message"
@@ -275,7 +304,9 @@ class TestResponseBuilders:
             {"type": "text", "text": "Let me help"},
             {"type": "tool_use", "id": "t1", "name": "foo", "input": {}},
         ]
-        resp = make_anthropic_response("", "m", content_blocks=blocks, stop_reason="tool_use")
+        resp = make_anthropic_response(
+            "", "m", content_blocks=blocks, stop_reason="tool_use"
+        )
         assert len(resp["content"]) == 2
         assert resp["stop_reason"] == "tool_use"
 
@@ -319,8 +350,8 @@ class TestResponseBuilders:
 
 # ── Streaming Conversion ────────────────────────────────────────────────────
 
-class TestStreamingConversion:
 
+class TestStreamingConversion:
     def test_openai_text_streaming(self, sample_openai_stream_chunks):
         state = StreamState("test-model")
         all_events = []

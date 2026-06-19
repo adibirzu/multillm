@@ -36,14 +36,21 @@ class CloudOpenAICompatAdapter(BaseAdapter):
             raise HTTPException(status_code=500, detail=err)
         payload = build_openai_payload(body, model)
         payload["stream"] = False
-        oai = await call_openai_compat(self.base_url, self.key_fn(), payload, backend=self.name)
+        oai = await call_openai_compat(
+            self.base_url, self.key_fn(), payload, backend=self.name
+        )
         return openai_response_to_anthropic(oai, f"{self.name}/{model.split('/')[-1]}")
 
     async def stream(self, body: dict, model: str, model_alias: str):
         if err := self.validate(model):
             raise HTTPException(status_code=500, detail=err)
         return await stream_openai_compat(
-            self.base_url, self.key_fn(), body, model, model_alias, backend=self.name,
+            self.base_url,
+            self.key_fn(),
+            body,
+            model,
+            model_alias,
+            backend=self.name,
         )
 
 
@@ -64,29 +71,45 @@ class CloudOpenAICompatAdapter(BaseAdapter):
 
 def make_groq() -> "CloudOpenAICompatAdapter":
     from ..config import GROQ_KEY
-    return CloudOpenAICompatAdapter("groq", "https://api.groq.com/openai", lambda: GROQ_KEY)
+
+    return CloudOpenAICompatAdapter(
+        "groq", "https://api.groq.com/openai", lambda: GROQ_KEY
+    )
 
 
 def make_deepseek() -> "CloudOpenAICompatAdapter":
     from ..config import DEEPSEEK_KEY
-    return CloudOpenAICompatAdapter("deepseek", "https://api.deepseek.com", lambda: DEEPSEEK_KEY)
+
+    return CloudOpenAICompatAdapter(
+        "deepseek", "https://api.deepseek.com", lambda: DEEPSEEK_KEY
+    )
 
 
 def make_mistral() -> "CloudOpenAICompatAdapter":
     from ..config import MISTRAL_KEY
-    return CloudOpenAICompatAdapter("mistral", "https://api.mistral.ai", lambda: MISTRAL_KEY)
+
+    return CloudOpenAICompatAdapter(
+        "mistral", "https://api.mistral.ai", lambda: MISTRAL_KEY
+    )
 
 
 def make_together() -> "CloudOpenAICompatAdapter":
     from ..config import TOGETHER_KEY
-    return CloudOpenAICompatAdapter("together", "https://api.together.xyz", lambda: TOGETHER_KEY)
+
+    return CloudOpenAICompatAdapter(
+        "together", "https://api.together.xyz", lambda: TOGETHER_KEY
+    )
 
 
 def make_xai() -> "CloudOpenAICompatAdapter":
     from ..config import XAI_KEY
+
     return CloudOpenAICompatAdapter("xai", "https://api.x.ai", lambda: XAI_KEY)
 
 
 def make_fireworks() -> "CloudOpenAICompatAdapter":
     from ..config import FIREWORKS_KEY
-    return CloudOpenAICompatAdapter("fireworks", "https://api.fireworks.ai/inference", lambda: FIREWORKS_KEY)
+
+    return CloudOpenAICompatAdapter(
+        "fireworks", "https://api.fireworks.ai/inference", lambda: FIREWORKS_KEY
+    )

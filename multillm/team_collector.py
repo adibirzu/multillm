@@ -86,14 +86,27 @@ def build_payload(tenant: str, host: str, hours: int, accounts: dict[str, str]) 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="multillm-collect", description=__doc__)
-    parser.add_argument("--gateway", default=os.environ.get("MULTILLM_GATEWAY", "http://localhost:8080"))
+    parser.add_argument(
+        "--gateway", default=os.environ.get("MULTILLM_GATEWAY", "http://localhost:8080")
+    )
     parser.add_argument("--user", default=None, help="tenant label (default: $USER)")
     parser.add_argument("--token", default=os.environ.get("MULTILLM_API_KEY", ""))
-    parser.add_argument("--host", default=os.environ.get("MULTILLM_HOST", socket.gethostname()))
-    parser.add_argument("--hours", type=int, default=int(os.environ.get("MULTILLM_COLLECT_HOURS", "168")))
-    parser.add_argument("--accounts", default=os.environ.get("MULTILLM_ACCOUNTS", ""),
-                        help="override account labels, e.g. claude=me@x.com,codex=team")
-    parser.add_argument("--dry-run", action="store_true", help="print payload, do not POST")
+    parser.add_argument(
+        "--host", default=os.environ.get("MULTILLM_HOST", socket.gethostname())
+    )
+    parser.add_argument(
+        "--hours",
+        type=int,
+        default=int(os.environ.get("MULTILLM_COLLECT_HOURS", "168")),
+    )
+    parser.add_argument(
+        "--accounts",
+        default=os.environ.get("MULTILLM_ACCOUNTS", ""),
+        help="override account labels, e.g. claude=me@x.com,codex=team",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="print payload, do not POST"
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -103,7 +116,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     tenant = _resolve_tenant(args.user)
-    payload = build_payload(tenant, args.host, args.hours, _parse_accounts(args.accounts))
+    payload = build_payload(
+        tenant, args.host, args.hours, _parse_accounts(args.accounts)
+    )
     n = len(payload["records"])
 
     if args.dry_run:
@@ -118,7 +133,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = post_ingest(args.gateway, args.token, payload)
     except urllib.error.HTTPError as e:
-        log.error("ingest failed: HTTP %s %s", e.code, e.read().decode("utf-8", "ignore")[:300])
+        log.error(
+            "ingest failed: HTTP %s %s",
+            e.code,
+            e.read().decode("utf-8", "ignore")[:300],
+        )
         return 1
     except (urllib.error.URLError, socket.timeout, OSError) as e:
         log.error("ingest failed: %s", e)

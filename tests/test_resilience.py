@@ -6,7 +6,6 @@
 import asyncio
 import pytest
 import httpx
-from unittest.mock import AsyncMock, patch
 
 from multillm.resilience import (
     CircuitBreaker,
@@ -108,15 +107,25 @@ class TestRetryableDetection:
 
     def test_429_is_retryable(self):
         response = httpx.Response(429, request=httpx.Request("POST", "http://test"))
-        assert _is_retryable(httpx.HTTPStatusError("rate limit", request=response.request, response=response))
+        assert _is_retryable(
+            httpx.HTTPStatusError(
+                "rate limit", request=response.request, response=response
+            )
+        )
 
     def test_502_is_retryable(self):
         response = httpx.Response(502, request=httpx.Request("POST", "http://test"))
-        assert _is_retryable(httpx.HTTPStatusError("bad gw", request=response.request, response=response))
+        assert _is_retryable(
+            httpx.HTTPStatusError("bad gw", request=response.request, response=response)
+        )
 
     def test_400_not_retryable(self):
         response = httpx.Response(400, request=httpx.Request("POST", "http://test"))
-        assert not _is_retryable(httpx.HTTPStatusError("bad req", request=response.request, response=response))
+        assert not _is_retryable(
+            httpx.HTTPStatusError(
+                "bad req", request=response.request, response=response
+            )
+        )
 
     def test_value_error_not_retryable(self):
         assert not _is_retryable(ValueError("nope"))
@@ -132,6 +141,7 @@ class TestWithRetry:
     @pytest.mark.asyncio
     async def test_success_no_retry(self):
         call_count = 0
+
         async def factory():
             nonlocal call_count
             call_count += 1
@@ -144,6 +154,7 @@ class TestWithRetry:
     @pytest.mark.asyncio
     async def test_retries_on_transient_error(self):
         call_count = 0
+
         async def factory():
             nonlocal call_count
             call_count += 1
@@ -151,7 +162,9 @@ class TestWithRetry:
                 raise httpx.ConnectError("fail")
             return "recovered"
 
-        result = await with_retry(factory, "test_backend", max_retries=2, base_delay=0.01)
+        result = await with_retry(
+            factory, "test_backend", max_retries=2, base_delay=0.01
+        )
         assert result == "recovered"
         assert call_count == 3
 
@@ -166,6 +179,7 @@ class TestWithRetry:
     @pytest.mark.asyncio
     async def test_exhausts_retries(self):
         call_count = 0
+
         async def factory():
             nonlocal call_count
             call_count += 1
@@ -220,7 +234,7 @@ class TestWithRetry:
     @pytest.mark.asyncio
     async def test_cancelled_error_releases_half_open_slot(self):
         """CancelledError during half-open probe must release the slot."""
-        import time
+
         _breakers.clear()
         breaker = get_breaker("cancel_ho")
         breaker._state = "half-open"

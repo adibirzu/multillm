@@ -4,7 +4,6 @@
 """Ollama backend adapter."""
 
 import uuid
-from fastapi import HTTPException
 
 from .base import BaseAdapter
 from ..config import OLLAMA_URL
@@ -35,19 +34,22 @@ class OllamaAdapter(BaseAdapter):
         tool_calls = message.get("tool_calls", [])
         for tc in tool_calls:
             func = tc.get("function", {})
-            content_blocks.append({
-                "type": "tool_use",
-                "id": f"toolu_{uuid.uuid4().hex[:24]}",
-                "name": func.get("name", ""),
-                "input": func.get("arguments", {}),
-            })
+            content_blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": f"toolu_{uuid.uuid4().hex[:24]}",
+                    "name": func.get("name", ""),
+                    "input": func.get("arguments", {}),
+                }
+            )
 
         stop_reason = "tool_use" if tool_calls else "end_turn"
         if not content_blocks:
             content_blocks.append({"type": "text", "text": ""})
 
         return make_anthropic_response(
-            text="", model=model,
+            text="",
+            model=model,
             input_tokens=data.get("prompt_eval_count", 0),
             output_tokens=data.get("eval_count", 0),
             stop_reason=stop_reason,

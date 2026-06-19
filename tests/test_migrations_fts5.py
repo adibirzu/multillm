@@ -19,9 +19,7 @@ def fts5_db(tmp_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(tmp_path / "fts5.db")
     # FTS5 may not be compiled into every sqlite3 build; skip cleanly if absent.
     try:
-        conn.execute(
-            "CREATE VIRTUAL TABLE notes USING fts5(title, body)"
-        )
+        conn.execute("CREATE VIRTUAL TABLE notes USING fts5(title, body)")
     except sqlite3.OperationalError as exc:
         conn.close()
         pytest.skip(f"FTS5 not available in this sqlite build: {exc}")
@@ -63,10 +61,10 @@ def test_rebuild_fts5_on_non_fts_table_raises_operational_error(tmp_path: Path) 
         "foo; DROP TABLE x",
         "foo'); DROP TABLE x;--",
         "",
-        "1bad",          # cannot start with digit
-        "bad name",      # space
-        "bad-name",      # dash
-        "foo`bar",       # backtick
+        "1bad",  # cannot start with digit
+        "bad name",  # space
+        "bad-name",  # dash
+        "foo`bar",  # backtick
     ],
 )
 def test_rebuild_fts5_rejects_unsafe_identifiers(

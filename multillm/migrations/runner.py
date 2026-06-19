@@ -62,7 +62,9 @@ def alembic_config() -> Config:
     ini_path = _project_root() / "alembic.ini"
     cfg = Config(str(ini_path)) if ini_path.exists() else Config()
     # The script_location must resolve regardless of the caller's CWD.
-    cfg.set_main_option("script_location", str(_project_root() / "multillm" / "migrations"))
+    cfg.set_main_option(
+        "script_location", str(_project_root() / "multillm" / "migrations")
+    )
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path()}")
     return cfg
 
@@ -114,9 +116,7 @@ def migrate_up(target: str = "head") -> str | None:
     cfg = alembic_config()
     script = ScriptDirectory.from_config(cfg)
 
-    resolved_target = (
-        script.get_current_head() if target == "head" else target
-    )
+    resolved_target = script.get_current_head() if target == "head" else target
     current = current_revision()
 
     # No-op short-circuit (Test 5).

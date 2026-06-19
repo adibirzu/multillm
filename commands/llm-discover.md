@@ -3,7 +3,7 @@ description: Discover available models from all LLM backends
 allowed-tools: Bash
 ---
 
-Trigger model discovery and display results from all backends (Ollama, LM Studio, OpenAI, OpenRouter, OCA, Gemini, Groq, DeepSeek, Mistral, Together, xAI, Fireworks).
+Trigger model discovery and display results from all backends (Ollama, LM Studio, OpenAI, OpenRouter, Gemini, Groq, DeepSeek, Mistral, Together, xAI, Fireworks).
 
 ```bash
 curl -s 'http://localhost:8080/api/backends?refresh=true' | python3 -c "

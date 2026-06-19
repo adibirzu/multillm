@@ -31,7 +31,9 @@ def bootstrapped_db(isolated_home: Path) -> Path:
     db_path = isolated_home / "multillm.db"
     conn = sqlite3.connect(db_path)
     try:
-        conn.execute("CREATE TABLE system (id INTEGER PRIMARY KEY, key TEXT, value TEXT)")
+        conn.execute(
+            "CREATE TABLE system (id INTEGER PRIMARY KEY, key TEXT, value TEXT)"
+        )
         conn.execute("INSERT INTO system (key, value) VALUES ('initialized', 'true')")
         conn.commit()
     finally:

@@ -1,5 +1,5 @@
 ---
-description: Ask a question to a specific LLM model (e.g., /llm-ask oca/gpt5 explain this code)
+description: Ask a question to a specific LLM model (e.g., /llm-ask codex/gpt-5-4 explain this code)
 allowed-tools: Bash
 ---
 
@@ -37,4 +37,4 @@ print(f'\n---\nModel: {data.get(\"model\",\"?\")} | Tokens: {usage.get(\"input_t
 "
 ```
 
-Example models: ollama/qwen3-30b, oca/gpt5, gemini/flash, openai/gpt-4o, groq/llama-3.3-70b, deepseek/chat
+Example models: ollama/qwen3-30b, codex/gpt-5-4, gemini/flash, openai/gpt-4o, groq/llama-3.3-70b, deepseek/chat

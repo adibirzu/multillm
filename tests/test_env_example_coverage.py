@@ -32,38 +32,31 @@ MULTILLM_PKG = REPO_ROOT / "multillm"
 
 # Names referenced via ``os.getenv("PATH", ...)`` etc. that are provided by
 # the OS / container runtime and therefore MUST NOT appear in ``.env.example``.
-SYSTEM_PROVIDED: frozenset[str] = frozenset({
-    "PATH",
-    # Provided by the OS/login session; read as a default tenant label by the
-    # per-user team-usage collector (multillm/team_collector.py).
-    "USER",
-})
+SYSTEM_PROVIDED: frozenset[str] = frozenset(
+    {
+        "PATH",
+        # Provided by the OS/login session; read as a default tenant label by the
+        # per-user team-usage collector (multillm/team_collector.py).
+        "USER",
+    }
+)
 
 # Names documented in ``.env.example`` that are not yet read directly via
 # ``os.getenv`` in production code. They are forward references the operator
 # may legitimately set:
 #   - ``OTEL_TRACES_SAMPLER_ARG``: OTel SDK reads this internally; Phase 5
 #     plans to surface it explicitly.
-KNOWN_OPTIONAL_EXTRAS: frozenset[str] = frozenset({
-    "OTEL_TRACES_SAMPLER_ARG",
-})
+KNOWN_OPTIONAL_EXTRAS: frozenset[str] = frozenset(
+    {
+        "OTEL_TRACES_SAMPLER_ARG",
+    }
+)
 
 # Operator-facing aliases read indirectly via the ``_first_env`` helper in
 # ``multillm/config.py``. They are documented in ``.env.example`` and are
 # real env vars the code consults, but the AST walker cannot see them as
 # direct ``os.getenv`` literals.
-KNOWN_INDIRECT_LOOKUPS: frozenset[str] = frozenset({
-    "OCA_IDCS_URL",
-    "OCA_IDCS_OAUTH_URL",
-    "OCI_IDCS_OAUTH_URL",
-    "IDCS_URL",
-    "ORACLE_SSO_OAUTH_URL",
-    "OCA_CLIENT_ID",
-    "OCA_IDCS_CLIENT_ID",
-    "OCI_IDCS_CLIENT_ID",
-    "IDCS_CLIENT_ID",
-    "ORACLE_SSO_CLIENT_ID",
-})
+KNOWN_INDIRECT_LOOKUPS: frozenset[str] = frozenset()
 
 _ENV_LINE_RE = re.compile(r"^([A-Z][A-Z0-9_]+)=")
 
@@ -168,7 +161,9 @@ def _collect_referenced_names(
     return referenced
 
 
-def test_env_example_covers_every_referenced_env_var(caplog: pytest.LogCaptureFixture) -> None:
+def test_env_example_covers_every_referenced_env_var(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """`.env.example` must document every literal env-var the code reads."""
     caplog.set_level(logging.WARNING)
     logger = logging.getLogger(__name__)

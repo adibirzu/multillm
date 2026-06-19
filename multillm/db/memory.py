@@ -50,9 +50,7 @@ class MemoryRepoSqlite:
 
     # ── Protocol methods ───────────────────────────────────────────
 
-    def list_memories(
-        self, tenant_id: str, *, limit: int = 20
-    ) -> list[dict[str, Any]]:
+    def list_memories(self, tenant_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
         """Recent memories for this tenant, newest first."""
         with self._conn() as conn:
             rows = conn.execute(
@@ -89,9 +87,7 @@ class MemoryRepoSqlite:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_memory(
-        self, tenant_id: str, memory_id: str
-    ) -> Optional[dict[str, Any]]:
+    def get_memory(self, tenant_id: str, memory_id: str) -> Optional[dict[str, Any]]:
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT id, created_at, updated_at, project, source_llm, "
@@ -102,9 +98,7 @@ class MemoryRepoSqlite:
             ).fetchone()
         return dict(row) if row else None
 
-    def store_memory(
-        self, tenant_id: str, memory: dict[str, Any]
-    ) -> dict[str, Any]:
+    def store_memory(self, tenant_id: str, memory: dict[str, Any]) -> dict[str, Any]:
         """Insert one memory row tagged with this tenant.
 
         Required key: ``title``, ``content``. Optional: ``project``,
@@ -124,8 +118,18 @@ class MemoryRepoSqlite:
                 "(id, created_at, updated_at, project, source_llm, category, "
                 " title, content, metadata, tenant_id) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (memory_id, now, now, project, source_llm, category,
-                 title, content, meta, tenant_id),
+                (
+                    memory_id,
+                    now,
+                    now,
+                    project,
+                    source_llm,
+                    category,
+                    title,
+                    content,
+                    meta,
+                    tenant_id,
+                ),
             )
         return {
             "id": memory_id,

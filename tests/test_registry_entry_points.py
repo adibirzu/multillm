@@ -3,7 +3,12 @@
 
 """Tests for entry_points()-based adapter discovery (Plan 02a-01)."""
 
-from multillm.adapters import BaseAdapter, get_adapter, register_adapter, reset_for_tests
+from multillm.adapters import (
+    BaseAdapter,
+    get_adapter,
+    register_adapter,
+    reset_for_tests,
+)
 from multillm.adapters.registry import _adapters, list_adapters
 
 
@@ -25,7 +30,9 @@ def test_discovery_finds_ollama() -> None:
     """ollama is declared in pyproject.toml [project.entry-points."multillm.backends"]."""
     reset_for_tests()
     adapter = get_adapter("ollama")
-    assert adapter is not None, "expected ollama adapter to be discovered via entry_points"
+    assert adapter is not None, (
+        "expected ollama adapter to be discovered via entry_points"
+    )
     assert adapter.name == "ollama"
 
 

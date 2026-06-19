@@ -4,7 +4,7 @@ allowed-tools: Bash, Read
 ---
 
 Ask another LLM to review code or a plan. Parse the user's input for:
-- The reviewer model (default: oca/gpt5)
+- The reviewer model (default: codex/gpt-5-4)
 - The artifact to review (code, plan, or text — read from file if a path is given)
 - Review focus (default: correctness, security, and clarity)
 

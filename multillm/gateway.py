@@ -6,7 +6,7 @@ MultiLLM Gateway — Anthropic-compatible proxy with streaming and tool support.
 
 Routes requests to 16+ backends: Ollama, LM Studio, OpenAI, Anthropic,
 OpenRouter, Google Gemini, Groq, DeepSeek, Mistral, Together, xAI, Fireworks,
-Azure OpenAI, AWS Bedrock, Oracle Code Assist (OCA), Codex CLI, Gemini CLI.
+Azure OpenAI, AWS Bedrock, Codex CLI, Gemini CLI.
 
 Features: SSE streaming, tool_use passthrough, token tracking, cache token
 tracking, adaptive routing, circuit breakers, health probes, OpenTelemetry.
@@ -30,17 +30,39 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    JSONResponse,
+    HTMLResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
 from .config import (
-    DATA_DIR, GATEWAY_CORS_ORIGINS, GATEWAY_HOST, GATEWAY_PORT, GATEWAY_RELOAD,
-    MULTILLM_ALLOW_UNAUTHENTICATED_REMOTE, OLLAMA_URL, LMSTUDIO_URL,
-    OPENROUTER_KEY, OPENAI_KEY, ANTHROPIC_KEY, GEMINI_KEY,
-    GROQ_KEY, DEEPSEEK_KEY, MISTRAL_KEY, TOGETHER_KEY,
-    XAI_KEY, FIREWORKS_KEY,
-    AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AWS_BEDROCK_REGION, OCA_ENDPOINT, load_routes, detect_project,
+    DATA_DIR,
+    GATEWAY_CORS_ORIGINS,
+    GATEWAY_HOST,
+    GATEWAY_PORT,
+    GATEWAY_RELOAD,
+    MULTILLM_ALLOW_UNAUTHENTICATED_REMOTE,
+    OLLAMA_URL,
+    LMSTUDIO_URL,
+    OPENROUTER_KEY,
+    OPENAI_KEY,
+    ANTHROPIC_KEY,
+    GEMINI_KEY,
+    GROQ_KEY,
+    DEEPSEEK_KEY,
+    MISTRAL_KEY,
+    TOGETHER_KEY,
+    XAI_KEY,
+    FIREWORKS_KEY,
+    AZURE_OPENAI_KEY,
+    AZURE_OPENAI_ENDPOINT,
+    AWS_BEDROCK_REGION,
+    load_routes,
+    detect_project,
 )
 from . import __version__
 from .cli_tools import resolve_cli_binary
@@ -53,10 +75,18 @@ from .runtime_security import (
 from .converters import (
     extract_text_from_anthropic,
     count_tokens,
+    make_anthropic_response,
+    StreamState,
+    make_message_start_event,
+    make_content_block_start_event,
+    make_text_delta_event,
+    make_content_block_stop_event,
+    make_message_delta_event,
+    make_message_stop_event,
 )
-from .oca_auth import OCA_LOGIN_HINT, get_oca_bearer_token
 from .stream_utils import StreamTokenCounter
 from .adapters import get_adapter, list_adapters
+
 # Plan 02a-02 Task 20: setup.py:register_all_adapters() retired —
 # adapters are now discovered exclusively via entry_points (Plan 02a-01
 # Task 1). The first call to get_adapter()/list_adapters() triggers
@@ -65,13 +95,27 @@ from .setup.middleware import SetupRedirectMiddleware
 from .setup.routes import mount_static as mount_setup_static
 from .setup.routes import router as setup_router
 from .tracking import (
-    record_usage, get_usage_summary, get_project_summary,
-    get_sessions, get_session_detail, get_dashboard_stats, get_active_sessions,
-    init_otel, trace_llm_call, finalize_llm_span, record_otel_metrics,
+    record_usage,
+    get_usage_summary,
+    get_project_summary,
+    get_sessions,
+    get_session_detail,
+    get_dashboard_stats,
+    get_active_sessions,
+    init_otel,
+    trace_llm_call,
+    finalize_llm_span,
+    record_otel_metrics,
     get_recent_backend_latency,
+    _estimate_cost,
+    get_model_routing_stats,
+    COST_TABLE,
 )
 from .langfuse_integration import (
-    init_langfuse, shutdown_langfuse, trace_llm_generation, get_langfuse_status,
+    init_langfuse,
+    shutdown_langfuse,
+    trace_llm_generation,
+    get_langfuse_status,
 )
 from .llm_observability import build_llm_observability_summary
 from .discovery import (
@@ -91,17 +135,47 @@ from .caching import cache_search, cache_store, get_cache_stats, LANGCACHE_ENABL
 from .claude_stats import get_claude_code_stats
 from .codex_stats import get_codex_stats
 from .gemini_stats import get_gemini_stats
+from . import bundle_cache
+from . import cost_forecast
+from . import failover
+from . import budgets
+from . import fusion
+from . import complexity
+from . import router as query_router
+from .stats_cache import ttl_cache
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
-from .resilience import with_retry, BackendUnavailableError, all_breaker_status, get_breaker, calculate_backend_score
+from .resilience import (
+    with_retry,
+    BackendUnavailableError,
+    all_breaker_status,
+    get_breaker,
+    calculate_backend_score,
+)
 from .rate_limit import (
-    check_rate_limit, acquire_concurrent, release_concurrent,
-    get_client_id, is_rate_limiting_enabled, rate_limit_status,
+    check_rate_limit,
+    acquire_concurrent,
+    release_concurrent,
+    get_client_id,
+    is_rate_limiting_enabled,
+    rate_limit_status,
 )
 from .health import (
-    start_health_checks, stop_health_checks, check_all_backends,
-    all_health_status, is_backend_healthy, get_health,
+    start_health_checks,
+    stop_health_checks,
+    check_all_backends,
+    all_health_status,
+    is_backend_healthy,
+    get_health,
 )
+
+# Default fusion panel/judge — Codex CLI + OCI GenAI (Meta Llama + Google
+# Gemini), three reliable, diverse model families. OCI GenAI replaces the
+# gemini-cli backend (which depends on a separately-authenticated CLI tier).
+# Unavailable members degrade gracefully; override via the fusion_panel /
+# fusion_judge settings.
+_DEFAULT_FUSION_PANEL = ["codex/gpt-5-4", "oci/llama-3.3-70b", "oci/gemini-2.5-pro"]
+_DEFAULT_FUSION_JUDGE = "oci/llama-3.3-70b"
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 LOG_FORMAT = os.getenv("LOG_FORMAT", "text")  # "text" or "json"
@@ -120,8 +194,17 @@ if LOG_FORMAT == "json":
             if record.exc_info and record.exc_info[0]:
                 entry["exception"] = self.formatException(record.exc_info)
             # Include extra fields added via log.info("...", extra={...})
-            for key in ("request_id", "model", "backend", "project", "latency_ms",
-                        "input_tokens", "output_tokens", "status", "fallback"):
+            for key in (
+                "request_id",
+                "model",
+                "backend",
+                "project",
+                "latency_ms",
+                "input_tokens",
+                "output_tokens",
+                "status",
+                "fallback",
+            ):
                 if hasattr(record, key):
                     entry[key] = getattr(record, key)
             return _json.dumps(entry)
@@ -140,11 +223,14 @@ log = logging.getLogger("multillm.gateway")
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         response = await call_next(request)
         for key, value in build_security_headers().items():
             response.headers.setdefault(key, value)
         return response
+
 
 # ── FastAPI app ──────────────────────────────────────────────────────────────
 ROUTES = load_routes()
@@ -157,13 +243,22 @@ def _extract_usage_metrics(payload: dict) -> dict:
     prompt_details = usage.get("prompt_tokens_details", {}) or {}
     return {
         "input_tokens": usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0,
-        "output_tokens": usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0,
+        "output_tokens": usage.get("output_tokens", usage.get("completion_tokens", 0))
+        or 0,
         "cache_read_input_tokens": (
-            usage.get("cache_read_input_tokens",
-                      usage.get("cacheReadInputTokens", prompt_details.get("cached_tokens", 0))) or 0
+            usage.get(
+                "cache_read_input_tokens",
+                usage.get(
+                    "cacheReadInputTokens", prompt_details.get("cached_tokens", 0)
+                ),
+            )
+            or 0
         ),
         "cache_creation_input_tokens": (
-            usage.get("cache_creation_input_tokens", usage.get("cacheCreationInputTokens", 0)) or 0
+            usage.get(
+                "cache_creation_input_tokens", usage.get("cacheCreationInputTokens", 0)
+            )
+            or 0
         ),
     }
 
@@ -189,14 +284,23 @@ async def _run_discovery():
 async def lifespan(application: FastAPI):
     init_otel(application)
     init_langfuse()
-    log.info("Loaded %d static routes, %d adapters for project '%s'",
-             len(ROUTES), len(list_adapters()), PROJECT)
+    log.info(
+        "Loaded %d static routes, %d adapters for project '%s'",
+        len(ROUTES),
+        len(list_adapters()),
+        PROJECT,
+    )
     if auth_enabled():
         log.info("API key authentication ENABLED")
     else:
         log.info("API key authentication disabled (set MULTILLM_API_KEY to enable)")
     await _run_discovery()
     start_health_checks()
+    # Warm the dashboard bundle from disk so the first page load is instant even
+    # right after a restart, then prime the default range in the background so
+    # the persisted copy refreshes without anyone waiting on a cold scan.
+    await asyncio.to_thread(bundle_cache.warm_load)
+    asyncio.create_task(_prime_dashboard_bundle())
     yield
     stop_health_checks()
     shutdown_langfuse()
@@ -237,9 +341,19 @@ _register_team_usage(app)
 
 # Backends that require internet connectivity
 CLOUD_BACKENDS = {
-    "openrouter", "openai", "anthropic", "oca", "gemini",
-    "groq", "deepseek", "mistral", "together", "xai", "fireworks",
-    "azure_openai", "bedrock",
+    "openrouter",
+    "openai",
+    "anthropic",
+    "gemini",
+    "groq",
+    "deepseek",
+    "mistral",
+    "together",
+    "xai",
+    "fireworks",
+    "azure_openai",
+    "bedrock",
+    "oci_genai",
 }
 # Backends that work offline
 LOCAL_BACKENDS = {"ollama", "lmstudio", "codex_cli", "gemini_cli"}
@@ -377,7 +491,9 @@ def _weighted_random_select(
 
     Falls back to deterministic max when there is only one viable candidate.
     """
-    viable = [(a, r, info) for a, r, info in candidates if info["score"] >= _SCORE_MIN_VIABLE]
+    viable = [
+        (a, r, info) for a, r, info in candidates if info["score"] >= _SCORE_MIN_VIABLE
+    ]
     if not viable:
         # All scores are low — fall back to best of all candidates
         viable = candidates
@@ -388,11 +504,14 @@ def _weighted_random_select(
     scores = [info["score"] for _, _, info in viable]
     # Pick two candidates weighted by score, then take the better one
     chosen_pair = random.choices(viable, weights=scores, k=min(2, len(viable)))
-    return max(chosen_pair, key=lambda item: (
-        item[2]["score"],
-        item[0] == original_alias,
-        item[1].get("backend") == original_route.get("backend"),
-    ))
+    return max(
+        chosen_pair,
+        key=lambda item: (
+            item[2]["score"],
+            item[0] == original_alias,
+            item[1].get("backend") == original_route.get("backend"),
+        ),
+    )
 
 
 def _select_route(model_alias: str) -> tuple[str, dict]:
@@ -410,15 +529,21 @@ def _select_route(model_alias: str) -> tuple[str, dict]:
         # local_first: degrade an unknown alias to the best installed local model
         # rather than failing outright, so requests still get served on-device.
         from .memory import get_setting
+
         if get_setting("local_first", True):
-            resolved = resolve_local_target(reachable_backends=_healthy_local_backends())
+            resolved = resolve_local_target(
+                reachable_backends=_healthy_local_backends()
+            )
             if resolved is not None:
                 log.info(
                     "Unknown alias '%s' resolved to local target '%s' (local_first)",
-                    model_alias, resolved[0],
+                    model_alias,
+                    resolved[0],
                 )
                 return resolved
-        raise HTTPException(status_code=400, detail=f"Unknown model alias: {model_alias}")
+        raise HTTPException(
+            status_code=400, detail=f"Unknown model alias: {model_alias}"
+        )
 
     if "/" in model_alias:
         return model_alias, route
@@ -428,19 +553,26 @@ def _select_route(model_alias: str) -> tuple[str, dict]:
     for alias, candidate_route in ROUTES.items():
         if _route_family(alias, candidate_route) != family:
             continue
-        candidates.append((alias, candidate_route, score_backend(candidate_route["backend"])))
+        candidates.append(
+            (alias, candidate_route, score_backend(candidate_route["backend"]))
+        )
 
     if not candidates:
         return model_alias, route
 
     selected_alias, selected_route, selected_info = _weighted_random_select(
-        candidates, model_alias, route,
+        candidates,
+        model_alias,
+        route,
     )
 
     if len(candidates) > 1:
         candidate_summary = ", ".join(
-            f"{alias}={info['score']:.3f}" for alias, _, info in sorted(
-                candidates, key=lambda item: item[2]["score"], reverse=True,
+            f"{alias}={info['score']:.3f}"
+            for alias, _, info in sorted(
+                candidates,
+                key=lambda item: item[2]["score"],
+                reverse=True,
             )
         )
         log.info(
@@ -493,13 +625,22 @@ def _resolve_route(
         if requested_alias.startswith("claude-"):
             log.info(
                 "Routing requested=%s selected=%s backend=anthropic (claude-* fallback)",
-                requested_alias, requested_alias,
+                requested_alias,
+                requested_alias,
             )
-            return requested_alias, {"backend": "anthropic", "model": body.get("model", "")}
-        raise HTTPException(status_code=400, detail=f"Unknown model alias: {requested_alias}")
+            return requested_alias, {
+                "backend": "anthropic",
+                "model": body.get("model", ""),
+            }
+        raise HTTPException(
+            status_code=400, detail=f"Unknown model alias: {requested_alias}"
+        )
     log.info(
         "Routing requested=%s selected=%s backend=%s model=%s",
-        requested_alias, model_alias, route["backend"], route["model"],
+        requested_alias,
+        model_alias,
+        route["backend"],
+        route["model"],
     )
     return model_alias, route
 
@@ -532,30 +673,54 @@ async def _dispatch_streaming_with_resilience(
     """Resolve the adapter and call stream()."""
     adapter = get_adapter(backend)
     if adapter is None:
-        raise HTTPException(status_code=500, detail=f"Streaming not supported for backend: {backend}")
+        raise HTTPException(
+            status_code=500, detail=f"Streaming not supported for backend: {backend}"
+        )
     return await adapter.stream(body, model, model_alias)
 
 
 # ── Streaming routing ──────────────────────────────────────────────────────
 
+
 async def route_streaming(body: dict, route: dict, model_alias: str):
     """Route a streaming request to the appropriate backend (Plan 02a-02 SC#1: ≤3 statements)."""
     backend, real_model = route.get("backend", ""), route.get("model", "")
     await _check_health(backend)
-    return await _dispatch_streaming_with_resilience(backend, body, real_model, model_alias)
+    return await _dispatch_streaming_with_resilience(
+        backend, body, real_model, model_alias
+    )
 
 
 # ── Non-streaming routing ──────────────────────────────────────────────────
 
 
-async def route_request(body: dict, model_alias: Optional[str] = None, route: Optional[dict] = None) -> dict:
+async def route_request(
+    body: dict, model_alias: Optional[str] = None, route: Optional[dict] = None
+) -> dict:
     """Route a non-streaming request to the appropriate backend (Plan 02a-02 SC#1: ≤3 statements)."""
     model_alias, route = _resolve_route(body, model_alias, route)
     await _check_health(route["backend"])
-    return await _dispatch_with_resilience(route["backend"], body, route["model"], model_alias)
+    return await _dispatch_with_resilience(
+        route["backend"], body, route["model"], model_alias
+    )
+
+
+@ttl_cache(seconds=30)
+def _gateway_spend_snapshot(project: Optional[str] = None) -> dict:
+    """Cached rolling-window gateway-metered spend (day + month).
+
+    TTL-cached so the per-request budget gate doesn't hit SQLite every call.
+    """
+    today = get_dashboard_stats(hours=24, project=project)
+    month = get_dashboard_stats(hours=720, project=project)
+    return {
+        "today": float(today.get("totals", {}).get("total_cost", 0) or 0),
+        "month": float(month.get("totals", {}).get("total_cost", 0) or 0),
+    }
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
+
 
 @app.post("/v1/messages")
 async def messages(request: Request):
@@ -566,13 +731,25 @@ async def messages(request: Request):
         if not allowed:
             return JSONResponse(
                 status_code=429,
-                content={"type": "error", "error": {"type": "rate_limit_error", "message": "Rate limit exceeded"}},
+                content={
+                    "type": "error",
+                    "error": {
+                        "type": "rate_limit_error",
+                        "message": "Rate limit exceeded",
+                    },
+                },
                 headers=rl_headers,
             )
         if not acquire_concurrent(client_id):
             return JSONResponse(
                 status_code=429,
-                content={"type": "error", "error": {"type": "rate_limit_error", "message": "Too many concurrent requests"}},
+                content={
+                    "type": "error",
+                    "error": {
+                        "type": "rate_limit_error",
+                        "message": "Too many concurrent requests",
+                    },
+                },
             )
     else:
         client_id = None
@@ -580,13 +757,80 @@ async def messages(request: Request):
     body = await request.json()
     requested_alias = body.get("model", "ollama/llama3")
     is_streaming = body.get("stream", False)
+
+    # ── Fusion / auto model-slug interception ────────────────────
+    # `fusion` runs the panel→judge→synthesis pipeline and returns one response.
+    # `auto` estimates prompt complexity and escalates only hard prompts to
+    # fusion, routing easy ones to a single capable model.
+    if requested_alias == "fusion" or requested_alias.startswith("fusion/"):
+        try:
+            return _fusion_response(
+                await _run_fusion(body), requested_alias, is_streaming
+            )
+        finally:
+            if client_id:
+                release_concurrent(client_id)
+
+    if requested_alias == "auto" or requested_alias.startswith("auto/"):
+        from .memory import get_setting
+
+        comp = complexity.estimate_complexity(extract_text_from_anthropic(body))
+        threshold = float(get_setting("fusion_auto_threshold", 0.6))
+        if comp["score"] >= threshold:
+            try:
+                return _fusion_response(await _run_fusion(body), "auto", is_streaming)
+            finally:
+                if client_id:
+                    release_concurrent(client_id)
+        # Easy prompt → let the log-driven router pick the best single model
+        # (historical performance + health + cost), then continue normally.
+        decision = _route_decision(extract_text_from_anthropic(body))
+        requested_alias = decision.get("model") or get_setting(
+            "fusion_judge", _DEFAULT_FUSION_JUDGE
+        )
+        body = {**body, "model": requested_alias}
+
     effective_alias, route = _select_route(requested_alias)
     backend = route.get("backend", "unknown")
     request_id = f"req_{uuid.uuid4().hex[:12]}"
 
+    # ── Budget enforcement (opt-in) ──────────────────────────────
+    # Only metered cloud backends count against budgets; local backends are
+    # free, so they are never blocked. Zero overhead unless budgets.enabled.
+    from .memory import get_setting as _get_setting
+
+    budget_cfg = _get_setting("budgets", {}) or {}
+    if budget_cfg.get("enabled") and backend in CLOUD_BACKENDS:
+        try:
+            snap = _gateway_spend_snapshot(None)
+            proj_spend = {PROJECT: _gateway_spend_snapshot(PROJECT)} if PROJECT else {}
+            allowed, reason = budgets.check_request_allowed(
+                config=budget_cfg,
+                project=PROJECT,
+                spent_today=snap["today"],
+                spent_month=snap["month"],
+                project_spend=proj_spend,
+            )
+        except Exception:
+            # A spend-snapshot failure must not leak the concurrency slot. The
+            # finally: release_concurrent guard only covers the dispatch block
+            # below, which we have not entered yet.
+            if client_id:
+                release_concurrent(client_id)
+            raise
+        if not allowed:
+            if client_id:
+                release_concurrent(client_id)
+            raise HTTPException(status_code=402, detail=f"Budget exceeded: {reason}")
+
     log.info(
         "Request rid=%s requested=%s selected=%s backend=%s stream=%s project=%s",
-        request_id, requested_alias, effective_alias, backend, is_streaming, PROJECT,
+        request_id,
+        requested_alias,
+        effective_alias,
+        backend,
+        is_streaming,
+        PROJECT,
     )
     t0 = time.time()
     used_fallback = False
@@ -602,10 +846,14 @@ async def messages(request: Request):
                     elapsed_ms = (time.time() - t0) * 1000
                     log.info("CACHE HIT model=%s ms=%.0f", effective_alias, elapsed_ms)
                     record_usage(
-                        project=PROJECT, model_alias=effective_alias, backend=backend,
+                        project=PROJECT,
+                        model_alias=effective_alias,
+                        backend=backend,
                         real_model=route.get("model", effective_alias),
-                        input_tokens=0, output_tokens=0,
-                        latency_ms=elapsed_ms, status="cache_hit",
+                        input_tokens=0,
+                        output_tokens=0,
+                        latency_ms=elapsed_ms,
+                        status="cache_hit",
                     )
                     return JSONResponse(cached)
 
@@ -625,27 +873,44 @@ async def messages(request: Request):
                 ):
                     log.info(
                         "rid=%s model=%s backend=%s ms=%.0f in=%d out=%d (streaming complete)",
-                        request_id, effective_alias, effective_backend, elapsed_ms,
-                        input_tokens, output_tokens,
+                        request_id,
+                        effective_alias,
+                        effective_backend,
+                        elapsed_ms,
+                        input_tokens,
+                        output_tokens,
                     )
                     record_usage(
-                        project=PROJECT, model_alias=effective_alias, backend=effective_backend,
+                        project=PROJECT,
+                        model_alias=effective_alias,
+                        backend=effective_backend,
                         real_model=effective_route.get("model", effective_alias),
-                        input_tokens=input_tokens, output_tokens=output_tokens,
-                        latency_ms=elapsed_ms, status="streaming",
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        latency_ms=elapsed_ms,
+                        status="streaming",
                     )
-                    record_otel_metrics(effective_alias, effective_backend, PROJECT, input_tokens, output_tokens, elapsed_ms)
+                    record_otel_metrics(
+                        effective_alias,
+                        effective_backend,
+                        PROJECT,
+                        input_tokens,
+                        output_tokens,
+                        elapsed_ms,
+                    )
 
                     # Langfuse: record streaming LLM generation
                     trace_llm_generation(
-                        model_alias=effective_alias, backend=effective_backend,
+                        model_alias=effective_alias,
+                        backend=effective_backend,
                         real_model=effective_route.get("model", effective_alias),
                         project=PROJECT,
-                        input_tokens=input_tokens, output_tokens=output_tokens,
-                        latency_ms=elapsed_ms, is_streaming=True,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        latency_ms=elapsed_ms,
+                        is_streaming=True,
                         request_id=request_id,
                     )
-
 
                 # Wrap the original streaming generator with our token counter
                 token_counted_generator = StreamTokenCounter(
@@ -672,13 +937,23 @@ async def messages(request: Request):
 
             log.info(
                 "rid=%s model=%s backend=%s ms=%.0f in=%d out=%d cache_read=%d cache_write=%d",
-                request_id, effective_alias, backend, elapsed_ms, in_tok, out_tok, cache_read_tok, cache_create_tok,
+                request_id,
+                effective_alias,
+                backend,
+                elapsed_ms,
+                in_tok,
+                out_tok,
+                cache_read_tok,
+                cache_create_tok,
             )
 
             record_usage(
-                project=PROJECT, model_alias=effective_alias, backend=backend,
+                project=PROJECT,
+                model_alias=effective_alias,
+                backend=backend,
                 real_model=route.get("model", effective_alias),
-                input_tokens=in_tok, output_tokens=out_tok,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
                 cache_read_input_tokens=cache_read_tok,
                 cache_creation_input_tokens=cache_create_tok,
                 latency_ms=elapsed_ms,
@@ -686,80 +961,147 @@ async def messages(request: Request):
 
             # ── Cache store (async, non-blocking) ────────────────────
             if LANGCACHE_ENABLED:
-                asyncio.create_task(cache_store(body, result, effective_alias, backend, PROJECT))
-            record_otel_metrics(effective_alias, backend, PROJECT, in_tok, out_tok, elapsed_ms)
+                asyncio.create_task(
+                    cache_store(body, result, effective_alias, backend, PROJECT)
+                )
+            record_otel_metrics(
+                effective_alias, backend, PROJECT, in_tok, out_tok, elapsed_ms
+            )
 
             # ── Finalize OTel span with GenAI token attributes ────────
             finalize_llm_span(
-                span, input_tokens=in_tok, output_tokens=out_tok,
-                cache_read_tokens=cache_read_tok, cache_create_tokens=cache_create_tok,
+                span,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                cache_read_tokens=cache_read_tok,
+                cache_create_tokens=cache_create_tok,
                 model_alias=effective_alias,
             )
 
             # ── Langfuse LLM observability ────────────────────────────
             trace_llm_generation(
-                model_alias=effective_alias, backend=backend,
+                model_alias=effective_alias,
+                backend=backend,
                 real_model=route.get("model", effective_alias),
                 project=PROJECT,
-                input_tokens=in_tok, output_tokens=out_tok,
-                cache_read_tokens=cache_read_tok, cache_create_tokens=cache_create_tok,
-                latency_ms=elapsed_ms, is_streaming=False,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                cache_read_tokens=cache_read_tok,
+                cache_create_tokens=cache_create_tok,
+                latency_ms=elapsed_ms,
+                is_streaming=False,
                 request_id=request_id,
                 prompt_text=extract_text_from_anthropic(body),
             )
 
             return JSONResponse(result)
 
-        except (HTTPException, *FALLBACK_ERRORS, httpx.HTTPStatusError) as primary_error:
-            # Determine if we should try fallback to local LLM
+        except (
+            HTTPException,
+            *FALLBACK_ERRORS,
+            httpx.HTTPStatusError,
+        ) as primary_error:
+            # Quota / credit / rate-limit exhaustion ("out of tokens") is the
+            # signal to transparently continue on the next provider rather than
+            # surface an error — even though it is a 4xx status.
+            quota_err = failover.is_quota_error(primary_error)
+
+            # Determine if we should try fallback
             should_fallback = (
                 backend in CLOUD_BACKENDS
                 and not used_fallback
-                and isinstance(primary_error, (*FALLBACK_ERRORS, httpx.HTTPStatusError, HTTPException))
+                and isinstance(
+                    primary_error,
+                    (*FALLBACK_ERRORS, httpx.HTTPStatusError, HTTPException),
+                )
             )
 
-            # Don't fallback on 400-level client errors (bad request, not cloud issues)
-            if isinstance(primary_error, HTTPException) and 400 <= primary_error.status_code < 500:
-                if primary_error.status_code not in (401, 403):  # Auth errors DO fallback
+            # Don't fallback on 400-level client errors (bad request, not cloud
+            # issues) — but auth errors (401/403) and quota errors (429/402) DO
+            # fall over so the user keeps working.
+            if (
+                isinstance(primary_error, HTTPException)
+                and 400 <= primary_error.status_code < 500
+            ):
+                if primary_error.status_code not in (401, 403) and not quota_err:
                     should_fallback = False
 
-            # Start an installed-but-stopped local daemon on demand so fallback
-            # has a target even when the user's local LLM isn't running.
+            # Build an ordered list of failover candidates. For quota/credit
+            # exhaustion we walk the whole configured chain (cloud + local) so
+            # the user keeps working on another provider; for connection errors
+            # we fall back to the best installed local model as before. The
+            # local model is always appended as a last resort.
+            candidates: list[tuple[str, dict]] = []
             if should_fallback:
                 from .memory import get_setting
+
+                chain = get_setting(
+                    "fallback_chain", ["ollama/qwen3-30b", "ollama/llama3"]
+                )
+                if quota_err:
+                    candidates = failover.build_failover_candidates(
+                        routes=ROUTES,
+                        chain=chain,
+                        failed_backend=backend,
+                        exclude_aliases={requested_alias, effective_alias},
+                    )
+
+                # Start an installed-but-stopped local daemon on demand so a
+                # local fallback has a target even when it isn't running.
                 if get_setting("local_autostart", True):
                     started = await ensure_any_local_backend()
                     if started:
-                        # Reflect reality immediately: the background health probe
-                        # still has the daemon marked unhealthy, which would make
-                        # the fallback dispatch's health gate reject the daemon we
-                        # just confirmed is up.
+                        # The background health probe still has the daemon marked
+                        # unhealthy; reflect the reality we just confirmed.
                         get_health(started).mark_healthy(0.0)
-                        await _run_discovery()  # refresh cache + ROUTES
+                        await _run_discovery()
 
-            # Resolve the candidate first, then probe *its* backend — so a user
-            # running only LM Studio (no Ollama) still gets a local fallback.
-            fb_alias, fb_route = _get_fallback_model() if should_fallback else ("", {})
-            if should_fallback and await _check_local_backend_available(fb_route.get("backend", "")):
+                fb_local = _get_fallback_model()
+                if fb_local and all(
+                    fb_local[1].get("backend") != r.get("backend")
+                    for _, r in candidates
+                ):
+                    candidates.append(fb_local)
+
+            for cand_alias, cand_route in candidates:
+                cand_backend = cand_route.get("backend", "")
+                # Local candidates must be reachable; cloud candidates are tried
+                # directly (a fresh provider has no local daemon to probe).
+                if (
+                    cand_backend in LOCAL_DISCOVERABLE_BACKENDS
+                    and not await _check_local_backend_available(cand_backend)
+                ):
+                    continue
+
                 log.warning(
-                    "rid=%s backend '%s' failed (%s), falling back to '%s'",
-                    request_id, backend, type(primary_error).__name__, fb_alias,
+                    "rid=%s backend '%s' failed (%s%s), failing over to '%s'",
+                    request_id,
+                    backend,
+                    type(primary_error).__name__,
+                    ", quota" if quota_err else "",
+                    cand_alias,
                 )
                 used_fallback = True
-                effective_alias = fb_alias
-                effective_backend = fb_route["backend"]
-                effective_route = fb_route
+                effective_alias = cand_alias
+                effective_backend = cand_backend
+                effective_route = cand_route
 
                 try:
-                    fallback_body = {**body, "model": fb_alias}
+                    fallback_body = {**body, "model": cand_alias}
                     if is_streaming:
-                        response = await route_streaming(fallback_body, fb_route, fb_alias)
+                        response = await route_streaming(
+                            fallback_body, cand_route, cand_alias
+                        )
                         elapsed_ms = (time.time() - t0) * 1000
                         record_usage(
-                            project=PROJECT, model_alias=fb_alias, backend=effective_backend,
-                            real_model=fb_route["model"],
-                            input_tokens=0, output_tokens=0,
-                            latency_ms=elapsed_ms, status="fallback_streaming",
+                            project=PROJECT,
+                            model_alias=cand_alias,
+                            backend=cand_backend,
+                            real_model=cand_route.get("model", cand_alias),
+                            input_tokens=0,
+                            output_tokens=0,
+                            latency_ms=elapsed_ms,
+                            status="fallback_streaming",
                         )
                         return response
 
@@ -770,43 +1112,71 @@ async def messages(request: Request):
                     # Add fallback notice to response
                     content = result.get("content", [])
                     if content and content[0].get("type") == "text":
-                        notice = f"\n\n---\n*[Fallback: {requested_alias} unavailable, used {fb_alias}]*"
+                        notice = f"\n\n---\n*[Failover: {requested_alias} unavailable, used {cand_alias}]*"
                         content[0]["text"] += notice
 
                     log.info(
-                        "rid=%s fallback model=%s backend=%s ms=%.0f",
-                        request_id, fb_alias, effective_backend, elapsed_ms,
+                        "rid=%s failover model=%s backend=%s ms=%.0f",
+                        request_id,
+                        cand_alias,
+                        cand_backend,
+                        elapsed_ms,
                     )
                     record_usage(
-                        project=PROJECT, model_alias=fb_alias, backend=effective_backend,
-                        real_model=fb_route["model"],
+                        project=PROJECT,
+                        model_alias=cand_alias,
+                        backend=cand_backend,
+                        real_model=cand_route.get("model", cand_alias),
                         input_tokens=usage["input_tokens"],
                         output_tokens=usage["output_tokens"],
                         cache_read_input_tokens=usage["cache_read_input_tokens"],
-                        cache_creation_input_tokens=usage["cache_creation_input_tokens"],
-                        latency_ms=elapsed_ms, status="fallback",
+                        cache_creation_input_tokens=usage[
+                            "cache_creation_input_tokens"
+                        ],
+                        latency_ms=elapsed_ms,
+                        status="fallback",
                     )
                     return JSONResponse(result)
 
                 except Exception as fallback_error:
-                    log.error("Fallback also failed: %s", fallback_error)
-                    # Fall through to original error handling
+                    # This candidate also failed — keep walking the chain.
+                    log.warning(
+                        "rid=%s failover candidate '%s' failed: %s",
+                        request_id,
+                        cand_alias,
+                        fallback_error,
+                    )
+                    continue
 
-            # No fallback possible — raise the original error
+            # No fallback possible or all candidates exhausted — raise the error
             elapsed_ms = (time.time() - t0) * 1000
             record_usage(
-                project=PROJECT, model_alias=effective_alias, backend=backend,
-                real_model=route.get("model", ""), input_tokens=0, output_tokens=0,
-                latency_ms=elapsed_ms, status="error",
+                project=PROJECT,
+                model_alias=effective_alias,
+                backend=backend,
+                real_model=route.get("model", ""),
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=elapsed_ms,
+                status="error",
             )
             if isinstance(primary_error, HTTPException):
                 raise
             elif isinstance(primary_error, httpx.HTTPStatusError):
-                log.error("Backend HTTP error: %s — %s", primary_error.response.status_code, primary_error.response.text[:500])
-                raise HTTPException(status_code=502, detail=f"Backend error: {primary_error.response.status_code}")
+                log.error(
+                    "Backend HTTP error: %s — %s",
+                    primary_error.response.status_code,
+                    primary_error.response.text[:500],
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Backend error: {primary_error.response.status_code}",
+                )
             else:
                 log.error("Backend connection failed: %s", primary_error)
-                raise HTTPException(status_code=503, detail=f"Cannot reach backend: {primary_error}")
+                raise HTTPException(
+                    status_code=503, detail=f"Cannot reach backend: {primary_error}"
+                )
 
         except Exception as e:
             log.exception("Unexpected error")
@@ -819,7 +1189,12 @@ async def messages(request: Request):
 @app.get("/v1/models")
 async def list_models():
     models = [
-        {"id": alias, "object": "model", "created": 1700000000, "owned_by": cfg["backend"]}
+        {
+            "id": alias,
+            "object": "model",
+            "created": 1700000000,
+            "owned_by": cfg["backend"],
+        }
         for alias, cfg in ROUTES.items()
     ]
     return {"object": "list", "data": models}
@@ -829,25 +1204,38 @@ async def list_models():
 async def health():
     backends: dict[str, str] = {}
     async with httpx.AsyncClient(timeout=3) as client:
-        for name, url in [("ollama", f"{OLLAMA_URL}/api/tags"), ("lmstudio", f"{LMSTUDIO_URL}/v1/models")]:
+        for name, url in [
+            ("ollama", f"{OLLAMA_URL}/api/tags"),
+            ("lmstudio", f"{LMSTUDIO_URL}/v1/models"),
+        ]:
             try:
                 r = await client.get(url)
-                backends[name] = "ok" if r.status_code == 200 else f"http {r.status_code}"
+                backends[name] = (
+                    "ok" if r.status_code == 200 else f"http {r.status_code}"
+                )
             except Exception as e:
                 backends[name] = f"unreachable ({type(e).__name__})"
 
-    token = await get_oca_bearer_token()
-    backends["oca"] = "authenticated" if token else "not authenticated"
     backends["gemini"] = "configured" if GEMINI_KEY else "not set"
     backends["openai"] = "configured" if OPENAI_KEY else "not set"
     backends["anthropic"] = "configured" if ANTHROPIC_KEY else "not set"
     backends["openrouter"] = "configured" if OPENROUTER_KEY else "not set"
+    try:
+        from .adapters.oci_genai import OCIGenAIAdapter
+
+        backends["oci_genai"] = (
+            "configured" if OCIGenAIAdapter().is_configured() else "not set"
+        )
+    except Exception:
+        backends["oci_genai"] = "not set"
 
     # Check codex CLI
     try:
         proc = await asyncio.create_subprocess_exec(
-            "which", "codex",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "which",
+            "codex",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await proc.communicate()
         backends["codex_cli"] = "available" if stdout.strip() else "not found"
@@ -857,15 +1245,22 @@ async def health():
     # Gemini CLI
     try:
         proc = await asyncio.create_subprocess_exec(
-            "which", "gemini",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "which",
+            "gemini",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await proc.communicate()
         backends["gemini_cli"] = "available" if stdout.strip() else "not found"
     except Exception:
         backends["gemini_cli"] = "not found"
 
-    return {"status": "ok", "backends": backends, "routes": len(ROUTES), "project": PROJECT}
+    return {
+        "status": "ok",
+        "backends": backends,
+        "routes": len(ROUTES),
+        "project": PROJECT,
+    }
 
 
 @app.get("/routes")
@@ -883,24 +1278,32 @@ async def usage_endpoint(project: Optional[str] = None, hours: int = 24):
 
 # ── Settings endpoints ──────────────────────────────────────────────────────
 
+
 @app.get("/settings")
 async def get_settings():
     from .memory import get_settings as _get_settings
+
     return _get_settings()
 
 
 @app.put("/settings")
 async def update_settings(request: Request):
     from .memory import update_settings as _update_settings
+
     data = await request.json()
     _update_settings(data)
     return {"status": "ok", "settings": data}
 
 
 @app.get("/memory/search")
-async def memory_search_endpoint(q: str, project: Optional[str] = None, limit: int = 10,
-                                 x_tenant: Optional[str] = Header(None, alias="X-MultiLLM-Tenant")):
+async def memory_search_endpoint(
+    q: str,
+    project: Optional[str] = None,
+    limit: int = 10,
+    x_tenant: Optional[str] = Header(None, alias="X-MultiLLM-Tenant"),
+):
     from .memory import search_memory
+
     return search_memory(query=q, project=project, limit=limit, tenant_id=x_tenant)
 
 
@@ -909,24 +1312,35 @@ async def memory_search_endpoint(q: str, project: Optional[str] = None, limit: i
 # X-MultiLLM-Tenant header (typically the UNIX user). When present, reads are
 # restricted to that tenant and writes are tagged with it.
 
+
 @app.get("/api/memory")
-async def list_memories_api(project: Optional[str] = None, category: Optional[str] = None, limit: int = 50,
-                            x_tenant: Optional[str] = Header(None, alias="X-MultiLLM-Tenant")):
+async def list_memories_api(
+    project: Optional[str] = None,
+    category: Optional[str] = None,
+    limit: int = 50,
+    x_tenant: Optional[str] = Header(None, alias="X-MultiLLM-Tenant"),
+):
     """List recent shared memories."""
     from .memory import list_memories
-    return list_memories(project=project, category=category, limit=limit, tenant_id=x_tenant)
+
+    return list_memories(
+        project=project, category=category, limit=limit, tenant_id=x_tenant
+    )
 
 
 @app.post("/api/memory")
 async def store_memory_api(request: Request):
     """Store a new shared memory entry."""
     from .memory import store_memory
+
     data = await request.json()
     title = data.get("title")
     content = data.get("content")
     if not title or not content:
         raise HTTPException(status_code=400, detail="title and content are required")
-    tenant_id = request.headers.get("x-multillm-tenant") or data.get("tenant_id") or "default"
+    tenant_id = (
+        request.headers.get("x-multillm-tenant") or data.get("tenant_id") or "default"
+    )
     mem_id = store_memory(
         title=title,
         content=content,
@@ -940,10 +1354,15 @@ async def store_memory_api(request: Request):
 
 
 @app.get("/api/memory/search")
-async def search_memory_api(q: str, project: Optional[str] = None, limit: int = 10,
-                            x_tenant: Optional[str] = Header(None, alias="X-MultiLLM-Tenant")):
+async def search_memory_api(
+    q: str,
+    project: Optional[str] = None,
+    limit: int = 10,
+    x_tenant: Optional[str] = Header(None, alias="X-MultiLLM-Tenant"),
+):
     """Search shared memories using FTS5 full-text search."""
     from .memory import search_memory
+
     return search_memory(query=q, project=project, limit=limit, tenant_id=x_tenant)
 
 
@@ -951,6 +1370,7 @@ async def search_memory_api(q: str, project: Optional[str] = None, limit: int = 
 async def get_memory_api(memory_id: str):
     """Get a single memory entry by ID."""
     from .memory import get_memory
+
     mem = get_memory(memory_id)
     if not mem:
         raise HTTPException(status_code=404, detail="Memory not found")
@@ -961,6 +1381,7 @@ async def get_memory_api(memory_id: str):
 async def delete_memory_api(memory_id: str):
     """Delete a memory entry."""
     from .memory import delete_memory
+
     if delete_memory(memory_id):
         return {"status": "ok", "deleted": memory_id}
     raise HTTPException(status_code=404, detail="Memory not found")
@@ -970,11 +1391,14 @@ async def delete_memory_api(memory_id: str):
 async def share_context_api(request: Request):
     """Share context between LLMs within a session."""
     from .memory import share_context
+
     data = await request.json()
     session_id = data.get("session_id")
     content = data.get("content")
     if not session_id or not content:
-        raise HTTPException(status_code=400, detail="session_id and content are required")
+        raise HTTPException(
+            status_code=400, detail="session_id and content are required"
+        )
     ctx_id = share_context(
         session_id=session_id,
         source_llm=data.get("source_llm", "claude"),
@@ -990,10 +1414,12 @@ async def share_context_api(request: Request):
 async def get_context_api(session_id: str, target_llm: Optional[str] = None):
     """Get shared context entries for a session."""
     from .memory import get_shared_context
+
     return get_shared_context(session_id=session_id, target_llm=target_llm)
 
 
 # ── Dashboard API ────────────────────────────────────────────────────────────
+
 
 @app.get("/api/dashboard")
 async def dashboard_api(hours: int = 720, project: Optional[str] = None):
@@ -1042,7 +1468,9 @@ async def status_api():
         },
         "direct_clients": {
             "claude_code": {
-                "available": STATS_FILE.exists() or HISTORY_FILE.exists() or PROJECTS_DIR.exists(),
+                "available": STATS_FILE.exists()
+                or HISTORY_FILE.exists()
+                or PROJECTS_DIR.exists(),
                 "source": str(STATS_FILE.parent),
             },
             "codex_cli": {
@@ -1063,7 +1491,9 @@ async def status_api():
 
 
 @app.get("/api/sessions")
-async def sessions_api(hours: int = 168, project: Optional[str] = None, limit: int = 50):
+async def sessions_api(
+    hours: int = 168, project: Optional[str] = None, limit: int = 50
+):
     return get_sessions(hours=hours, project=project, limit=limit)
 
 
@@ -1085,16 +1515,6 @@ async def backends_api(refresh: bool = False):
     """List all backends with their discovered models."""
     discovered = await discover_all_models(force=refresh)
 
-    def _get_oca_discovery_auth_state() -> tuple[bool, str]:
-        from .oca_auth import _is_expired, _read_cached_token
-
-        token_data = _read_cached_token()
-        if not token_data:
-            return False, "missing"
-        if _is_expired(token_data):
-            return False, "expired"
-        return True, "valid"
-
     def _backend_auth_metadata(backend: str) -> dict:
         auth_backends = {
             "openai": ("OPENAI_API_KEY", bool(OPENAI_KEY)),
@@ -1107,15 +1527,6 @@ async def backends_api(refresh: bool = False):
             "xai": ("XAI_API_KEY", bool(XAI_KEY)),
             "fireworks": ("FIREWORKS_API_KEY", bool(FIREWORKS_KEY)),
         }
-        if backend == "oca":
-            authenticated, token_status = _get_oca_discovery_auth_state()
-            return {
-                "requires_auth": True,
-                "authenticated": authenticated,
-                "status_hint": "authenticated" if authenticated else "unauthenticated",
-                "note": None if authenticated else OCA_LOGIN_HINT,
-                "token_status": token_status,
-            }
         if backend in auth_backends:
             env_var, authenticated = auth_backends[backend]
             return {
@@ -1144,7 +1555,9 @@ async def backends_api(refresh: bool = False):
     for backend, models in discovered.items():
         auth = _backend_auth_metadata(backend)
         catalog_available = len(models) > 0
-        catalog_source = models[0].get("catalog_source", "api") if catalog_available else ""
+        catalog_source = (
+            models[0].get("catalog_source", "api") if catalog_available else ""
+        )
 
         if auth["requires_auth"]:
             runnable = bool(auth["authenticated"]) and catalog_available
@@ -1184,8 +1597,6 @@ async def backends_api(refresh: bool = False):
                 for m in models
             ],
         }
-        if backend == "oca":
-            summary[backend]["token_status"] = auth.get("token_status")
     return {"backends": summary, "total_routes": len(ROUTES)}
 
 
@@ -1197,9 +1608,16 @@ async def add_route(request: Request):
     backend = data.get("backend")
     model = data.get("model")
     if not alias or not backend or not model:
-        raise HTTPException(status_code=400, detail="alias, backend, and model are required")
+        raise HTTPException(
+            status_code=400, detail="alias, backend, and model are required"
+        )
     ROUTES[alias] = {"backend": backend, "model": model, "dynamic": True}
-    return {"status": "ok", "alias": alias, "route": ROUTES[alias], "total_routes": len(ROUTES)}
+    return {
+        "status": "ok",
+        "alias": alias,
+        "route": ROUTES[alias],
+        "total_routes": len(ROUTES),
+    }
 
 
 @app.delete("/api/routes/{alias:path}")
@@ -1244,9 +1662,17 @@ def _build_all_llm_usage(
     today_str = _date.today().isoformat()
 
     gw = gw if gw is not None else get_dashboard_stats(hours=hours, project=project)
-    claude = claude if claude is not None else get_claude_code_stats(hours=hours, project=project)
-    codex = codex if codex is not None else get_codex_stats(hours=hours, project=project)
-    gemini = gemini if gemini is not None else get_gemini_stats(hours=hours, project=project)
+    claude = (
+        claude
+        if claude is not None
+        else get_claude_code_stats(hours=hours, project=project)
+    )
+    codex = (
+        codex if codex is not None else get_codex_stats(hours=hours, project=project)
+    )
+    gemini = (
+        gemini if gemini is not None else get_gemini_stats(hours=hours, project=project)
+    )
 
     observability = build_llm_observability_summary(
         hours=hours,
@@ -1268,28 +1694,33 @@ def _build_all_llm_usage(
         gw.get("totals", {}).get("total_output", 0) or 0
     )
     gw_cost = gw.get("totals", {}).get("total_cost", 0) or 0.0
-    sources.append({
-        "source": "gateway",
-        "available": True,
-        "tokens": gw_tokens,
-        "costUSD": round(gw_cost, 4),
-        "requests": gw.get("totals", {}).get("total_requests", 0),
-        "sessions": gw.get("session_count", 0),
-    })
+    sources.append(
+        {
+            "source": "gateway",
+            "available": True,
+            "tokens": gw_tokens,
+            "costUSD": round(gw_cost, 4),
+            "requests": gw.get("totals", {}).get("total_requests", 0),
+            "sessions": gw.get("session_count", 0),
+        }
+    )
     grand_tokens += gw_tokens
     grand_cost += gw_cost
     grand_list_price += gw_cost
     for m in gw.get("by_model", []):
         mcost = round(m.get("cost_usd", 0) or 0, 4)
-        all_models.append({
-            "model": m.get("model_alias", ""),
-            "backend": m.get("backend", "gateway"),
-            "source": "gateway",
-            "tokens": (m.get("input_tokens", 0) or 0) + (m.get("output_tokens", 0) or 0),
-            "requests": m.get("requests", 0),
-            "actualCostUSD": mcost,
-            "listPriceUSD": mcost,
-        })
+        all_models.append(
+            {
+                "model": m.get("model_alias", ""),
+                "backend": m.get("backend", "gateway"),
+                "source": "gateway",
+                "tokens": (m.get("input_tokens", 0) or 0)
+                + (m.get("output_tokens", 0) or 0),
+                "requests": m.get("requests", 0),
+                "actualCostUSD": mcost,
+                "listPriceUSD": mcost,
+            }
+        )
 
     # --- Claude Code ---
     claude_tokens = 0
@@ -1305,26 +1736,30 @@ def _build_all_llm_usage(
             mcost = u.get("estimatedCostUSD", 0) or 0.0
             claude_tokens += mtok
             claude_cost += mcost
-            all_models.append({
-                "model": model,
-                "backend": "claude_code",
-                "source": "claude_code",
-                "tokens": mtok,
-                "requests": 0,
-                "actualCostUSD": round(mcost, 2),
-                "listPriceUSD": round(mcost, 2),
-            })
+            all_models.append(
+                {
+                    "model": model,
+                    "backend": "claude_code",
+                    "source": "claude_code",
+                    "tokens": mtok,
+                    "requests": 0,
+                    "actualCostUSD": round(mcost, 2),
+                    "listPriceUSD": round(mcost, 2),
+                }
+            )
 
-    sources.append({
-        "source": "claude_code",
-        "available": claude.get("available", False),
-        "tokens": claude_tokens,
-        "actualCostUSD": round(claude_cost, 2),
-        "listPriceUSD": round(claude_cost, 2),
-        "sessions": claude.get("totalSessions", 0),
-        "messages": claude.get("totalMessages", 0),
-        "dataAsOf": claude.get("latestDate", ""),
-    })
+    sources.append(
+        {
+            "source": "claude_code",
+            "available": claude.get("available", False),
+            "tokens": claude_tokens,
+            "actualCostUSD": round(claude_cost, 2),
+            "listPriceUSD": round(claude_cost, 2),
+            "sessions": claude.get("totalSessions", 0),
+            "messages": claude.get("totalMessages", 0),
+            "dataAsOf": claude.get("latestDate", ""),
+        }
+    )
     grand_tokens += claude_tokens
     grand_cost += claude_cost
     grand_list_price += claude_cost
@@ -1335,53 +1770,62 @@ def _build_all_llm_usage(
     codex_list = codex.get("totalListPriceUSD", 0) if codex.get("available") else 0.0
     if codex.get("available"):
         for model, agg in codex.get("byModel", {}).items():
-            all_models.append({
-                "model": model,
-                "backend": "codex_cli",
-                "source": "codex_cli",
-                "tokens": agg.get("tokens", 0),
-                "requests": agg.get("sessions", 0),
-                "actualCostUSD": round(agg.get("actualCostUSD", 0), 4),
-                "listPriceUSD": round(agg.get("listPriceUSD", 0), 4),
-            })
+            all_models.append(
+                {
+                    "model": model,
+                    "backend": "codex_cli",
+                    "source": "codex_cli",
+                    "tokens": agg.get("tokens", 0),
+                    "requests": agg.get("sessions", 0),
+                    "actualCostUSD": round(agg.get("actualCostUSD", 0), 4),
+                    "listPriceUSD": round(agg.get("listPriceUSD", 0), 4),
+                }
+            )
 
-    sources.append({
-        "source": "codex_cli",
-        "available": codex.get("available", False),
-        "tokens": codex_tokens,
-        "actualCostUSD": round(codex_actual, 4),
-        "listPriceUSD": round(codex_list, 4),
-        "savedByOCA": round(codex_list - codex_actual, 4),
-        "sessions": codex.get("totalSessions", 0),
-        "byProvider": codex.get("byProvider", {}),
-    })
+    sources.append(
+        {
+            "source": "codex_cli",
+            "available": codex.get("available", False),
+            "tokens": codex_tokens,
+            "actualCostUSD": round(codex_actual, 4),
+            "listPriceUSD": round(codex_list, 4),
+            "sessions": codex.get("totalSessions", 0),
+            "byProvider": codex.get("byProvider", {}),
+        }
+    )
     grand_tokens += codex_tokens
     grand_cost += codex_actual
     grand_list_price += codex_list
 
     # --- Gemini CLI ---
     gemini_tokens = gemini.get("totalTokens", 0) if gemini.get("available") else 0
-    gemini_cost = gemini.get("totalEstimatedCostUSD", 0) if gemini.get("available") else 0.0
+    gemini_cost = (
+        gemini.get("totalEstimatedCostUSD", 0) if gemini.get("available") else 0.0
+    )
     if gemini.get("available"):
-        all_models.append({
-            "model": gemini.get("model", "gemini-2.5-pro"),
-            "backend": "gemini_cli",
+        all_models.append(
+            {
+                "model": gemini.get("model", "gemini-2.5-pro"),
+                "backend": "gemini_cli",
+                "source": "gemini_cli",
+                "tokens": gemini_tokens,
+                "requests": gemini.get("totalSessions", 0),
+                "actualCostUSD": round(gemini_cost, 4),
+                "listPriceUSD": round(gemini_cost, 4),
+            }
+        )
+
+    sources.append(
+        {
             "source": "gemini_cli",
+            "available": gemini.get("available", False),
             "tokens": gemini_tokens,
-            "requests": gemini.get("totalSessions", 0),
             "actualCostUSD": round(gemini_cost, 4),
             "listPriceUSD": round(gemini_cost, 4),
-        })
-
-    sources.append({
-        "source": "gemini_cli",
-        "available": gemini.get("available", False),
-        "tokens": gemini_tokens,
-        "actualCostUSD": round(gemini_cost, 4),
-        "listPriceUSD": round(gemini_cost, 4),
-        "sessions": gemini.get("totalSessions", 0),
-        "byProject": gemini.get("byProject", {}),
-    })
+            "sessions": gemini.get("totalSessions", 0),
+            "byProject": gemini.get("byProject", {}),
+        }
+    )
     grand_tokens += gemini_tokens
     grand_cost += gemini_cost
     grand_list_price += gemini_cost
@@ -1454,20 +1898,25 @@ def _limit_direct_sessions(payload: dict, *, limit: int) -> dict:
     return payload
 
 
-@app.get("/api/dashboard-bundle")
-async def dashboard_bundle_api(
-    hours: int = Query(720, ge=1, le=43800),
-    project: Optional[str] = None,
-    session_limit: int = Query(50, ge=1, le=500),
-    direct_session_limit: int = Query(100, ge=1, le=1000),
-):
-    """Dashboard payload with expensive direct-client stats computed once per period."""
+def _compute_dashboard_bundle(
+    *, hours: int, project: Optional[str], session_limit: int, direct_session_limit: int
+) -> dict:
+    """Blocking single-pass bundle compute (gateway SQL + direct-history scans).
+
+    Runs off the event loop via ``asyncio.to_thread`` — every call here is
+    synchronous, CPU/IO-bound, and safe to execute in a worker thread because
+    each stats function opens and closes its own SQLite connection.
+    """
     started = time.perf_counter()
     gw = get_dashboard_stats(hours=hours, project=project)
     sessions = get_sessions(hours=hours, project=project, limit=session_limit)
     claude = get_claude_code_stats(hours=hours, project=project)
-    codex = _limit_direct_sessions(get_codex_stats(hours=hours, project=project), limit=direct_session_limit)
-    gemini = _limit_direct_sessions(get_gemini_stats(hours=hours, project=project), limit=direct_session_limit)
+    codex = _limit_direct_sessions(
+        get_codex_stats(hours=hours, project=project), limit=direct_session_limit
+    )
+    gemini = _limit_direct_sessions(
+        get_gemini_stats(hours=hours, project=project), limit=direct_session_limit
+    )
     unified = _build_all_llm_usage(
         hours=hours,
         project=project,
@@ -1485,14 +1934,430 @@ async def dashboard_bundle_api(
         "unified": unified,
         "performance": {
             "elapsedMs": round((time.perf_counter() - started) * 1000, 2),
-            "strategy": "bundled_single_pass",
-            "cacheTtlSeconds": 15,
+            "strategy": "swr_bundled_single_pass",
+            "cacheTtlSeconds": bundle_cache.FRESH_TTL_SECONDS,
             "costCalculation": "gateway_sql_plus_cached_direct_client_scans",
             "gatewaySessionLimit": session_limit,
             "directSessionLimit": direct_session_limit,
             "longRange": hours >= 8760,
         },
     }
+
+
+async def _prime_dashboard_bundle() -> None:
+    """Background-compute the dashboard's default range (Last 7 days) at startup.
+
+    Keeps the persisted cache fresh so the very first page load after a restart
+    renders current data without a cold 20s scan. Failures are non-fatal.
+    """
+    hours, session_limit, direct_session_limit = 168, 50, 100
+    key = bundle_cache.make_key(
+        hours=hours,
+        project=None,
+        session_limit=session_limit,
+        direct_session_limit=direct_session_limit,
+    )
+
+    async def _compute() -> dict:
+        return await asyncio.to_thread(
+            _compute_dashboard_bundle,
+            hours=hours,
+            project=None,
+            session_limit=session_limit,
+            direct_session_limit=direct_session_limit,
+        )
+
+    try:
+        await bundle_cache.get_bundle(key, _compute, force=True)
+        log.info("dashboard bundle primed for default range (last 7 days)")
+    except Exception as exc:
+        log.warning("dashboard bundle prime failed: %s", exc)
+
+
+@app.get("/api/dashboard-bundle")
+async def dashboard_bundle_api(
+    hours: int = Query(720, ge=1, le=43800),
+    project: Optional[str] = None,
+    session_limit: int = Query(50, ge=1, le=500),
+    direct_session_limit: int = Query(100, ge=1, le=1000),
+    refresh: bool = False,
+):
+    """Dashboard payload served with stale-while-revalidate caching.
+
+    The cold compute scans Claude/Codex/Gemini history and can take 20s+. With
+    SWR the page gets an instant response from the persisted cache and the slow
+    recompute happens in the background. ``refresh=true`` forces a fresh compute
+    (the dashboard "Refresh" button) and waits for it.
+    """
+    key = bundle_cache.make_key(
+        hours=hours,
+        project=project,
+        session_limit=session_limit,
+        direct_session_limit=direct_session_limit,
+    )
+
+    async def _compute() -> dict:
+        return await asyncio.to_thread(
+            _compute_dashboard_bundle,
+            hours=hours,
+            project=project,
+            session_limit=session_limit,
+            direct_session_limit=direct_session_limit,
+        )
+
+    return await bundle_cache.get_bundle(key, _compute, force=refresh)
+
+
+async def _cached_unified(hours: int, project: Optional[str]) -> dict:
+    """Fetch the unified usage payload via the SWR bundle cache (no extra scan)."""
+    key = bundle_cache.make_key(
+        hours=hours, project=project, session_limit=50, direct_session_limit=100
+    )
+
+    async def _compute() -> dict:
+        return await asyncio.to_thread(
+            _compute_dashboard_bundle,
+            hours=hours,
+            project=project,
+            session_limit=50,
+            direct_session_limit=100,
+        )
+
+    bundle = await bundle_cache.get_bundle(key, _compute)
+    return bundle.get("unified") or {}
+
+
+@app.get("/api/cost/forecast")
+async def cost_forecast_api(
+    hours: int = Query(168, ge=1, le=43800), project: Optional[str] = None
+):
+    """Burn-rate, projected spend (today/month), and quota-exhaustion ETAs.
+
+    Reuses the cached unified payload and cheap gateway SQL windows, so it does
+    not trigger a fresh history scan.
+    """
+    unified = await _cached_unified(hours, project)
+    gw_recent_1h = await asyncio.to_thread(
+        get_dashboard_stats, hours=1, project=project
+    )
+    gw_recent_24h = await asyncio.to_thread(
+        get_dashboard_stats, hours=24, project=project
+    )
+
+    return cost_forecast.build_cost_forecast(
+        unified=unified,
+        gw_recent_1h=gw_recent_1h,
+        gw_recent_24h=gw_recent_24h,
+        window_hours=hours,
+    )
+
+
+@app.post("/api/cost/estimate")
+async def cost_estimate_api(body: dict | None = None):
+    """Pre-flight cost estimate of a prompt across candidate model aliases.
+
+    Body: ``{"prompt": "...", "models": ["openai/gpt-4o", ...],
+    "expected_output_tokens": 500}``. ``models`` is optional — omit to price
+    every known route. Returns estimates sorted cheapest-first.
+    """
+    body = body or {}
+    prompt = body.get("prompt", "")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Missing 'prompt'")
+    candidates = body.get("models") or None
+    expected_output = body.get(
+        "expected_output_tokens", cost_forecast.DEFAULT_EXPECTED_OUTPUT_TOKENS
+    )
+    return cost_forecast.estimate_prompt_cost(
+        prompt=prompt,
+        routes=ROUTES,
+        candidates=candidates,
+        expected_output_tokens=expected_output,
+    )
+
+
+async def _council_query_one(
+    alias: str, prompt: str, max_tokens: int, temperature: float
+) -> dict:
+    """Query one model for the council; never raises — errors are captured."""
+    body = {
+        "model": alias,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    t0 = time.time()
+    try:
+        result = await route_request(body)
+        usage = _extract_usage_metrics(result)
+        content = result.get("content", []) or []
+        text = next((b.get("text", "") for b in content if b.get("type") == "text"), "")
+        route = ROUTES.get(alias, {})
+        backend = route.get("backend", "")
+        cost = _estimate_cost(
+            backend,
+            usage["input_tokens"],
+            usage["output_tokens"],
+            usage["cache_read_input_tokens"],
+            usage["cache_creation_input_tokens"],
+        )
+        return {
+            "alias": alias,
+            "backend": backend,
+            "text": text,
+            "inputTokens": usage["input_tokens"],
+            "outputTokens": usage["output_tokens"],
+            "actualCostUSD": round(cost, 6),
+            "latencyMs": round((time.time() - t0) * 1000, 1),
+            "error": None,
+        }
+    except HTTPException as e:
+        return {
+            "alias": alias,
+            "text": "",
+            "error": f"{e.status_code}: {e.detail}",
+            "actualCostUSD": 0.0,
+            "latencyMs": round((time.time() - t0) * 1000, 1),
+        }
+    except Exception as e:  # noqa: BLE001 — one model failing must not sink the council
+        return {
+            "alias": alias,
+            "text": "",
+            "error": str(e),
+            "actualCostUSD": 0.0,
+            "latencyMs": round((time.time() - t0) * 1000, 1),
+        }
+
+
+@app.post("/api/council")
+async def council_api(body: dict | None = None):
+    """Query several models in parallel, with pre-flight cost estimates.
+
+    Body: ``{"prompt": "...", "models": ["ollama/qwen3-30b", "openai/gpt-4o"],
+    "max_tokens": 2048, "temperature": 0.7}``. Returns a cheapest-first cost
+    estimate for the panel *before* spending, then each model's response with its
+    actual token cost, plus combined totals — so multi-model opinions are
+    cost-aware (the user can see projected vs actual spend).
+    """
+    body = body or {}
+    prompt = body.get("prompt", "")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Missing 'prompt'")
+
+    from .memory import get_setting
+
+    models = body.get("models") or get_setting(
+        "auto_council_models", ["ollama/qwen3-30b", "codex/gpt-5-4", "gemini/flash"]
+    )
+    max_tokens = int(body.get("max_tokens", 2048))
+    temperature = float(body.get("temperature", 0.7))
+
+    # Pre-flight: what will this cost across the chosen models?
+    estimate = cost_forecast.estimate_prompt_cost(
+        prompt=prompt,
+        routes=ROUTES,
+        candidates=models,
+        expected_output_tokens=max_tokens,
+    )
+
+    # Query all models concurrently; one failure does not sink the rest.
+    responses = await asyncio.gather(
+        *[_council_query_one(m, prompt, max_tokens, temperature) for m in models]
+    )
+
+    succeeded = [r for r in responses if not r.get("error")]
+    total_actual = round(sum(r["actualCostUSD"] for r in succeeded), 6)
+    return {
+        "prompt": prompt,
+        "models": models,
+        "preflightEstimate": estimate,
+        "responses": responses,
+        "totals": {
+            "estimatedCostUSD": round(
+                sum(e["estimatedCostUSD"] for e in estimate["estimates"]), 6
+            ),
+            "actualCostUSD": total_actual,
+            "modelsQueried": len(responses),
+            "modelsSucceeded": len(succeeded),
+        },
+    }
+
+
+async def _fusion_query_fn(
+    alias: str, prompt: str, max_tokens: int, temperature: float
+) -> dict:
+    """Query one model for fusion and record its usage (per-backend accuracy).
+
+    Sub-calls don't flow through the main ``messages`` handler, so they are not
+    otherwise recorded; logging each here keeps cost tracking, budgets, and the
+    forecast accurate for fusion runs.
+    """
+    r = await _council_query_one(alias, prompt, max_tokens, temperature)
+    if not r.get("error"):
+        route = ROUTES.get(alias, {})
+        record_usage(
+            project=PROJECT,
+            model_alias=alias,
+            backend=r.get("backend", ""),
+            real_model=route.get("model", alias),
+            input_tokens=r.get("inputTokens", 0),
+            output_tokens=r.get("outputTokens", 0),
+            latency_ms=r.get("latencyMs", 0),
+            status="fusion",
+        )
+    return r
+
+
+def _resolve_fusion_config(body: dict) -> tuple[list, str, int, float]:
+    """Resolve (panel, judge, max_tokens, temperature) from body + settings."""
+    from .memory import get_setting
+
+    md = body.get("metadata") or {}
+    panel = (
+        body.get("fusion_panel")
+        or md.get("fusion_panel")
+        or get_setting("fusion_panel", _DEFAULT_FUSION_PANEL)
+    )
+    judge = (
+        body.get("fusion_judge")
+        or md.get("fusion_judge")
+        or get_setting("fusion_judge", _DEFAULT_FUSION_JUDGE)
+    )
+    max_tokens = int(body.get("max_tokens", 1024))
+    temperature = float(body.get("temperature", 0.7))
+    return panel, judge, max_tokens, temperature
+
+
+async def _run_fusion(body: dict) -> dict:
+    """Run the fusion pipeline for a request body and return the full result."""
+    prompt = extract_text_from_anthropic(body)
+    panel, judge, max_tokens, temperature = _resolve_fusion_config(body)
+    return await fusion.run_fusion(
+        prompt=prompt,
+        panel=panel,
+        judge=judge,
+        query_fn=_fusion_query_fn,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+
+
+def _fusion_usage(result: dict) -> tuple[int, int]:
+    """Aggregate (input, output) tokens across the panel + judge."""
+    in_tok = sum(
+        r.get("inputTokens", 0) for r in result.get("panel", []) if not r.get("error")
+    )
+    out_tok = sum(
+        r.get("outputTokens", 0) for r in result.get("panel", []) if not r.get("error")
+    )
+    ju = result.get("judgeUsage") or {}
+    return in_tok + ju.get("inputTokens", 0), out_tok + ju.get("outputTokens", 0)
+
+
+def _fusion_to_anthropic(result: dict, model_label: str) -> JSONResponse:
+    """Abstract a fusion result into a single Anthropic-format JSON response."""
+    text = result.get("finalAnswer") or "[fusion produced no answer]"
+    in_tok, out_tok = _fusion_usage(result)
+    resp = make_anthropic_response(
+        text,
+        model=model_label,
+        input_tokens=in_tok,
+        output_tokens=out_tok,
+        usage_extras={
+            "fusion_status": result.get("status"),
+            "fusion_cost_usd": result.get("totals", {}).get("costUSD"),
+        },
+    )
+    return JSONResponse(resp)
+
+
+def _fusion_to_anthropic_stream(result: dict, model_label: str) -> StreamingResponse:
+    """Stream a fusion result as Anthropic SSE (final answer in one delta).
+
+    Fusion must synthesize the whole answer before it can stream, so the answer
+    is delivered as a single content delta — valid Anthropic SSE that any client
+    expecting a stream (e.g. Claude Code) can consume.
+    """
+    text = result.get("finalAnswer") or "[fusion produced no answer]"
+    in_tok, out_tok = _fusion_usage(result)
+
+    async def gen():
+        state = StreamState(model_label, input_tokens=in_tok)
+        yield make_message_start_event(state)
+        yield make_content_block_start_event(0)
+        yield make_text_delta_event(0, text)
+        yield make_content_block_stop_event(0)
+        yield make_message_delta_event("end_turn", out_tok)
+        yield make_message_stop_event()
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+def _fusion_response(result: dict, model_label: str, is_streaming: bool):
+    """Return the fusion result as JSON or SSE depending on the request."""
+    return (_fusion_to_anthropic_stream if is_streaming else _fusion_to_anthropic)(
+        result, model_label
+    )
+
+
+@app.post("/api/fusion")
+async def fusion_api(body: dict | None = None):
+    """Run fusion explicitly and return the full result (panel + analysis + answer).
+
+    Body: ``{"prompt": "...", "fusion_panel": [...], "fusion_judge": "...",
+    "max_tokens": 1024, "temperature": 0.7}``. Panel/judge default to the
+    fusion_panel/fusion_judge settings. Use the ``fusion`` model slug on
+    ``/v1/messages`` instead to get a single abstracted response.
+    """
+    body = body or {}
+    if not body.get("prompt"):
+        raise HTTPException(status_code=400, detail="Missing 'prompt'")
+    # /api/fusion takes prompt directly; adapt it to the messages body shape.
+    adapted = dict(body)
+    adapted["messages"] = [{"role": "user", "content": body["prompt"]}]
+    return await _run_fusion(adapted)
+
+
+@app.get("/api/budgets")
+async def budgets_status_api():
+    """Current budget status: caps, spend, %used, alert states, and enforcement.
+
+    Spend is the gateway-metered cloud cost (rolling 24h / 30d), not flat-rate
+    subscriptions — so budgets reflect what the gateway can actually control.
+    """
+    from .memory import get_setting
+
+    config = get_setting("budgets", {}) or {}
+    snap = await asyncio.to_thread(_gateway_spend_snapshot, None)
+    project_spend = {}
+    for name in config.get("per_project") or {}:
+        project_spend[name] = await asyncio.to_thread(_gateway_spend_snapshot, name)
+
+    return budgets.evaluate_budgets(
+        config=config,
+        spent_today=snap["today"],
+        spent_month=snap["month"],
+        project_spend=project_spend,
+    )
+
+
+@app.put("/api/budgets")
+async def set_budgets_api(body: dict | None = None):
+    """Update budget configuration (merged into the persisted ``budgets`` setting).
+
+    Body example::
+
+        {"enabled": true, "daily_usd": 10, "monthly_usd": 200,
+         "alert_thresholds": [0.8, 1.0],
+         "per_project": {"multillm": {"daily_usd": 5}}}
+    """
+    from .memory import get_setting, set_setting
+
+    current = get_setting("budgets", {}) or {}
+    current.update(body or {})
+    set_setting("budgets", current)
+    _gateway_spend_snapshot.cache_clear()  # reflect new caps immediately
+    return {"status": "ok", "budgets": current}
 
 
 @app.get("/api/cache")
@@ -1504,8 +2369,15 @@ async def cache_stats_api():
 @app.get("/api/otel")
 async def otel_status_api():
     """Get OpenTelemetry / OCI APM configuration status."""
-    from .config import OTEL_ENABLED, OTEL_SERVICE_NAME, OCI_APM_DOMAIN_ID, OCI_APM_ENDPOINT, OCI_APM_REGION
+    from .config import (
+        OTEL_ENABLED,
+        OTEL_SERVICE_NAME,
+        OCI_APM_DOMAIN_ID,
+        OCI_APM_ENDPOINT,
+        OCI_APM_REGION,
+    )
     from .tracking import _tracer, _meter
+
     return {
         "enabled": OTEL_ENABLED,
         "initialized": _tracer is not None,
@@ -1530,6 +2402,7 @@ async def rate_limit_api():
 async def local_status_api():
     """Report which local backends are installed (CLI on PATH)."""
     from .memory import get_setting
+
     return {
         "installed": installed_local_backends(),
         "autostart": get_setting("local_autostart", True),
@@ -1546,7 +2419,9 @@ async def local_start_api(body: dict | None = None):
     backend = (body or {}).get("backend")
     if backend:
         if not is_backend_installed(backend):
-            raise HTTPException(status_code=404, detail=f"Local backend not installed: {backend}")
+            raise HTTPException(
+                status_code=404, detail=f"Local backend not installed: {backend}"
+            )
         started = await ensure_local_backend(backend)
         ready_backend = backend if started else None
     else:
@@ -1575,6 +2450,65 @@ async def trigger_health_check():
     """Force an immediate health check of all backends."""
     await check_all_backends()
     return {"status": "ok", "backends": all_health_status()}
+
+
+def _routing_pool() -> list[str]:
+    """The candidate models the router chooses among (configurable)."""
+    from .memory import get_setting
+
+    return get_setting("routing_pool", None) or get_setting(
+        "fusion_panel", _DEFAULT_FUSION_PANEL
+    )
+
+
+def _route_decision(
+    prompt: str, *, bias: Optional[float] = None, project: Optional[str] = None
+) -> dict:
+    """Run the log-driven router for a prompt and return its decision."""
+    from .memory import get_setting
+
+    if bias is None:
+        bias = float(get_setting("routing_quality_bias", 0.5))
+    pool = _routing_pool()
+    stats = get_model_routing_stats(hours=168, project=project)
+    comp = complexity.estimate_complexity(prompt)
+
+    def health_fn(backend: str) -> float:
+        try:
+            return float(score_backend(backend).get("score", 0.5))
+        except Exception:
+            return 0.5
+
+    def cost_fn(alias: str) -> float:
+        backend = (ROUTES.get(alias, {}) or {}).get("backend", "")
+        return float((COST_TABLE.get(backend, {}) or {}).get("input", 0.0))
+
+    decision = query_router.choose_model(
+        prompt_complexity=comp["score"],
+        pool=pool,
+        stats=stats,
+        health_fn=health_fn,
+        cost_fn=cost_fn,
+        bias=float(bias),
+        routes=ROUTES,
+    )
+    decision["complexityReasons"] = comp["reasons"]
+    return decision
+
+
+@app.get("/api/routing/decision")
+async def routing_decision_api(
+    prompt: str, bias: Optional[float] = None, project: Optional[str] = None
+):
+    """Show which model the log-driven router would pick for ``prompt``.
+
+    Blends historical performance (from usage logs), live health, latency, and
+    cost, tuned by ``bias`` (0=cheapest/fastest … 1=highest quality). Read-only —
+    does not send the prompt anywhere.
+    """
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Missing 'prompt'")
+    return _route_decision(prompt, bias=bias, project=project)
 
 
 @app.get("/api/routing/scores")
@@ -1622,8 +2556,9 @@ async def auth_status():
         "authenticated": bool(AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT),
         "method": "api_key",
         "env_var": "AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT",
-        "action": None if (AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT) else
-            "export AZURE_OPENAI_API_KEY=<key> AZURE_OPENAI_ENDPOINT=<url>",
+        "action": None
+        if (AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT)
+        else "export AZURE_OPENAI_API_KEY=<key> AZURE_OPENAI_ENDPOINT=<url>",
     }
 
     # AWS Bedrock
@@ -1631,25 +2566,19 @@ async def auth_status():
         "authenticated": bool(AWS_BEDROCK_REGION),
         "method": "aws_profile",
         "env_var": "AWS_BEDROCK_REGION + AWS_PROFILE or AWS_BEDROCK_PROFILE",
-        "action": None if AWS_BEDROCK_REGION else
-            "export AWS_BEDROCK_REGION=us-east-1 AWS_PROFILE=<profile>",
-    }
-
-    # OCA (OAuth PKCE)
-    token = await get_oca_bearer_token()
-    backends["oca"] = {
-        "authenticated": bool(token),
-        "method": "oauth_pkce",
-        "action": None if token else OCA_LOGIN_HINT,
-        "token_status": "valid" if token else "expired_or_missing",
+        "action": None
+        if AWS_BEDROCK_REGION
+        else "export AWS_BEDROCK_REGION=us-east-1 AWS_PROFILE=<profile>",
     }
 
     # CLI-based backends
     for cli_name, cli_bin in [("codex_cli", "codex"), ("gemini_cli", "gemini")]:
         try:
             proc = await asyncio.create_subprocess_exec(
-                "which", cli_bin,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                "which",
+                cli_bin,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await proc.communicate()
             available = bool(stdout.strip())
@@ -1658,7 +2587,9 @@ async def auth_status():
         backends[cli_name] = {
             "authenticated": available,
             "method": "cli_binary",
-            "action": None if available else f"Install: npm i -g @{'openai' if cli_name == 'codex_cli' else 'google'}/{cli_bin}",
+            "action": None
+            if available
+            else f"Install: npm i -g @{'openai' if cli_name == 'codex_cli' else 'google'}/{cli_bin}",
         }
 
     # Local backends (no auth needed)
@@ -1712,18 +2643,28 @@ def main():
     log.info("  Project:    %s", PROJECT)
     log.info("  Dashboard:  http://localhost:%d/dashboard", GATEWAY_PORT)
     log.info("  Data dir:   %s", DATA_DIR)
-    log.info("  Auth:       %s", "enabled" if auth_enabled() else "disabled (localhost only recommended)")
+    log.info(
+        "  Auth:       %s",
+        "enabled" if auth_enabled() else "disabled (localhost only recommended)",
+    )
     log.info("  Exposure:   %s — %s", exposure.severity, exposure.message)
-    log.info("  CORS:       %s", ", ".join(parse_cors_origins(GATEWAY_CORS_ORIGINS, port=GATEWAY_PORT)))
+    log.info(
+        "  CORS:       %s",
+        ", ".join(parse_cors_origins(GATEWAY_CORS_ORIGINS, port=GATEWAY_PORT)),
+    )
     log.info("  Ollama:     %s", OLLAMA_URL)
     log.info("  LM Studio:  %s", LMSTUDIO_URL)
     log.info("  OpenRouter:  %s", "configured" if OPENROUTER_KEY else "not set")
     log.info("  OpenAI:     %s", "configured" if OPENAI_KEY else "not set")
     log.info("  Anthropic:  %s", "configured" if ANTHROPIC_KEY else "not set")
-    log.info("  OCA:        %s", OCA_ENDPOINT)
     log.info("  Gemini:     %s", "configured" if GEMINI_KEY else "not set")
     log.info("  Routes:     %d total", len(ROUTES))
-    uvicorn.run("multillm.gateway:app", host=GATEWAY_HOST, port=GATEWAY_PORT, reload=GATEWAY_RELOAD)
+    uvicorn.run(
+        "multillm.gateway:app",
+        host=GATEWAY_HOST,
+        port=GATEWAY_PORT,
+        reload=GATEWAY_RELOAD,
+    )
 
 
 if __name__ == "__main__":

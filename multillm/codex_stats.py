@@ -29,25 +29,22 @@ STATE_DB = CODEX_DIR / "state_5.sqlite"
 # OpenAI list pricing per 1M tokens (USD) — source: openai.com/api/pricing (March 2026)
 OPENAI_LIST_PRICING: dict[str, dict[str, float]] = {
     # GPT-5.4 family
-    "gpt-5.4-pro":  {"input": 30.0,  "output": 180.0, "cached_input": 0.0},
-    "gpt-5.4":      {"input": 2.50,  "output": 15.0,  "cached_input": 0.25},
-    "gpt-5.4-mini": {"input": 0.75,  "output": 4.50,  "cached_input": 0.075},
-    "gpt-5.4-nano": {"input": 0.20,  "output": 1.25,  "cached_input": 0.02},
+    "gpt-5.4-pro": {"input": 30.0, "output": 180.0, "cached_input": 0.0},
+    "gpt-5.4": {"input": 2.50, "output": 15.0, "cached_input": 0.25},
+    "gpt-5.4-mini": {"input": 0.75, "output": 4.50, "cached_input": 0.075},
+    "gpt-5.4-nano": {"input": 0.20, "output": 1.25, "cached_input": 0.02},
     # GPT-4.1 family
-    "gpt-4.1":      {"input": 2.00,  "output": 8.00,  "cached_input": 0.50},
-    "gpt-4.1-mini": {"input": 0.40,  "output": 1.60,  "cached_input": 0.10},
-    "gpt-4.1-nano": {"input": 0.10,  "output": 0.40,  "cached_input": 0.025},
+    "gpt-4.1": {"input": 2.00, "output": 8.00, "cached_input": 0.50},
+    "gpt-4.1-mini": {"input": 0.40, "output": 1.60, "cached_input": 0.10},
+    "gpt-4.1-nano": {"input": 0.10, "output": 0.40, "cached_input": 0.025},
     # GPT-4o family
-    "gpt-4o":       {"input": 2.50,  "output": 10.0,  "cached_input": 1.25},
-    "gpt-4o-mini":  {"input": 0.15,  "output": 0.60,  "cached_input": 0.075},
+    "gpt-4o": {"input": 2.50, "output": 10.0, "cached_input": 1.25},
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60, "cached_input": 0.075},
     # Reasoning models (o-series)
-    "o3":           {"input": 2.00,  "output": 8.00,  "cached_input": 0.50},
-    "o3-mini":      {"input": 1.10,  "output": 4.40,  "cached_input": 0.55},
-    "o4-mini":      {"input": 1.10,  "output": 4.40,  "cached_input": 0.275},
+    "o3": {"input": 2.00, "output": 8.00, "cached_input": 0.50},
+    "o3-mini": {"input": 1.10, "output": 4.40, "cached_input": 0.55},
+    "o4-mini": {"input": 1.10, "output": 4.40, "cached_input": 0.275},
 }
-
-# OCA provider pricing (internal Oracle — effectively free)
-OCA_PROVIDERS = {"oca-chicago", "oca", "oca-ashburn", "oca-frankfurt", "oca-london"}
 
 
 def _get_list_pricing(model: str) -> dict[str, float]:
@@ -128,7 +125,9 @@ def _resolve_rollout_path(raw_path: str) -> Optional[Path]:
 
 
 @lru_cache(maxsize=2048)
-def _read_rollout_usage_cached(path_str: str, mtime_ns: int, size: int) -> dict[str, int]:
+def _read_rollout_usage_cached(
+    path_str: str, mtime_ns: int, size: int
+) -> dict[str, int]:
     """Read the latest token counters from a rollout JSONL file.
 
     Codex emits repeated token_count events. Prefer the latest cumulative
@@ -207,7 +206,11 @@ def _estimate_session_cost(
     pricing = _get_list_pricing(model)
 
     has_detailed_usage = bool(
-        usage and any(int(usage.get(key, 0) or 0) for key in ("inputTokens", "cachedTokens", "outputTokens"))
+        usage
+        and any(
+            int(usage.get(key, 0) or 0)
+            for key in ("inputTokens", "cachedTokens", "outputTokens")
+        )
     )
 
     if has_detailed_usage and usage is not None:
@@ -224,12 +227,10 @@ def _estimate_session_cost(
         input_tokens = int(tokens_used * 0.3)
         output_tokens = tokens_used - input_tokens
         list_price = (
-            input_tokens * pricing["input"]
-            + output_tokens * pricing["output"]
+            input_tokens * pricing["input"] + output_tokens * pricing["output"]
         ) / 1_000_000
 
-    actual_cost = 0.0 if provider.lower() in OCA_PROVIDERS else list_price
-    return actual_cost, list_price
+    return list_price, list_price
 
 
 def _connect_readonly() -> Optional[sqlite3.Connection]:
@@ -294,7 +295,15 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
 
             usage = _load_rollout_usage(row["rollout_path"] or "")
             has_detailed_usage = bool(
-                any(int(usage.get(key, 0) or 0) for key in ("inputTokens", "cachedTokens", "outputTokens", "totalTokens"))
+                any(
+                    int(usage.get(key, 0) or 0)
+                    for key in (
+                        "inputTokens",
+                        "cachedTokens",
+                        "outputTokens",
+                        "totalTokens",
+                    )
+                )
             )
 
             tokens_used = int(row["tokens_used"] or 0)
@@ -319,28 +328,32 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
             if has_detailed_usage:
                 detailed_session_count += 1
 
-            sessions.append({
-                "sessionId": row["id"],
-                "model": model,
-                "provider": provider,
-                "tokensUsed": session_tokens,
-                "inputTokens": usage["inputTokens"],
-                "outputTokens": usage["outputTokens"],
-                "cachedTokens": usage["cachedTokens"],
-                "reasoningOutputTokens": usage["reasoningOutputTokens"],
-                "realNetTokens": usage["realNetTokens"],
-                "hasDetailedUsage": has_detailed_usage,
-                "usagePrecision": "rollout_events" if has_detailed_usage else "thread_totals",
-                "actualCostUSD": session_actual_cost,
-                "listPriceUSD": session_list_price,
-                "project": session_project,
-                "cwd": cwd,
-                "title": row["title"] or "",
-                "firstMessage": row["first_user_message"] or "",
-                "createdAt": created_dt.isoformat(),
-                "date": created_dt.strftime("%Y-%m-%d"),
-                "cliVersion": row["cli_version"] or "",
-            })
+            sessions.append(
+                {
+                    "sessionId": row["id"],
+                    "model": model,
+                    "provider": provider,
+                    "tokensUsed": session_tokens,
+                    "inputTokens": usage["inputTokens"],
+                    "outputTokens": usage["outputTokens"],
+                    "cachedTokens": usage["cachedTokens"],
+                    "reasoningOutputTokens": usage["reasoningOutputTokens"],
+                    "realNetTokens": usage["realNetTokens"],
+                    "hasDetailedUsage": has_detailed_usage,
+                    "usagePrecision": "rollout_events"
+                    if has_detailed_usage
+                    else "thread_totals",
+                    "actualCostUSD": session_actual_cost,
+                    "listPriceUSD": session_list_price,
+                    "project": session_project,
+                    "cwd": cwd,
+                    "title": row["title"] or "",
+                    "firstMessage": row["first_user_message"] or "",
+                    "createdAt": created_dt.isoformat(),
+                    "date": created_dt.strftime("%Y-%m-%d"),
+                    "cliVersion": row["cli_version"] or "",
+                }
+            )
 
             total_tokens += session_tokens
             total_input_tokens += usage["inputTokens"]
@@ -366,8 +379,6 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
                     "externalSessions": 0,
                     "externalActualCostUSD": 0.0,
                     "externalListPriceUSD": 0.0,
-                    "ocaTokens": 0,
-                    "ocaSessions": 0,
                     "providers": set(),
                 }
             model_agg = by_model[model]
@@ -381,14 +392,10 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
             model_agg["actualCostUSD"] += actual_cost
             model_agg["listPriceUSD"] += list_price
             model_agg["providers"].add(provider)
-            if provider.lower() in OCA_PROVIDERS:
-                model_agg["ocaTokens"] += session_tokens
-                model_agg["ocaSessions"] += 1
-            else:
-                model_agg["externalTokens"] += session_tokens
-                model_agg["externalSessions"] += 1
-                model_agg["externalActualCostUSD"] += actual_cost
-                model_agg["externalListPriceUSD"] += list_price
+            model_agg["externalTokens"] += session_tokens
+            model_agg["externalSessions"] += 1
+            model_agg["externalActualCostUSD"] += actual_cost
+            model_agg["externalListPriceUSD"] += list_price
 
             if provider not in by_provider:
                 by_provider[provider] = {
@@ -401,7 +408,6 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
                     "sessions": 0,
                     "actualCostUSD": 0.0,
                     "listPriceUSD": 0.0,
-                    "isOCA": provider.lower() in OCA_PROVIDERS,
                 }
             provider_agg = by_provider[provider]
             provider_agg["tokens"] += session_tokens
@@ -453,8 +459,12 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
         for aggregate in by_model.values():
             aggregate["actualCostUSD"] = round(aggregate["actualCostUSD"], 4)
             aggregate["listPriceUSD"] = round(aggregate["listPriceUSD"], 4)
-            aggregate["externalActualCostUSD"] = round(aggregate["externalActualCostUSD"], 4)
-            aggregate["externalListPriceUSD"] = round(aggregate["externalListPriceUSD"], 4)
+            aggregate["externalActualCostUSD"] = round(
+                aggregate["externalActualCostUSD"], 4
+            )
+            aggregate["externalListPriceUSD"] = round(
+                aggregate["externalListPriceUSD"], 4
+            )
             aggregate["providers"] = sorted(aggregate["providers"])
 
         for aggregate in by_provider.values():
@@ -463,7 +473,9 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
 
         precision = "thread_totals"
         if detailed_session_count:
-            precision = "rollout_usage" if detailed_session_count == len(sessions) else "mixed"
+            precision = (
+                "rollout_usage" if detailed_session_count == len(sessions) else "mixed"
+            )
 
         return {
             "available": True,
@@ -478,7 +490,6 @@ def get_codex_stats(hours: Optional[int] = None, project: Optional[str] = None) 
             "totalRealNetTokens": total_real_net_tokens,
             "totalActualCostUSD": round(total_actual_cost, 4),
             "totalListPriceUSD": round(total_list_price, 4),
-            "savedByOCA": round(total_list_price - total_actual_cost, 4),
             "byModel": by_model,
             "byProvider": by_provider,
             "daily": daily_list,
@@ -499,7 +510,9 @@ def get_codex_today() -> dict:
         return stats
 
     today_str = date.today().isoformat()
-    today_sessions = [session for session in stats["sessions"] if session["date"] == today_str]
+    today_sessions = [
+        session for session in stats["sessions"] if session["date"] == today_str
+    ]
     today_tokens = sum(session["tokensUsed"] for session in today_sessions)
     today_input = sum(session["inputTokens"] for session in today_sessions)
     today_output = sum(session["outputTokens"] for session in today_sessions)
@@ -519,6 +532,5 @@ def get_codex_today() -> dict:
         "realNetTokens": today_real_net,
         "actualCostUSD": round(today_actual, 4),
         "listPriceUSD": round(today_list, 4),
-        "savedByOCA": round(today_list - today_actual, 4),
         "details": today_sessions,
     }

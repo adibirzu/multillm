@@ -67,17 +67,17 @@ KNOWN_BACKENDS = (BACKEND_CLAUDE, BACKEND_CODEX, BACKEND_GEMINI)
 class TeamUsageRecord:
     """A single per-user/per-account/per-model daily usage snapshot."""
 
-    tenant_id: str            # UNIX user / workstation identity
-    backend: str              # claude | codex | gemini
-    account: str              # provider account label (email/org), '' if unknown
+    tenant_id: str  # UNIX user / workstation identity
+    backend: str  # claude | codex | gemini
+    account: str  # provider account label (email/org), '' if unknown
     model: str
-    day: str                  # YYYY-MM-DD (collector-local date)
+    day: str  # YYYY-MM-DD (collector-local date)
     input_tokens: int = 0
     output_tokens: int = 0
     cache_tokens: int = 0
     requests: int = 0
     cost_usd: float = 0.0
-    source_host: str = ""     # hostname of the workstation
+    source_host: str = ""  # hostname of the workstation
 
     def key(self) -> tuple[str, str, str, str, str]:
         return (self.tenant_id, self.backend, self.account, self.model, self.day)
@@ -186,9 +186,18 @@ def record_team_usage(records: Iterable[TeamUsageRecord]) -> int:
     now = datetime.now(timezone.utc).timestamp()
     rows = [
         (
-            r.tenant_id, r.backend, r.account, r.model, r.day,
-            r.input_tokens, r.output_tokens, r.cache_tokens,
-            r.requests, r.cost_usd, r.source_host, now,
+            r.tenant_id,
+            r.backend,
+            r.account,
+            r.model,
+            r.day,
+            r.input_tokens,
+            r.output_tokens,
+            r.cache_tokens,
+            r.requests,
+            r.cost_usd,
+            r.source_host,
+            now,
         )
         for r in records
     ]
@@ -293,7 +302,9 @@ def _query_group(
     return out
 
 
-def _query_user_day(conn: sqlite3.Connection, where: str, params: list[object]) -> list[dict]:
+def _query_user_day(
+    conn: sqlite3.Connection, where: str, params: list[object]
+) -> list[dict]:
     sql = (
         "SELECT day, tenant_id, "
         "SUM(input_tokens + output_tokens) AS tokens, "
@@ -385,35 +396,61 @@ def _records_from_stats(
                 continue
             inp = _g(entry, "input_tokens", "input", "prompt_tokens")
             out = _g(entry, "output_tokens", "output", "completion_tokens")
-            cache = _g(entry, "cache_tokens", "cached_input", "cache_read",
-                       "cache_read_input_tokens", "cached")
+            cache = _g(
+                entry,
+                "cache_tokens",
+                "cached_input",
+                "cache_read",
+                "cache_read_input_tokens",
+                "cached",
+            )
             if not (inp or out or cache):
                 continue
-            records.append(TeamUsageRecord(
-                tenant_id=tenant, backend=backend, account=account,
-                model=str(entry.get("model") or "all"),
-                day=_day_from_entry(entry, today),
-                input_tokens=inp, output_tokens=out, cache_tokens=cache,
-                requests=_g(entry, "requests", "messages", "sessions"),
-                cost_usd=_gf(entry, "cost_usd", "cost", "cost_estimate"),
-                source_host=host,
-            ))
+            records.append(
+                TeamUsageRecord(
+                    tenant_id=tenant,
+                    backend=backend,
+                    account=account,
+                    model=str(entry.get("model") or "all"),
+                    day=_day_from_entry(entry, today),
+                    input_tokens=inp,
+                    output_tokens=out,
+                    cache_tokens=cache,
+                    requests=_g(entry, "requests", "messages", "sessions"),
+                    cost_usd=_gf(entry, "cost_usd", "cost", "cost_estimate"),
+                    source_host=host,
+                )
+            )
         if records:
             return records
 
     total = stats.get("total") or {}
     inp = _g(total, "input_tokens", "input", "prompt_tokens")
     out = _g(total, "output_tokens", "output", "completion_tokens")
-    cache = _g(total, "cache_tokens", "cached_input", "cache_read",
-               "cache_read_input_tokens", "cached")
+    cache = _g(
+        total,
+        "cache_tokens",
+        "cached_input",
+        "cache_read",
+        "cache_read_input_tokens",
+        "cached",
+    )
     if inp or out or cache:
-        records.append(TeamUsageRecord(
-            tenant_id=tenant, backend=backend, account=account, model="all",
-            day=today, input_tokens=inp, output_tokens=out, cache_tokens=cache,
-            requests=_g(total, "requests", "messages", "sessions"),
-            cost_usd=_gf(stats, "cost_estimate") or _gf(total, "cost_usd", "cost"),
-            source_host=host,
-        ))
+        records.append(
+            TeamUsageRecord(
+                tenant_id=tenant,
+                backend=backend,
+                account=account,
+                model="all",
+                day=today,
+                input_tokens=inp,
+                output_tokens=out,
+                cache_tokens=cache,
+                requests=_g(total, "requests", "messages", "sessions"),
+                cost_usd=_gf(stats, "cost_estimate") or _gf(total, "cost_usd", "cost"),
+                source_host=host,
+            )
+        )
     return records
 
 
@@ -438,8 +475,12 @@ def detect_account(backend: str, home: Optional[Path] = None) -> str:
                 cfg = home / ".codex" / name
                 if cfg.exists():
                     data = json.loads(cfg.read_text())
-                    return str(data.get("email") or data.get("account_id")
-                               or (data.get("tokens") or {}).get("account_id") or "")
+                    return str(
+                        data.get("email")
+                        or data.get("account_id")
+                        or (data.get("tokens") or {}).get("account_id")
+                        or ""
+                    )
         elif backend == BACKEND_GEMINI:
             cfg = home / ".gemini" / "google_accounts.json"
             if cfg.exists():
@@ -483,8 +524,14 @@ def collect_local_usage(
             log.warning("stats reader %s failed for %s: %s", backend, tenant, e)
             continue
         account = accounts.get(backend) or detect_account(backend)
-        out.extend(_records_from_stats(
-            stats, tenant=tenant, backend=backend, account=account,
-            host=host, today=today,
-        ))
+        out.extend(
+            _records_from_stats(
+                stats,
+                tenant=tenant,
+                backend=backend,
+                account=account,
+                host=host,
+                today=today,
+            )
+        )
     return out

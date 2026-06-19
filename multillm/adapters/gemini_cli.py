@@ -24,7 +24,9 @@ class GeminiCLIAdapter(BaseAdapter):
             prompt = prompt[:10000] + "\n...(truncated)"
 
         # Model selection: "gemini-cli:gemini-3-flash-preview" → "-m gemini-3-flash-preview"
-        default_model = os.getenv("GEMINI_CLI_DEFAULT_MODEL", "gemini-2.5-flash").strip()
+        default_model = os.getenv(
+            "GEMINI_CLI_DEFAULT_MODEL", "gemini-2.5-flash"
+        ).strip()
         model_flag = []
         if model.startswith("gemini-cli:"):
             gemini_model = model.split(":", 1)[1]
@@ -42,13 +44,22 @@ class GeminiCLIAdapter(BaseAdapter):
 
         # Per-request approval mode override via metadata, else env var, else yolo
         metadata = body.get("metadata", {})
-        approval = metadata.get("sandbox_mode") or os.getenv("GEMINI_APPROVAL_MODE", "yolo")
-        approval_flag = ["--approval-mode", approval] if approval != "yolo" else ["--yolo"]
+        approval = metadata.get("sandbox_mode") or os.getenv(
+            "GEMINI_APPROVAL_MODE", "yolo"
+        )
+        approval_flag = (
+            ["--approval-mode", approval] if approval != "yolo" else ["--yolo"]
+        )
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                gemini_bin, "-p", prompt, "-o", "json",
-                *approval_flag, *model_flag,
+                gemini_bin,
+                "-p",
+                prompt,
+                "-o",
+                "json",
+                *approval_flag,
+                *model_flag,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -77,9 +88,17 @@ class GeminiCLIAdapter(BaseAdapter):
                 output_tokens = len(text) // 4
 
             if proc.returncode != 0 and not text:
-                text = f"Gemini CLI error (rc={proc.returncode}): {stderr.decode('utf-8', errors='replace')[:500]}"
+                # Surface a genuine failure as an error rather than returning the
+                # stderr as if it were the model's answer — otherwise council /
+                # fusion treat the failure as a successful response.
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Gemini CLI error (rc={proc.returncode}): {stderr.decode('utf-8', errors='replace')[:300]}",
+                )
         except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail="Gemini CLI timed out after 180s")
+            raise HTTPException(
+                status_code=504, detail="Gemini CLI timed out after 180s"
+            )
         except FileNotFoundError:
             raise HTTPException(
                 status_code=500,
@@ -87,8 +106,10 @@ class GeminiCLIAdapter(BaseAdapter):
             )
 
         return make_anthropic_response(
-            text=text, model=model_alias,
-            input_tokens=input_tokens, output_tokens=output_tokens,
+            text=text,
+            model=model_alias,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
     async def stream(self, body: dict, model: str, model_alias: str):

@@ -8,16 +8,15 @@ import pytest
 
 from multillm.resilience import (
     calculate_backend_score,
-    CircuitBreaker,
     SCORE_HEALTH_WEIGHT,
     SCORE_LATENCY_WEIGHT,
     SCORE_ERROR_WEIGHT,
-    HEALTH_STATUS_SCORES,
     MAX_LATENCY_MS,
 )
 
 
 # ── Helper ──────────────────────────────────────────────────────────────────
+
 
 def _score(**overrides) -> dict:
     """Call calculate_backend_score with sane defaults, overridden by kwargs."""
@@ -40,9 +39,15 @@ class TestScoreStructure:
     def test_returns_dict_with_required_keys(self):
         result = _score()
         for key in (
-            "score", "health_score", "latency_score", "error_score",
-            "health_status", "breaker_state", "half_open_penalty",
-            "eliminated", "elimination_reason",
+            "score",
+            "health_score",
+            "latency_score",
+            "error_score",
+            "health_status",
+            "breaker_state",
+            "half_open_penalty",
+            "eliminated",
+            "elimination_reason",
         ):
             assert key in result, f"Missing key: {key}"
 
@@ -239,6 +244,7 @@ class TestWeightedRandomSelect:
     @pytest.fixture(autouse=True)
     def import_select(self):
         from multillm.gateway import _weighted_random_select, _SCORE_MIN_VIABLE
+
         self._select = _weighted_random_select
         self._min = _SCORE_MIN_VIABLE
 
@@ -251,7 +257,9 @@ class TestWeightedRandomSelect:
 
     def test_single_candidate_returned(self):
         cands = self._make_candidates([0.8])
-        alias, route, info = self._select(cands, "backend_0/model", {"backend": "backend_0"})
+        alias, route, info = self._select(
+            cands, "backend_0/model", {"backend": "backend_0"}
+        )
         assert info["score"] == 0.8
 
     def test_filters_below_min_viable(self):
