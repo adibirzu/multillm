@@ -115,6 +115,7 @@ from .langfuse_integration import (
     init_langfuse,
     shutdown_langfuse,
     trace_llm_generation,
+    trace_fusion_run,
     get_langfuse_status,
 )
 from .llm_observability import build_llm_observability_summary
@@ -2260,7 +2261,9 @@ def _cache_enabled() -> tuple[bool, float]:
     from .memory import get_setting
 
     enabled = bool(get_setting("council_fusion_cache_enabled", True))
-    ttl = float(get_setting("council_fusion_cache_ttl", result_cache.DEFAULT_TTL_SECONDS))
+    ttl = float(
+        get_setting("council_fusion_cache_ttl", result_cache.DEFAULT_TTL_SECONDS)
+    )
     return enabled, ttl
 
 
@@ -2289,6 +2292,17 @@ async def _run_fusion(body: dict) -> dict:
         query_fn=_fusion_query_fn,
         max_tokens=max_tokens,
         temperature=temperature,
+    )
+    # Langfuse: one parent span per fusion run with child generations (panel + judge).
+    trace_fusion_run(
+        kind="fusion",
+        prompt=prompt,
+        panel_results=result.get("panel", []),
+        judge=result.get("judge"),
+        analysis=result.get("analysis", ""),
+        final_answer=result.get("finalAnswer", ""),
+        status=result.get("status", ""),
+        project=PROJECT,
     )
     # Only cache real syntheses, not degraded/no-panel outcomes.
     if enabled and result.get("status") in ("fused", "single"):
