@@ -503,6 +503,42 @@ def get_session_detail(session_id: str) -> dict:
     return result
 
 
+def get_model_routing_stats(hours: int = 168, project: Optional[str] = None) -> dict:
+    """Per-model performance from the usage log, for the query router.
+
+    Returns ``{model_alias: {backend, requests, avgLatencyMs, avgCostUSD,
+    errorRate}}`` over the window — the historical signal the router uses to
+    learn which model performs well (FusionFactory query-level fusion idea).
+    """
+    since = time.time() - (hours * 3600)
+    with _get_db() as conn:
+        where_clause = "timestamp > ?"
+        params: list = [since]
+        if project:
+            where_clause += " AND project = ?"
+            params.append(project)
+        rows = conn.execute(
+            """SELECT model_alias, backend,
+                      COUNT(*) as requests,
+                      AVG(latency_ms) as avg_latency_ms,
+                      AVG(cost_estimate_usd) as avg_cost_usd,
+                      SUM(CASE WHEN status LIKE '%error%' THEN 1 ELSE 0 END) * 1.0 / COUNT(*) as error_rate
+               FROM usage WHERE """ + where_clause + """
+               GROUP BY model_alias, backend""",
+            params,
+        ).fetchall()
+    out: dict = {}
+    for r in rows:
+        out[r["model_alias"]] = {
+            "backend": r["backend"],
+            "requests": r["requests"],
+            "avgLatencyMs": round(r["avg_latency_ms"] or 0, 1),
+            "avgCostUSD": round(r["avg_cost_usd"] or 0, 6),
+            "errorRate": round(r["error_rate"] or 0, 3),
+        }
+    return out
+
+
 def get_dashboard_stats(hours: int = 720, project: Optional[str] = None) -> dict:
     """Get aggregated stats for the dashboard (default: last 30 days)."""
     since = time.time() - (hours * 3600)

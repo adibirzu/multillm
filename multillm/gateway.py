@@ -75,7 +75,7 @@ from .tracking import (
     record_usage, get_usage_summary, get_project_summary,
     get_sessions, get_session_detail, get_dashboard_stats, get_active_sessions,
     init_otel, trace_llm_call, finalize_llm_span, record_otel_metrics,
-    get_recent_backend_latency, _estimate_cost,
+    get_recent_backend_latency, _estimate_cost, get_model_routing_stats, COST_TABLE,
 )
 from .langfuse_integration import (
     init_langfuse, shutdown_langfuse, trace_llm_generation, get_langfuse_status,
@@ -104,6 +104,7 @@ from . import failover
 from . import budgets
 from . import fusion
 from . import complexity
+from . import router as query_router
 from .stats_cache import ttl_cache
 
 # Default fusion panel/judge — free/authenticated backends. Unavailable members
@@ -641,8 +642,10 @@ async def messages(request: Request):
             finally:
                 if client_id:
                     release_concurrent(client_id)
-        # Easy prompt → route to a single capable model and continue normally.
-        requested_alias = get_setting("fusion_judge", _DEFAULT_FUSION_JUDGE)
+        # Easy prompt → let the log-driven router pick the best single model
+        # (historical performance + health + cost), then continue normally.
+        decision = _route_decision(extract_text_from_anthropic(body))
+        requested_alias = decision.get("model") or get_setting("fusion_judge", _DEFAULT_FUSION_JUDGE)
         body = {**body, "model": requested_alias}
 
     effective_alias, route = _select_route(requested_alias)
@@ -2030,6 +2033,53 @@ async def trigger_health_check():
     """Force an immediate health check of all backends."""
     await check_all_backends()
     return {"status": "ok", "backends": all_health_status()}
+
+
+def _routing_pool() -> list[str]:
+    """The candidate models the router chooses among (configurable)."""
+    from .memory import get_setting
+    return get_setting("routing_pool", None) or get_setting("fusion_panel", _DEFAULT_FUSION_PANEL)
+
+
+def _route_decision(prompt: str, *, bias: Optional[float] = None, project: Optional[str] = None) -> dict:
+    """Run the log-driven router for a prompt and return its decision."""
+    from .memory import get_setting
+
+    if bias is None:
+        bias = float(get_setting("routing_quality_bias", 0.5))
+    pool = _routing_pool()
+    stats = get_model_routing_stats(hours=168, project=project)
+    comp = complexity.estimate_complexity(prompt)
+
+    def health_fn(backend: str) -> float:
+        try:
+            return float(score_backend(backend).get("score", 0.5))
+        except Exception:
+            return 0.5
+
+    def cost_fn(alias: str) -> float:
+        backend = (ROUTES.get(alias, {}) or {}).get("backend", "")
+        return float((COST_TABLE.get(backend, {}) or {}).get("input", 0.0))
+
+    decision = query_router.choose_model(
+        prompt_complexity=comp["score"], pool=pool, stats=stats,
+        health_fn=health_fn, cost_fn=cost_fn, bias=float(bias), routes=ROUTES,
+    )
+    decision["complexityReasons"] = comp["reasons"]
+    return decision
+
+
+@app.get("/api/routing/decision")
+async def routing_decision_api(prompt: str, bias: Optional[float] = None, project: Optional[str] = None):
+    """Show which model the log-driven router would pick for ``prompt``.
+
+    Blends historical performance (from usage logs), live health, latency, and
+    cost, tuned by ``bias`` (0=cheapest/fastest … 1=highest quality). Read-only —
+    does not send the prompt anywhere.
+    """
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Missing 'prompt'")
+    return _route_decision(prompt, bias=bias, project=project)
 
 
 @app.get("/api/routing/scores")

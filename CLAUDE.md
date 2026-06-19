@@ -169,6 +169,7 @@ curl -X DELETE http://localhost:8080/api/memory/{id}
 - `GET /api/cost/forecast?hours=168&project=name` — Burn-rate (gateway live + per-source window avg), projected spend per day/week/month, and quota-exhaustion ETA per usage limit. Reuses the cached bundle (no extra scan).
 - `POST /api/cost/estimate` — Pre-flight prompt pricing across candidate model aliases. Body: `{"prompt":"...","models":["openai/gpt-4o",...],"expected_output_tokens":500}`. Returns estimates sorted cheapest-first (tiktoken `cl100k_base`), flags free local models.
 - `POST /api/council` — Query several models in parallel, cost-aware. Body: `{"prompt":"...","models":[...],"max_tokens":2048,"temperature":0.7}`. Returns a pre-flight cheapest-first cost estimate, each model's response with its **actual** token cost, and combined totals. One model failing does not sink the rest. Backs the `/llm-council` command.
+- `GET /api/routing/decision?prompt=...&bias=...` — Log-driven router's pick for a prompt (chosen model + per-candidate reliability/health/speed/cost breakdown). Read-only.
 - `POST /api/fusion` — Thought-level **fusion**: panel → judge → synthesis. Body: `{"prompt":"...","fusion_panel":[...],"fusion_judge":"...","max_tokens":1024}`. Dispatches the panel in parallel, then one judge call produces a structured analysis (consensus / contradictions / partial coverage / unique insights / blind spots) and a grounded final answer. Returns the full result (panel + analysis + answer + cost). Degrades gracefully: 1 panel success → returns it; judge failure → best panel answer.
 - `GET /api/budgets` — Budget status: caps, gateway-metered spend (rolling 24h/30d), %used, alert states (`ok|warn|exceeded`), enforcement flag.
 - `PUT /api/budgets` — Set budget config. Body: `{"enabled":true,"daily_usd":10,"monthly_usd":200,"alert_thresholds":[0.8,1.0],"per_project":{"name":{"daily_usd":5}}}`. When `enabled`, an exceeded global/project cap blocks new **cloud** requests with HTTP 402 (local backends are free, never blocked).
@@ -234,6 +235,22 @@ models into one answer that beats any single model.
 - **Settings**: `fusion_panel` (list), `fusion_judge` (alias), `fusion_auto_threshold`.
   Default panel is free/authenticated backends; unavailable members degrade
   gracefully.
+
+## Log-Driven Query Routing (`router.py`)
+
+The "routing between LLMs" brain — learns from the gateway's own usage logs which
+model performs best, the FusionFactory query-level fusion idea.
+
+- **`auto` model slug**: hard prompts (complexity ≥ `fusion_auto_threshold`) escalate
+  to fusion; easy prompts go to `router.choose_model()`, which picks the single best
+  model from the `routing_pool` (defaults to `fusion_panel`).
+- **Signals** (per candidate): reliability (`1 - errorRate` from logs), live health
+  (`score_backend`), speed (inverse avg latency), cost (inverse avg $). Blended as
+  `bias·quality + (1-bias)·efficiency`; prompt complexity nudges the effective bias
+  toward quality. `tracking.get_model_routing_stats()` supplies the per-model history.
+- **Knob**: `routing_quality_bias` setting (0 = cheapest/fastest … 1 = highest quality).
+- **Inspect**: `GET /api/routing/decision?prompt=...&bias=...` returns the choice +
+  per-candidate breakdown (read-only; sends the prompt nowhere).
 
 ## Telemetry (Langfuse + OCI APM)
 
