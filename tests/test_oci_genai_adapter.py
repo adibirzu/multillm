@@ -93,7 +93,9 @@ def test_send_builds_detail_and_parses_response(monkeypatch):
             )
 
     monkeypatch.setattr(oci_genai, "_ensure_client", lambda: _FakeClient())
-    monkeypatch.setattr(oci_genai, "_compartment", "ocid1.tenancy.test")
+    # Fake compartment id that does NOT match the real OCID pattern (so secret
+    # scanners don't flag this test fixture as a leaked OCID).
+    monkeypatch.setattr(oci_genai, "_compartment", "test-compartment-id")
 
     adapter = oci_genai.OCIGenAIAdapter()
     result = asyncio.run(
