@@ -174,7 +174,7 @@ from .health import (
 # gemini-cli backend (which depends on a separately-authenticated CLI tier).
 # Unavailable members degrade gracefully; override via the fusion_panel /
 # fusion_judge settings.
-_DEFAULT_FUSION_PANEL = ["codex/gpt-5-4", "oci/llama-3.3-70b", "oci/gemini-2.5-pro"]
+_DEFAULT_FUSION_PANEL = ["codex/gpt-5-4", "oci/llama-3.3-70b", "antigravity/flash"]
 _DEFAULT_FUSION_JUDGE = "oci/llama-3.3-70b"
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -356,7 +356,7 @@ CLOUD_BACKENDS = {
     "oci_genai",
 }
 # Backends that work offline
-LOCAL_BACKENDS = {"ollama", "lmstudio", "codex_cli", "gemini_cli"}
+LOCAL_BACKENDS = {"ollama", "lmstudio", "codex_cli", "gemini_cli", "antigravity"}
 
 # Errors that should trigger fallback to local
 FALLBACK_ERRORS = (
@@ -658,7 +658,7 @@ async def _dispatch_with_resilience(
     adapter = get_adapter(backend)
     if adapter is None:
         raise HTTPException(status_code=500, detail=f"Unknown backend: {backend}")
-    if backend in ("codex_cli", "gemini_cli"):
+    if backend in ("codex_cli", "gemini_cli", "antigravity"):
         return await adapter.send(body, model, model_alias)
     return await with_retry(
         lambda: adapter.send(body, model, model_alias),
@@ -1254,6 +1254,18 @@ async def health():
         backends["gemini_cli"] = "available" if stdout.strip() else "not found"
     except Exception:
         backends["gemini_cli"] = "not found"
+
+    # Antigravity CLI (agy)
+    try:
+        from .cli_tools import resolve_cli_binary
+
+        backends["antigravity"] = (
+            "available"
+            if resolve_cli_binary("agy", env_var="ANTIGRAVITY_CLI_PATH")
+            else "not found"
+        )
+    except Exception:
+        backends["antigravity"] = "not found"
 
     return {
         "status": "ok",

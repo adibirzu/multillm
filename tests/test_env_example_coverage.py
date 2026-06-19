@@ -53,10 +53,14 @@ KNOWN_OPTIONAL_EXTRAS: frozenset[str] = frozenset(
 )
 
 # Operator-facing aliases read indirectly via the ``_first_env`` helper in
-# ``multillm/config.py``. They are documented in ``.env.example`` and are
-# real env vars the code consults, but the AST walker cannot see them as
-# direct ``os.getenv`` literals.
-KNOWN_INDIRECT_LOOKUPS: frozenset[str] = frozenset()
+# ``multillm/config.py`` or custom resolvers like ``resolve_cli_binary``. They
+# are documented in ``.env.example`` and are real env vars the code consults,
+# but the AST walker cannot see them as direct ``os.getenv`` literals.
+KNOWN_INDIRECT_LOOKUPS: frozenset[str] = frozenset(
+    {
+        "ANTIGRAVITY_CLI_PATH",
+    }
+)
 
 _ENV_LINE_RE = re.compile(r"^([A-Z][A-Z0-9_]+)=")
 

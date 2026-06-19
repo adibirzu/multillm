@@ -74,6 +74,7 @@ multillm-doctor = "multillm.doctor:main"
 # and the registry picks them up automatically.
 [project.entry-points."multillm.backends"]
 anthropic    = "multillm.adapters.anthropic:AnthropicAdapter"
+antigravity  = "multillm.adapters.antigravity:AntigravityAdapter"
 azure_openai = "multillm.adapters.azure_openai:AzureOpenAIAdapter"
 bedrock      = "multillm.adapters.bedrock:BedrockAdapter"
 codex_cli    = "multillm.adapters.codex_cli:CodexCLIAdapter"
