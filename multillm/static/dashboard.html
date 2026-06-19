@@ -699,7 +699,10 @@
         </label>
         <button id="routeGo" type="button"
           style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 18px;font:inherit;font-weight:600;cursor:pointer">Route</button>
+        <button id="routeSaveBias" type="button" title="Make this bias the default the 'auto' model uses"
+          style="background:transparent;color:var(--text-dim);border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:9px 14px;font:inherit;font-size:12px;cursor:pointer">Set as default</button>
       </div>
+      <div id="routeSaveMsg" style="font-size:11px;color:var(--text-dim);margin-top:6px"></div>
       <div id="routeResult" style="margin-top:12px"></div>
     </div>
   </div>
@@ -1815,6 +1818,24 @@ function wireRouting() {
   if (slider && val) slider.addEventListener('input', () => { val.textContent = slider.value; });
   btn.addEventListener('click', runRouting);
   document.getElementById('routePrompt').addEventListener('keydown', e => { if (e.key === 'Enter') runRouting(); });
+  const saveBtn = document.getElementById('routeSaveBias');
+  if (saveBtn) saveBtn.addEventListener('click', saveRoutingBias);
+}
+
+// Persist the slider's bias as the default routing_quality_bias the `auto`
+// model uses to pick a single model. The router itself keeps learning from the
+// usage logs (per-model reliability/latency/cost) on every request.
+async function saveRoutingBias() {
+  const msg = document.getElementById('routeSaveMsg');
+  const bias = parseFloat(document.getElementById('routeBias').value);
+  try {
+    await fetchJSON(`${API}/settings`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({routing_quality_bias: bias})});
+    msg.textContent = `Default routing bias saved: ${bias} (0 = cheap/fast, 1 = best quality). 'auto' now uses this.`;
+    msg.style.color = 'var(--accent2)';
+  } catch (e) {
+    msg.textContent = `Save failed: ${e.message || e}`;
+    msg.style.color = 'var(--accent4)';
+  }
 }
 
 async function runRouting() {
