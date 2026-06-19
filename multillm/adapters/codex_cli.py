@@ -98,7 +98,7 @@ def _resolve_codex_exec_target(selector: str) -> tuple[list[str], str]:
             return ["-p", profile_name], model_name or normalized_model or target
 
     fallback_model = (
-        normalized_model or target or os.getenv("CODEX_DEFAULT_MODEL", "gpt-5.4")
+        normalized_model or target or os.getenv("CODEX_DEFAULT_MODEL", "gpt-5.5")
     )
     return ["-m", fallback_model], fallback_model
 

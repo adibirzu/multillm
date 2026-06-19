@@ -46,7 +46,7 @@ curl -s http://localhost:8080/v1/messages -d '{"model":"auto","messages":[{"role
 ```
 
 ### Current config (this machine)
-- **Panel**: `codex/gpt-5-4`, `oci/llama-3.3-70b`, `antigravity/flash` (three reliable, diverse families)
+- **Panel**: `codex/gpt-5-5`, `oci/llama-3.3-70b`, `antigravity/flash` (three reliable, diverse families)
 - **Judge**: `oci/llama-3.3-70b`
 - **`auto` threshold**: 0.6 complexity
 - Tune via settings: `fusion_panel`, `fusion_judge`, `fusion_auto_threshold`, `routing_pool`, `routing_quality_bias`.

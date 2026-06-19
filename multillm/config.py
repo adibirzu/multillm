@@ -244,6 +244,7 @@ DEFAULT_ROUTES: dict[str, dict] = {
     # (use the codex/* routes for GPT-5.x).
     # Codex CLI (subprocess, profile-based via ~/.codex/config.toml)
     "codex/cli": {"backend": "codex_cli", "model": "codex:"},
+    "codex/gpt-5-5": {"backend": "codex_cli", "model": "codex:gpt-5-5"},
     "codex/gpt-5-4": {"backend": "codex_cli", "model": "codex:gpt-5-4"},
     "codex/gpt-5-codex": {"backend": "codex_cli", "model": "codex:gpt-5-codex"},
     "codex/gpt-5-2-codex": {"backend": "codex_cli", "model": "codex:gpt-5-2-codex"},
