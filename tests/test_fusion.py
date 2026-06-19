@@ -154,3 +154,47 @@ def test_fusion_drops_recursive_panel_members():
     )
     assert out["status"] == "no_panel"  # nothing left to query
     assert qf.calls == []
+
+
+def test_split_strips_analysis_block_when_marker_missing():
+    text = (
+        "## Brief Structured Analysis\n"
+        "- Consensus: both agree gRPC is faster\n"
+        "- Contradictions: none\n"
+        "- Blind spots: none\n"
+        "gRPC is the better choice when low latency matters."
+    )
+    analysis, answer = fusion.split_judge_output(text)
+    assert answer == "gRPC is the better choice when low latency matters."
+    assert "Consensus" in analysis
+
+
+def test_split_returns_whole_when_no_analysis_and_no_marker():
+    analysis, answer = fusion.split_judge_output("just a plain answer")
+    assert answer == "just a plain answer"
+
+
+def test_judge_receives_token_floor():
+    captured = {}
+
+    async def query_fn(alias, prompt, max_tokens, temperature):
+        captured.setdefault(alias, []).append(max_tokens)
+        marker = fusion.FINAL_ANSWER_MARKER
+        if alias == "judge/m":
+            return _result(alias, f"Consensus: x\n{marker}\nFinal.")
+        return _result(alias, f"answer from {alias}")
+
+    asyncio.run(
+        fusion.run_fusion(
+            prompt="Q?",
+            panel=["a/m", "b/m"],
+            judge="judge/m",
+            query_fn=query_fn,
+            max_tokens=50,
+        )
+    )
+    # A small request budget (50) is lifted to the generous floors for both the
+    # panel and the judge, so fusion is never starved.
+    assert captured["a/m"][0] >= fusion.PANEL_TOKEN_FLOOR
+    assert captured["judge/m"][0] >= fusion.JUDGE_TOKEN_FLOOR
+    assert fusion.JUDGE_TOKEN_FLOOR >= fusion.PANEL_TOKEN_FLOOR

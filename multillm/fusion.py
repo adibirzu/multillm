@@ -25,6 +25,14 @@ from typing import Optional
 # Marker the judge emits to separate its analysis from the user-facing answer.
 FINAL_ANSWER_MARKER = "===FINAL ANSWER==="
 
+# Fusion deliberately runs with a generous token budget so neither the panel
+# nor the judge is starved — the whole point is the best possible answer, not a
+# cheap one. Each call gets at least these many tokens (more if the request asks
+# for more). The judge needs the most room: it writes the comparative analysis
+# AND a thorough final answer in one call.
+PANEL_TOKEN_FLOOR = 4096
+JUDGE_TOKEN_FLOOR = 8192
+
 # Aliases that must never appear in a panel/judge — they would recurse into
 # fusion. OpenRouter blocks recursive fusion for the same reason.
 _RECURSIVE_ALIASES = {"fusion", "auto"}
@@ -64,34 +72,70 @@ def build_judge_prompt(user_prompt: str, panel: list[dict]) -> str:
     responses = "\n\n".join(blocks)
     return (
         "You are the judge of a multi-model panel. Several models independently "
-        "answered the user's question. Your job is to fuse them into one answer "
-        "that is more accurate and complete than any single response.\n\n"
+        "answered the user's question. Fuse them into one answer that is more "
+        "accurate and complete than any single response.\n\n"
         f"USER QUESTION:\n{user_prompt.strip()}\n\n"
         f"PANEL RESPONSES:\n{responses}\n\n"
-        "First, write a brief structured analysis with these sections:\n"
-        "- Consensus: points most responses agree on (higher confidence)\n"
-        "- Contradictions: direct disagreements between responses\n"
-        "- Partial coverage: important points only some responses made\n"
-        "- Unique insights: valuable points from a single response\n"
-        "- Blind spots: gaps the whole panel missed, if any\n\n"
-        f"Then write a line containing exactly {FINAL_ANSWER_MARKER} and, below it, "
-        "the single best answer to the user's question — grounded in your analysis, "
-        "resolving contradictions, and incorporating the strongest points. Address "
-        "the user directly; do not mention the panel or the analysis in the final answer."
+        "Output format — follow it EXACTLY:\n"
+        "1. A structured analysis: Consensus, Contradictions, Partial coverage, "
+        "Unique insights, Blind spots (write 'none' where empty).\n"
+        f"2. Then a line containing exactly {FINAL_ANSWER_MARKER}\n"
+        "3. Then the single best, most complete and accurate answer to the user's "
+        "question — grounded in the analysis, resolving contradictions, and "
+        "incorporating the strongest points from every response. Be as thorough "
+        "as the question warrants; do not artificially shorten it. Address the "
+        "user directly; do NOT mention the panel or the analysis.\n\n"
+        f"The {FINAL_ANSWER_MARKER} line and the answer below it are MANDATORY — "
+        "always reach them; never end on the analysis."
     )
+
+
+# Analysis section labels a judge emits when it ignores the marker. Used to
+# strip a leading analysis block as a fallback so the user sees a clean answer.
+_ANALYSIS_LABELS = (
+    "consensus",
+    "contradictions",
+    "partial coverage",
+    "unique insights",
+    "blind spots",
+    "structured analysis",
+)
+
+
+def _looks_like_analysis_line(line: str) -> bool:
+    s = line.strip().lstrip("#-*0123456789. ").lower()
+    return any(s.startswith(label) for label in _ANALYSIS_LABELS)
 
 
 def split_judge_output(text: str) -> tuple[str, str]:
     """Return (analysis, final_answer) from the judge output.
 
-    Falls back to (full text, full text) when the marker is absent so a judge
-    that ignored the format still yields a usable answer.
+    Primary path: split on the explicit marker. Fallback (judge ignored the
+    marker): strip a leading analysis block — drop the contiguous run of lines
+    starting with a known analysis label (and the lines under them) and treat
+    the remainder as the answer. If that leaves nothing, return the full text so
+    the caller still gets a usable response.
     """
     if FINAL_ANSWER_MARKER in text:
         analysis, _, answer = text.partition(FINAL_ANSWER_MARKER)
         answer = answer.strip()
         if answer:
             return analysis.strip(), answer
+
+    lines = text.strip().splitlines()
+    # The answer is whatever follows the LAST analysis-label line (the labels are
+    # written inline, e.g. "- Consensus: ..."). Only applies if we saw a label.
+    last_label_idx = -1
+    for i, line in enumerate(lines):
+        if _looks_like_analysis_line(line):
+            last_label_idx = i
+
+    if last_label_idx >= 0:
+        answer = "\n".join(lines[last_label_idx + 1 :]).strip()
+        analysis = "\n".join(lines[: last_label_idx + 1]).strip()
+        if answer:
+            return analysis, answer
+
     return text.strip(), text.strip()
 
 
@@ -126,9 +170,12 @@ async def run_fusion(
             "totals": {"costUSD": 0.0, "panelSucceeded": 0},
         }
 
+    # Give the panel a generous budget (at least the floor) so each member can
+    # give a full answer to fuse from.
+    panel_max_tokens = max(max_tokens, PANEL_TOKEN_FLOOR)
     panel_results = list(
         await asyncio.gather(
-            *[query_fn(m, prompt, max_tokens, temperature) for m in panel]
+            *[query_fn(m, prompt, panel_max_tokens, temperature) for m in panel]
         )
     )
     succeeded = [
@@ -156,9 +203,12 @@ async def run_fusion(
             "totals": {"costUSD": _sum_cost(*panel_results), "panelSucceeded": 1},
         }
 
-    # Judge: one call → structured analysis + grounded final answer.
+    # Judge: one call → structured analysis + grounded final answer. Give it a
+    # token floor so the analysis doesn't starve the final answer (a small
+    # request max_tokens would otherwise truncate before the answer is written).
     judge_prompt = build_judge_prompt(prompt, succeeded)
-    judge_result = await query_fn(judge, judge_prompt, max_tokens, temperature)
+    judge_max_tokens = max(max_tokens, JUDGE_TOKEN_FLOOR)
+    judge_result = await query_fn(judge, judge_prompt, judge_max_tokens, temperature)
 
     if judge_result.get("error") or not (judge_result.get("text") or "").strip():
         # Judge failed — fall back to the longest panel answer so the caller

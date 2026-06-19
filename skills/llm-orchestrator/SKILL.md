@@ -1,6 +1,6 @@
 ---
 name: llm-orchestrator
-description: Route work through the local MultiLLM gateway and decide when to ask other LLMs or helper agents for support. Use when Codex should leverage Claude, GPT, local models, or MultiLLM specialist agents for second opinions, architecture review, security review, context handoff, dashboard checks, or multi-device session consolidation.
+description: Route work through the local MultiLLM gateway and decide when to ask other LLMs or helper agents for support. Use the `fusion` model slug for one synthesized answer from a multi-model panel + judge (beats a single model), `auto` to fuse hard prompts and route easy ones, and `/api/council` / `/api/cost/estimate` / `/api/routing/decision` for cost-aware multi-model work. Use when Codex/Claude should leverage GPT, Gemini, OCI GenAI, Antigravity, or local models for second opinions, fusion, architecture review, security review, context handoff, dashboard checks, or multi-device session consolidation.
 ---
 
 # LLM Orchestrator
@@ -13,6 +13,50 @@ Use MultiLLM as the control plane for cross-model work instead of treating other
 2. If the user asks about usage, costs, sessions, or hourly trends, use the dashboard and usage commands first.
 3. If the user wants other models involved, prefer the MultiLLM MCP tools instead of manual copy/paste.
 4. If work must appear across multiple devices, assume a shared `MULTILLM_HOME` is the intended consolidation mechanism.
+
+## Fusion & Smart Routing (multi-model synthesis)
+
+The gateway can combine several models into **one** answer that beats any single
+model (thought-level fusion: panel → judge → synthesis), and can route each query
+to the best model from your own usage logs. Prefer these over hand-rolling a
+multi-model loop.
+
+### `fusion` — one synthesized answer from a panel + judge
+Treat `fusion` like any other model. The gateway dispatches the prompt to a
+panel in parallel, a judge analyzes the responses (consensus / contradictions /
+gaps / blind spots) and writes a single grounded answer.
+
+```bash
+curl -s http://localhost:8080/v1/messages -H 'Content-Type: application/json' -d '{
+  "model": "fusion",
+  "messages": [{"role":"user","content":"<a hard question worth multiple perspectives>"}],
+  "max_tokens": 1024
+}'
+```
+Use for research, architecture, tradeoff analysis, "what am I missing" questions.
+For the full panel + judge breakdown (not just the final answer), use
+`POST /api/fusion` with `{"prompt": "..."}`.
+
+### `auto` — fuse only when it's worth it
+`auto` scores prompt complexity: hard prompts escalate to `fusion`, easy ones go
+to the single best model (so you don't pay 2–3× latency for simple questions).
+
+```bash
+curl -s http://localhost:8080/v1/messages -d '{"model":"auto","messages":[{"role":"user","content":"..."}],"max_tokens":512}'
+```
+
+### Current config (this machine)
+- **Panel**: `codex/gpt-5-4`, `oci/llama-3.3-70b`, `antigravity/flash` (three reliable, diverse families)
+- **Judge**: `oci/llama-3.3-70b`
+- **`auto` threshold**: 0.6 complexity
+- Tune via settings: `fusion_panel`, `fusion_judge`, `fusion_auto_threshold`, `routing_pool`, `routing_quality_bias`.
+
+### Cost-aware before you spend
+- `POST /api/cost/estimate` `{"prompt":"...","models":[...]}` → projected $ per model, cheapest-first.
+- `GET /api/routing/decision?prompt=...&bias=0.5` → which single model the router would pick (0 = cheap/fast … 1 = best quality) and why.
+- `POST /api/council` `{"prompt":"...","models":[...]}` → every model's raw answer + actual cost + a pre-flight estimate (when you want to *see* the disagreement, not a synthesis).
+
+Identical repeat `fusion`/`council` requests are served from a result cache (no re-query).
 
 ## Auto-Detection: When to Invoke Agents
 
@@ -47,8 +91,13 @@ Use the narrowest tool that matches the task:
 | Need | Tool | Agent |
 |------|------|-------|
 | Direct question to another model | `llm_ask` | — |
+| **One best answer from many models (hard question)** | **`fusion` model slug** or `POST /api/fusion` | — |
+| **Let the gateway decide: fuse hard, route easy** | **`auto` model slug** | — |
+| Multiple raw opinions side-by-side, cost-aware | `POST /api/council` | arch-council |
+| Which single model is best for this prompt | `GET /api/routing/decision` | — |
+| Predict cost before spending | `POST /api/cost/estimate` | — |
 | Moderate-risk implementation | `llm_second_opinion` | work-orchestrator |
-| Architecture, migration, tradeoffs | `llm_council` | arch-council |
+| Architecture, migration, tradeoffs | `fusion` slug / `llm_council` | arch-council |
 | Code quality review | `llm_second_opinion` | code-reviewer |
 | Security-sensitive changes | `llm_second_opinion` | security-reviewer |
 | Complex task decomposition | `llm_council` | task-planner |
@@ -59,14 +108,24 @@ Use the narrowest tool that matches the task:
 
 ## Standard Operating Procedures
 
-### SOP: Architecture Decision
+### SOP: Architecture Decision (prefer fusion)
 ```
 1. State the question precisely
 2. Search shared memory for prior decisions on this topic
-3. Call llm_council with 3-4 models
-4. Synthesize consensus and diverging views
+3. Ask the `fusion` model (panel → judge does the synthesis for you), OR call
+   POST /api/fusion to also inspect the panel + analysis. Fall back to
+   llm_council when you specifically want the raw, un-synthesized opinions.
+4. Capture the synthesized recommendation + any unresolved contradictions
 5. Store the decision to shared memory
 6. Present recommendation with confidence level
+```
+
+### SOP: Hard Question / "What am I missing"
+```
+1. Send the question to the `fusion` model slug (or `auto` to auto-decide)
+2. The judge already reconciles consensus/contradictions/blind spots
+3. If cost matters, check POST /api/cost/estimate first, or use `auto`
+4. Store any non-obvious finding to shared memory
 ```
 
 ### SOP: Security Review
