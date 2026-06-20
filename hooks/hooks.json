@@ -1,14 +1,16 @@
 {
-  "SessionStart": [
-    {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "./hooks/start-gateway.sh",
-          "timeout": 15,
-          "statusMessage": "Starting MultiLLM gateway..."
-        }
-      ]
-    }
-  ]
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/start-gateway.sh",
+            "timeout": 15,
+            "statusMessage": "Starting MultiLLM gateway..."
+          }
+        ]
+      }
+    ]
+  }
 }

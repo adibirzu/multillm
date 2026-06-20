@@ -1,42 +1,12 @@
 {
     "name": "multillm",
     "version": "0.8.0",
-    "description": "Route Claude Code to 18 LLM backends (local, cloud, OCI GenAI, CLI agents) through one gateway. Cost prediction, budgets, quota-aware failover, model fusion (panel+judge), log-driven routing, council/2nd-opinion, shared memory, and a real-time dashboard — all local, tenancy-agnostic. Bring your own keys/env.",
+    "description": "Route Claude Code to 18 LLM backends (local, cloud, OCI GenAI, CLI agents) through one gateway. Cost prediction, budgets, quota-aware failover, model fusion (panel+judge), log-driven routing, council/2nd-opinion, shared memory, and a real-time dashboard \u2014 all local, tenancy-agnostic. Bring your own keys/env.",
     "author": {
         "name": "adibirzu"
     },
     "repository": "https://github.com/adibirzu/multillm",
     "license": "MIT",
-    "hooks": {
-        "SessionStart": [
-            {
-                "type": "command",
-                "command": "./hooks/start-gateway.sh",
-                "timeout": 15,
-                "statusMessage": "Starting MultiLLM gateway..."
-            }
-        ]
-    },
-    "commands": [
-        "commands/llm-ask.md",
-        "commands/llm-council.md",
-        "commands/llm-discover.md",
-        "commands/llm-doctor.md",
-        "commands/llm-memory.md",
-        "commands/llm-review.md",
-        "commands/llm-settings.md",
-        "commands/llm-status.md",
-        "commands/llm-usage.md"
-    ],
-    "skills": [
-        "skills/llm-dashboard"
-    ],
-    "agents": [
-        "agents/arch-council.md",
-        "agents/cross-llm.md",
-        "agents/local-summarizer.md",
-        "agents/security-reviewer.md"
-    ],
     "keywords": [
         "multillm",
         "llm-gateway",
