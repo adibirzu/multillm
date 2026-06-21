@@ -137,7 +137,7 @@ Run all three checks before announcing the release.
 
 ```bash
 # Download and inspect the artifacts:
-pip download multillm==1.0.0rc1 --no-deps -d /tmp/multillm-verify
+pip download multillm==1.0.0rc2 --no-deps -d /tmp/multillm-verify
 ls /tmp/multillm-verify
 
 # List PEP 740 Sigstore attestations attached to the artifact:

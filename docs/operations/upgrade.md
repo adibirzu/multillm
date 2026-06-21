@@ -105,7 +105,7 @@ cp backups/pre-upgrade-2026-05-17-1432.db multillm.db
 
 # 3. Pin to the old version
 # Compose: edit docker-compose.yml `image:` to the old tag
-# Bare-metal: pipx install 'multillm==1.0.0rc1'
+# Bare-metal: pipx install 'multillm==1.0.0rc2'
 # K8s: kubectl set image ... ghcr.io/${OWNER}/multillm:v1.0.0-rc.1
 
 # 4. Restart and verify (same step 5 as above)
