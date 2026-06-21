@@ -332,7 +332,7 @@ result_cache, oci_genai, and the antigravity adapter.
 ## Development Notes
 
 - Gateway uses **inline routing functions** in `gateway.py`, not the adapter registry — both must be kept in sync
-- Cost tracking for all 15 backends is in `COST_TABLE` in `tracking.py`
+- Cost tracking for all 18 backends is in `COST_TABLE` in `tracking.py`
 - Local backends (ollama, lmstudio, codex_cli, gemini_cli) are $0 cost
 - Circuit breaker: 5 failures → open, 60s recovery → half-open probe
 - `CancelledError` is NOT counted as a backend failure (important for half-open probes)
