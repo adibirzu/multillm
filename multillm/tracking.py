@@ -62,6 +62,7 @@ DB_PATH = DATA_DIR / "usage.db"
 COST_TABLE = {
     "ollama": {"input": 0.0, "output": 0.0},
     "lmstudio": {"input": 0.0, "output": 0.0},
+    "claude_cli": {"input": 0.0, "output": 0.0},
     "codex_cli": {"input": 0.0, "output": 0.0},
     "gemini_cli": {"input": 0.0, "output": 0.0},
     "antigravity": {"input": 0.0, "output": 0.0},
@@ -968,6 +969,8 @@ def trace_llm_call(model_alias: str, backend: str, project: str):
             "lmstudio": "lmstudio",
             "codex_cli": "openai",
             "gemini_cli": "google",
+            "claude_cli": "anthropic",
+            "antigravity": "google",
         }
         with _tracer.start_as_current_span(
             "gen_ai.chat",

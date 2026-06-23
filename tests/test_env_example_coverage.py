@@ -59,6 +59,7 @@ KNOWN_OPTIONAL_EXTRAS: frozenset[str] = frozenset(
 KNOWN_INDIRECT_LOOKUPS: frozenset[str] = frozenset(
     {
         "ANTIGRAVITY_CLI_PATH",
+        "CLAUDE_CLI_PATH",
     }
 )
 

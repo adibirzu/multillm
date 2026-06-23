@@ -358,7 +358,14 @@ CLOUD_BACKENDS = {
     "oci_genai",
 }
 # Backends that work offline
-LOCAL_BACKENDS = {"ollama", "lmstudio", "codex_cli", "gemini_cli", "antigravity"}
+LOCAL_BACKENDS = {
+    "ollama",
+    "lmstudio",
+    "codex_cli",
+    "gemini_cli",
+    "antigravity",
+    "claude_cli",
+}
 
 # Errors that should trigger fallback to local
 FALLBACK_ERRORS = (
@@ -660,7 +667,7 @@ async def _dispatch_with_resilience(
     adapter = get_adapter(backend)
     if adapter is None:
         raise HTTPException(status_code=500, detail=f"Unknown backend: {backend}")
-    if backend in ("codex_cli", "gemini_cli", "antigravity"):
+    if backend in ("codex_cli", "gemini_cli", "antigravity", "claude_cli"):
         return await adapter.send(body, model, model_alias)
     return await with_retry(
         lambda: adapter.send(body, model, model_alias),
@@ -1611,6 +1618,13 @@ async def backends_api(refresh: bool = False):
                 for m in models
             ],
         }
+
+    # Merge in the local CLI-agent backends (claude / codex / gemini / agy). These
+    # are subprocess tools, not HTTP endpoints, so discover_all_models() never
+    # probes them — detection is a cheap PATH lookup done here on each call.
+    from .cli_discovery import discover_cli_agents
+
+    summary.update(discover_cli_agents(ROUTES))
     return {"backends": summary, "total_routes": len(ROUTES)}
 
 
