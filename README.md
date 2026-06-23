@@ -1,6 +1,6 @@
 # MultiLLM Gateway
 
-> Open-source multi-tenant LLM gateway. Route one API to 18 backends, predict and cap costs, fail over when you run out of tokens, fuse models into one best answer, ship `docker compose up`, own your data.
+> Open-source multi-tenant LLM gateway. Route one API to 19 backends, predict and cap costs, fail over when you run out of tokens, fuse models into one best answer, ship `docker compose up`, own your data.
 
 [![CI](https://github.com/adibirzu/multillm/actions/workflows/ci.yml/badge.svg)](https://github.com/adibirzu/multillm/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/multillm.svg)](https://pypi.org/project/multillm/)
@@ -77,9 +77,9 @@ Claude Code / OpenAI SDK / curl
    └────────┬───────────┘
             │
    ┌────────┴────────────────────┐
-   │  18 backends                │
+   │  19 backends                │
    │  Ollama / LM Studio         │
-   │  Codex / Gemini / Antigravity (CLI agents) │
+   │  Claude / Codex / Gemini / Antigravity (CLI agents) │
    │  OpenAI / Anthropic / Gemini / Groq … │
    │  OCI Generative AI          │
    └─────────────────────────────┘
@@ -97,6 +97,7 @@ Data lives in `MULTILLM_HOME` (defaults to `~/.multillm/` or the compose-mounted
 | ------------- | ---------- | -------------- | --------- |
 | Ollama        | Local      | —              | ✓ (SSE)   |
 | LM Studio     | Local      | —              | ✓ (SSE)   |
+| Claude Code CLI (`claude`) | Local CLI | Local CLI (rides Claude Code login) | — (JSON) |
 | Codex CLI     | Local      | Local CLI      | ✓         |
 | Gemini CLI    | Local      | Local CLI      | ✓         |
 | Antigravity (`agy`) | Local CLI | Local CLI (Gemini 3.x / Claude 4.6 / GPT-OSS) | — (JSON) |

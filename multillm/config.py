@@ -242,6 +242,13 @@ DEFAULT_ROUTES: dict[str, dict] = {
     },
     # Note: GPT 5.5 is NOT available in Antigravity — it's a Codex model
     # (use the codex/* routes for GPT-5.x).
+    # Claude Code CLI (subprocess, `claude -p` print mode — rides the user's
+    # existing Claude Code login; runs isolated + non-interactive, so it answers
+    # rather than acts). Model field is "claude:<alias>" (sonnet/opus/haiku).
+    "claude-cli/default": {"backend": "claude_cli", "model": "claude:sonnet"},
+    "claude-cli/sonnet": {"backend": "claude_cli", "model": "claude:sonnet"},
+    "claude-cli/opus": {"backend": "claude_cli", "model": "claude:opus"},
+    "claude-cli/haiku": {"backend": "claude_cli", "model": "claude:haiku"},
     # Codex CLI (subprocess, profile-based via ~/.codex/config.toml)
     "codex/cli": {"backend": "codex_cli", "model": "codex:"},
     "codex/gpt-5-5": {"backend": "codex_cli", "model": "codex:gpt-5-5"},

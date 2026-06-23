@@ -3,4 +3,4 @@
 
 """MultiLLM — Multi-model LLM gateway, tracker, and orchestrator."""
 
-__version__ = "1.0.0rc2"
+__version__ = "1.0.0rc3"
