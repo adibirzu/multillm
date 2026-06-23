@@ -549,6 +549,41 @@ class TestObservabilityEndpoints:
         response = client.get("/api/dashboard-bundle?hours=-1")
         assert response.status_code == 422
 
+    @patch("multillm.gateway._compute_dashboard_bundle")
+    def test_usage_report_endpoint_builds_requested_kind(self, mock_bundle):
+        from multillm import bundle_cache
+
+        bundle_cache.cache_clear()
+        mock_bundle.return_value = {
+            "stats": {
+                "daily": [
+                    {
+                        "day": "2026-06-01",
+                        "requests": 2,
+                        "input_tokens": 100,
+                        "output_tokens": 50,
+                        "cost_usd": 0.1,
+                    }
+                ]
+            },
+            "sessions": [],
+            "claudeStats": {"dailyActivity": [], "dailyModelTokens": []},
+            "codexStats": {"daily": [], "sessions": []},
+            "geminiStats": {"daily": [], "sessions": []},
+            "unified": {"hours": 720, "project": "multillm"},
+        }
+
+        response = client.get(
+            "/api/usage-report?kind=monthly&hours=720&project=multillm"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["kind"] == "monthly"
+        assert data["rows"][0]["period"] == "2026-06"
+        assert data["rows"][0]["tokens"] == 150
+        mock_bundle.assert_called_once()
+
     @patch("multillm.gateway.get_gemini_stats")
     @patch("multillm.gateway.get_codex_stats")
     @patch("multillm.gateway.get_claude_code_stats")

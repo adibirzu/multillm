@@ -8,6 +8,23 @@ Fetch usage stats and sessions from the MultiLLM gateway API and present a clear
 Parse an optional window from the user's input. Supported examples: `1h`, `6h`, `12h`, `24h`, `72h`, `7d`, `30d`, `90d`, `1y`, `2y`, `5y`.
 Convert days/years to hours before calling the API. Default to `168` hours if nothing is specified.
 
+If the user asks for a specific report shape, call `/api/usage-report` first:
+- `daily`, `weekly`, `monthly` → calendar rollups across gateway, Claude Code, Codex CLI, and Gemini CLI
+- `session` → unified per-session report
+- `blocks` → Claude-style 5-hour activity windows
+
+Example:
+```bash
+curl -s 'http://localhost:8080/api/usage-report?kind=weekly&hours=HOURS' | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(f'=== MultiLLM {d.get(\"kind\", \"usage\").title()} Report (last {d.get(\"hours\", \"?\")}h) ===')
+for r in d.get('rows', []):
+    sources = ','.join(r.get('sources', []))
+    print(f'{r.get(\"period\", \"\"):12s} {sources[:30]:30s} {r.get(\"sessions\",0):4d} sessions {r.get(\"requests\",0):4d} reqs {r.get(\"tokens\",0):>12,} tok  \${r.get(\"actualCostUSD\",0):.4f}')
+"
+```
+
 Get bundled dashboard stats. This endpoint calculates gateway, Claude Code, Codex CLI, Gemini CLI, and unified costs in one server pass and returns timing metadata:
 ```bash
 curl -s 'http://localhost:8080/api/dashboard-bundle?hours=HOURS&session_limit=15&direct_session_limit=25' | python3 -c "

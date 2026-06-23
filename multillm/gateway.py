@@ -138,6 +138,7 @@ from .codex_stats import get_codex_stats
 from .gemini_stats import get_gemini_stats
 from . import bundle_cache
 from . import cost_forecast
+from .usage_reports import build_usage_report
 from . import failover
 from . import budgets
 from . import fusion
@@ -2034,6 +2035,36 @@ async def dashboard_bundle_api(
         )
 
     return await bundle_cache.get_bundle(key, _compute, force=refresh)
+
+
+@app.get("/api/usage-report")
+async def usage_report_api(
+    kind: str = Query("daily", pattern="^(daily|weekly|monthly|session|blocks)$"),
+    hours: int = Query(720, ge=1, le=43800),
+    project: Optional[str] = None,
+    session_limit: int = Query(100, ge=1, le=1000),
+    direct_session_limit: int = Query(250, ge=1, le=2000),
+    refresh: bool = False,
+):
+    """Calendar/session usage reports over gateway + direct CLI usage."""
+    key = bundle_cache.make_key(
+        hours=hours,
+        project=project,
+        session_limit=session_limit,
+        direct_session_limit=direct_session_limit,
+    )
+
+    async def _compute() -> dict:
+        return await asyncio.to_thread(
+            _compute_dashboard_bundle,
+            hours=hours,
+            project=project,
+            session_limit=session_limit,
+            direct_session_limit=direct_session_limit,
+        )
+
+    bundle = await bundle_cache.get_bundle(key, _compute, force=refresh)
+    return build_usage_report(bundle, kind=kind)
 
 
 async def _cached_unified(hours: int, project: Optional[str]) -> dict:

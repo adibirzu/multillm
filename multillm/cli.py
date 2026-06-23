@@ -21,7 +21,10 @@ Exit codes follow the plan contract:
 from __future__ import annotations
 
 import functools
+import json
 import sys
+import urllib.parse
+import urllib.request
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -176,6 +179,98 @@ def serve() -> None:
     from multillm.gateway import main as gateway_main
 
     gateway_main()
+
+
+def _format_usage_table(report: dict[str, Any], *, limit: int) -> str:
+    rows = report.get("rows", []) or []
+    kind = report.get("kind", "usage")
+    if not rows:
+        return f"No {kind} usage rows found."
+
+    if kind == "session":
+        header = f"{'Started':19} {'Source':13} {'Project':18} {'Tokens':>12} {'Cost':>10} Models"
+        lines = [header, "-" * len(header)]
+        for row in rows[:limit]:
+            started = str(row.get("startedAt", ""))[:19]
+            source = str(row.get("source", ""))[:13]
+            project = str(row.get("project", ""))[:18]
+            models = ", ".join(row.get("models", []) or [])
+            lines.append(
+                f"{started:19} {source:13} {project:18} "
+                f"{int(row.get('tokens', 0) or 0):12,} "
+                f"${float(row.get('actualCostUSD', 0) or 0):9.4f} {models}"
+            )
+        return "\n".join(lines)
+
+    if kind == "blocks":
+        header = f"{'Block start':19} {'Block end':19} {'Sessions':>8} {'Tokens':>12} {'Cost':>10}"
+        lines = [header, "-" * len(header)]
+        for row in rows[:limit]:
+            lines.append(
+                f"{str(row.get('startsAt', ''))[:19]:19} "
+                f"{str(row.get('endsAt', ''))[:19]:19} "
+                f"{int(row.get('sessions', 0) or 0):8,} "
+                f"{int(row.get('tokens', 0) or 0):12,} "
+                f"${float(row.get('actualCostUSD', 0) or 0):9.4f}"
+            )
+        return "\n".join(lines)
+
+    header = f"{'Period':12} {'Sources':32} {'Sessions':>8} {'Requests':>8} {'Tokens':>12} {'Cost':>10}"
+    lines = [header, "-" * len(header)]
+    for row in rows[:limit]:
+        sources = ",".join(row.get("sources", []) or [])[:32]
+        lines.append(
+            f"{str(row.get('period', '')):12} {sources:32} "
+            f"{int(row.get('sessions', 0) or 0):8,} "
+            f"{int(row.get('requests', 0) or 0):8,} "
+            f"{int(row.get('tokens', 0) or 0):12,} "
+            f"${float(row.get('actualCostUSD', 0) or 0):9.4f}"
+        )
+    return "\n".join(lines)
+
+
+@app.command(name="usage", help="Show daily, weekly, monthly, session, or block usage reports.")
+@click.option(
+    "--kind",
+    type=click.Choice(["daily", "weekly", "monthly", "session", "blocks"]),
+    default="daily",
+    show_default=True,
+)
+@click.option("--hours", type=int, default=720, show_default=True)
+@click.option("--project", default=None, help="Filter to a project name.")
+@click.option("--limit", type=int, default=50, show_default=True)
+@click.option("--json-output", "as_json", is_flag=True, help="Emit raw JSON.")
+@click.option(
+    "--gateway",
+    default="http://localhost:8080",
+    show_default=True,
+    help="MultiLLM gateway base URL.",
+)
+def usage_cmd(
+    kind: str,
+    hours: int,
+    project: str | None,
+    limit: int,
+    as_json: bool,
+    gateway: str,
+) -> None:
+    """Fetch and print a usage report from the running gateway."""
+    query = {"kind": kind, "hours": str(hours), "session_limit": str(limit)}
+    if project:
+        query["project"] = project
+    url = gateway.rstrip("/") + "/api/usage-report?" + urllib.parse.urlencode(query)
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310
+            payload = json.loads(response.read().decode("utf-8"))
+    except OSError as exc:
+        _emit_error(f"usage report failed: {exc}", exit_code=1)
+        return
+
+    if as_json:
+        click.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+
+    click.echo(_format_usage_table(payload, limit=limit))
 
 
 @app.group(
