@@ -12,7 +12,7 @@
 - **Self-hostable in one command.** `docker compose up` brings up the whole gateway. No vendor account, no per-seat pricing, no telemetry that leaves your network.
 - **Cost-aware by default.** Real-time burn-rate, spend projection (day/week/month), quota-exhaustion ETA, pre-flight per-model estimates, and budget caps with alerts and optional auto-reject.
 - **Resilient.** Quota-aware failover continues on the next provider when one runs out of tokens; per-backend circuit breakers and health-aware routing.
-- **Beats-frontier fusion.** A `fusion` model slug runs a panel of models and a judge that synthesizes one answer better than any single model; `auto` fuses hard prompts and routes easy ones. Log-driven smart routing learns the best model per query from your own usage.
+- **Adaptive fusion.** `auto` starts with the cheapest capable model, verifies the answer, and escalates across vendors only when risk or quality requires it. Explicit `fusion` keeps the fixed-panel compatibility contract; `fusion/economy`, `fusion/balanced`, `fusion/quality`, and `fusion/critical` provide bounded progressive deliberation.
 - **Built for multi-LLM workflows.** Cross-LLM shared memory (FTS5), cost-aware council mode, side-by-side compare, LLM-as-judge — first-class capabilities, not bolt-ons.
 - **Multi-tenant from day one.** API-key issuance, per-tenant budgets, and quota tracking are built in (the wizard provisions the first admin today).
 
@@ -85,11 +85,15 @@ Claude Code / OpenAI SDK / curl
    └─────────────────────────────┘
 ```
 
-`routing` (`router.py`), `fusion` (`fusion.py`), `cost_forecast`, `budgets`, and
+`routing` (`router.py`), legacy fixed `fusion` (`fusion.py`), adaptive orchestration,
+the capability/pricing registry, `cost_forecast`, `budgets`, and
 `failover` sit on the routing path; a stale-while-revalidate cache keeps the
 dashboard instant.
 
 Data lives in `MULTILLM_HOME` (defaults to `~/.multillm/` or the compose-mounted `./.multillm/`): SQLite tracking, FTS5 shared memory, automatic pre-migration backups. For production deployment recipes (Docker Compose, systemd, Kubernetes) see [docs/operations/deployment.md](docs/operations/deployment.md).
+
+Adaptive policy controls, council modes, traces, GPT-5.6 discovery gating, and
+rollout guidance are documented in [Adaptive Fusion v2](docs/adaptive-fusion.md).
 
 ## Backends
 
@@ -154,12 +158,15 @@ Open `http://localhost:8080/dashboard` once setup is complete. Real-time usage, 
 | Method     | Endpoint                    | Description                              |
 | ---------- | --------------------------- | ---------------------------------------- |
 | POST       | `/v1/messages`              | Anthropic Messages API proxy (`fusion`/`auto` slugs work here) |
-| POST       | `/api/fusion`               | Panel → judge → synthesized answer (full breakdown) |
-| POST       | `/api/council`              | Parallel multi-model, cost-aware         |
+| POST       | `/api/fusion`               | Fixed compatibility panel or adaptive preset with full trace |
+| POST       | `/api/council`              | `raw`, `adaptive`, or `synthesized` council mode |
 | POST       | `/api/cost/estimate`        | Pre-flight cost per model                |
 | GET        | `/api/cost/forecast`        | Burn-rate, spend projection, quota ETA   |
 | GET / PUT  | `/api/budgets`              | Budget caps, alerts, enforcement         |
 | GET        | `/api/routing/decision`     | Which model the router would pick + why  |
+| GET        | `/api/models/capabilities`  | Effective capabilities, reasoning controls, and model prices |
+| GET        | `/api/orchestration/{id}`   | Sanitized, prompt-free orchestration trace |
+| POST       | `/api/orchestration/{id}/feedback` | Rating feedback for local scorecards |
 | GET        | `/health`                   | Liveness check                           |
 | GET        | `/api/health`               | Per-backend health + breaker state       |
 | GET        | `/api/dashboard`            | Stats JSON                               |

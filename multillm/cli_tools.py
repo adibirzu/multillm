@@ -12,7 +12,7 @@ from pathlib import Path
 
 def build_cli_search_path(base_path: str | None = None) -> str:
     entries = []
-    for raw_entry in (base_path or os.getenv("PATH", "")).split(os.pathsep):
+    for raw_entry in (base_path or os.getenv("PATH") or "").split(os.pathsep):
         entry = raw_entry.strip()
         if entry and entry not in entries:
             entries.append(entry)

@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 from typing import Optional
 
+from .model_registry import pricing_for
 from .tracking import COST_TABLE
 
 # Default assumed completion length when the caller doesn't specify one. Real
@@ -195,11 +196,9 @@ def estimate_prompt_cost(
         if pair in seen_pairs:
             continue
         seen_pairs.add(pair)
-        price = _backend_price(backend)
-        if price is None:
-            continue
-        in_cost = input_tokens * price["input"] / 1_000_000
-        out_cost = out_tokens * price["output"] / 1_000_000
+        price = pricing_for(backend, model)
+        in_cost = input_tokens * price.input_per_million / 1_000_000
+        out_cost = out_tokens * price.output_per_million / 1_000_000
         total = in_cost + out_cost
         estimates.append(
             {
@@ -226,5 +225,5 @@ def estimate_prompt_cost(
         "cheapest": estimates[0] if estimates else None,
         "cheapestPaid": paid[0] if paid else None,
         "freeOptionCount": len(free),
-        "note": "Per-backend pricing from COST_TABLE; output length is an estimate.",
+        "note": "Model-specific pricing with conservative provider fallbacks; output length is an estimate.",
     }

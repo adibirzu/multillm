@@ -1,6 +1,6 @@
 ---
 name: llm-orchestrator
-description: Route work through the local MultiLLM gateway and decide when to ask other LLMs or helper agents for support. Use the `fusion` model slug for one synthesized answer from a multi-model panel + judge (beats a single model), `auto` to fuse hard prompts and route easy ones, and `/api/council` / `/api/cost/estimate` / `/api/routing/decision` for cost-aware multi-model work. Use when Codex/Claude should leverage GPT, Gemini, OCI GenAI, Antigravity, or local models for second opinions, fusion, architecture review, security review, context handoff, dashboard checks, or multi-device session consolidation.
+description: Route work through the local MultiLLM gateway. Use adaptive `auto` for cheap-first drafting, verification, and progressive escalation; fixed `fusion` for backward-compatible panels; fusion presets and synthesized council for bounded deliberation with traces and feedback.
 ---
 
 # LLM Orchestrator
@@ -37,24 +37,36 @@ Use for research, architecture, tradeoff analysis, "what am I missing" questions
 For the full panel + judge breakdown (not just the final answer), use
 `POST /api/fusion` with `{"prompt": "..."}`.
 
-### `auto` — fuse only when it's worth it
-`auto` scores prompt complexity: hard prompts escalate to `fusion`, easy ones go
-to the single best model (so you don't pay 2–3× latency for simple questions).
+### `auto` — verify cheaply, then escalate only when needed
+`auto` derives task, capability, freshness, and risk features; starts with the
+cheapest permitted capable model at low effort; validates it; then adds a
+different vendor/family only when acceptance fails. Ordinary requests cannot
+activate `max` reasoning or `ultra` execution.
 
 ```bash
 curl -s http://localhost:8080/v1/messages -d '{"model":"auto","messages":[{"role":"user","content":"..."}],"max_tokens":512}'
 ```
 
+Optional policy controls live under `metadata.multillm`: `preset`,
+`max_cost_usd`, `max_latency_ms`, `reasoning_ceiling`, `require_sources`,
+`allowed_providers`, and `require_vendor_diversity`. Unknown fields fail with
+400. Use `fusion/economy`, `fusion/balanced`, `fusion/quality`, or
+`fusion/critical` for forced progressive deliberation. `max` and `ultra` are
+valid only with `critical`; GPT-5.6 aliases appear only after discovery confirms access.
+
 ### Current config (this machine)
 - **Panel**: `codex/gpt-5-5`, `oci/llama-3.3-70b`, `antigravity/flash` (three reliable, diverse families)
 - **Judge**: `oci/llama-3.3-70b`
-- **`auto` threshold**: 0.6 complexity
-- Tune via settings: `fusion_panel`, `fusion_judge`, `fusion_auto_threshold`, `routing_pool`, `routing_quality_bias`.
+- **Adaptive default**: balanced, low-effort cheap draft, independent verification
+- **Rollback**: `adaptive_auto_enabled=false`; staged rollout uses `adaptive_auto_rollout_percent` (5 → 25 → 100)
+- Explicit `fusion_panel` and `fusion_judge` values always override presets.
 
 ### Cost-aware before you spend
 - `POST /api/cost/estimate` `{"prompt":"...","models":[...]}` → projected $ per model, cheapest-first.
 - `GET /api/routing/decision?prompt=...&bias=0.5` → which single model the router would pick (0 = cheap/fast … 1 = best quality) and why.
-- `POST /api/council` `{"prompt":"...","models":[...]}` → every model's raw answer + actual cost + a pre-flight estimate (when you want to *see* the disagreement, not a synthesis).
+- `POST /api/council` with `mode: "synthesized"` → adaptive final answer, stages, cost, and raw responses. `mode: "raw"` preserves compatibility.
+- `GET /api/models/capabilities` → effective profiles, reasoning controls, discovery status, and prices.
+- `GET /api/orchestration/{run_id}` and `POST .../feedback` → sanitized trace and local scorecard feedback.
 
 Identical repeat `fusion`/`council` requests are served from a result cache (no re-query).
 

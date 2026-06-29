@@ -20,6 +20,11 @@ Open the GitHub Releases page for the target version. Look for:
 
 `multillm migrate up` writes an automatic pre-migration snapshot. That covers schema-change accidents but does **not** cover application-level data drift (e.g., a settings-table column repurposed across versions). For any upgrade, also take an explicit named snapshot:
 
+Adaptive Fusion v2 adds revision `0004_adaptive_orchestration`, which creates
+tenant-scoped run, call, feedback, and model-scorecard tables. Only prompt
+hashes and derived features are retained by default; raw prompts, answers,
+evidence, and reasoning summaries are not migrated or stored.
+
 ```bash
 # Docker Compose
 docker compose exec gateway sh -c '

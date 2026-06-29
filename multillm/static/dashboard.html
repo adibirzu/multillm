@@ -667,8 +667,8 @@
   <!-- Council: ask multiple models -->
   <div class="panel" style="margin-bottom:24px">
     <div class="panel-header">
-      <span>Council — Ask Multiple Models</span>
-      <span style="font-size:10px;color:var(--text-dim)">2nd / 3rd opinions, cost-aware</span>
+      <span>Adaptive Council — Verified Synthesis</span>
+      <span style="font-size:10px;color:var(--text-dim)">cheap-first escalation, trace, cost, and feedback</span>
     </div>
     <div class="panel-body" style="padding:14px 16px">
       <textarea id="councilPrompt" rows="3" placeholder="Ask a question to several models at once…"
@@ -1892,7 +1892,7 @@ async function askCouncil() {
   btn.disabled = true; btn.textContent = 'Asking…';
   out.innerHTML = '<div class="loading">Querying models in parallel…</div>';
   try {
-    const body = {prompt, max_tokens: 1024};
+    const body = {prompt, max_tokens: 1024, mode: 'synthesized', preset: 'balanced'};
     if (models) body.models = models;
     const d = await fetchJSON(`${API}/api/council`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     out.innerHTML = renderCouncil(d);
@@ -1912,13 +1912,13 @@ function renderCouncil(d) {
   const cards = (d.responses || []).map(r => {
     if (r.error) {
       return `<div style="border:1px solid var(--accent4);border-radius:8px;padding:10px;margin-bottom:10px">
-        <div style="font-weight:600;color:var(--accent4)">${r.alias}</div>
-        <div style="font-size:12px;color:var(--text-dim)">⚠ ${r.error}</div></div>`;
+        <div style="font-weight:600;color:var(--accent4)">${escapeHtml(r.alias || '?')}</div>
+        <div style="font-size:12px;color:var(--text-dim)">⚠ ${escapeHtml(r.error)}</div></div>`;
     }
     const escaped = (r.text || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
     return `<div style="border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:10px;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <div style="font-weight:600;color:var(--accent5)">${r.alias}</div>
+        <div style="font-weight:600;color:var(--accent5)">${escapeHtml(r.alias || '?')}</div>
         <div style="font-size:11px;color:var(--text-dim)">${fmtCostP(r.actualCostUSD)} · ${r.inputTokens}/${r.outputTokens} tok · ${Math.round(r.latencyMs)}ms</div>
       </div>
       <div style="font-size:13px;white-space:pre-wrap;margin-top:6px">${escaped}</div>
@@ -1926,9 +1926,41 @@ function renderCouncil(d) {
   }).join('');
 
   const t = d.totals || {};
-  const totalLine = `<div style="font-size:12px;color:var(--text-dim);margin-top:6px">Total actual spend: <b style="color:var(--text)">${fmtCostP(t.actualCostUSD)}</b> across ${t.modelsSucceeded}/${t.modelsQueried} models</div>`;
+  const decision = d.decision || {};
+  const policy = decision.policy || {};
+  const stageRows = (d.stages || []).map(s => `<div style="display:grid;grid-template-columns:130px 1fr 70px 80px;gap:8px;padding:4px 0;border-top:1px solid var(--border,#2a2a3a);font-size:11px">
+    <span style="color:var(--accent2)">${escapeHtml(s.stage || 'stage')}</span>
+    <span>${escapeHtml(s.model || 'skipped')}</span>
+    <span>${escapeHtml(s.effort || 'none')}</span>
+    <span style="text-align:right">${fmtCostP(s.actual_cost_usd || 0)}</span>
+  </div>`).join('');
+  const timeline = stageRows ? `<div style="margin:10px 0"><div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">Stage timeline · ${escapeHtml(policy.preset || 'balanced')} · ${escapeHtml(decision.earlyExitReason || 'synthesized')}</div>${stageRows}</div>` : '';
+  const finalText = escapeHtml(d.finalAnswer || 'No synthesis was produced.');
+  const finalCard = `<div style="border:1px solid var(--accent2);border-radius:8px;padding:12px;margin:10px 0">
+    <div style="display:flex;justify-content:space-between"><b style="color:var(--accent2)">Final answer</b><span style="font-size:11px;color:var(--text-dim)">confidence ${Number(d.confidence || 0).toFixed(2)}</span></div>
+    <div style="font-size:13px;white-space:pre-wrap;margin-top:7px">${finalText}</div>
+  </div>`;
+  const totalLine = `<div style="font-size:12px;color:var(--text-dim);margin-top:6px">Actual: <b style="color:var(--text)">${fmtCostP(t.actualCostUSD)}</b> · estimated ${fmtCostP(t.estimatedCostUSD)} · ${t.modelsQueried || 0} stages</div>`;
+  const feedback = d.runId ? `<div style="margin-top:8px;font-size:11px;color:var(--text-dim)">Was this useful?
+    <button type="button" onclick="sendCouncilFeedback('${escapeHtml(d.runId)}',5)" style="margin-left:6px">Yes</button>
+    <button type="button" onclick="sendCouncilFeedback('${escapeHtml(d.runId)}',2)">Needs work</button>
+    <span id="councilFeedbackMsg"></span></div>` : '';
 
-  return `<div style="margin-bottom:10px"><span style="font-size:11px;color:var(--text-dim)">Pre-flight estimate:</span> ${estChips}</div>${cards}${totalLine}`;
+  const estimate = estChips ? `<div style="margin-bottom:10px"><span style="font-size:11px;color:var(--text-dim)">Pre-flight estimate:</span> ${estChips}</div>` : '';
+  return `${estimate}${timeline}${finalCard}<details><summary style="font-size:11px;color:var(--text-dim);cursor:pointer">Individual responses</summary>${cards}</details>${totalLine}${feedback}`;
+}
+
+async function sendCouncilFeedback(runId, rating) {
+  const msg = document.getElementById('councilFeedbackMsg');
+  try {
+    await fetchJSON(`${API}/api/orchestration/${encodeURIComponent(runId)}/feedback`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rating})
+    });
+    if (msg) { msg.textContent = ' Saved'; msg.style.color = 'var(--accent2)'; }
+  } catch (e) {
+    if (msg) { msg.textContent = ` ${e.message || e}`; msg.style.color = 'var(--accent4)'; }
+  }
 }
 
 // Small currency formatter that keeps sub-cent precision for per-call costs.

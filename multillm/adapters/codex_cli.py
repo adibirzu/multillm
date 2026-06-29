@@ -4,6 +4,7 @@
 """Codex CLI backend adapter (subprocess-based)."""
 
 import asyncio
+import json
 import os
 import re
 import tomllib
@@ -18,6 +19,20 @@ from ..cli_tools import resolve_cli_binary
 from ..converters import extract_text_from_anthropic, make_anthropic_response
 
 CODEX_CONFIG_FILE = Path.home() / ".codex" / "config.toml"
+_SANDBOX_ORDER = {"read-only": 0, "workspace-write": 1, "danger-full-access": 2}
+
+
+def _resolve_codex_sandbox(requested: str | None) -> str:
+    """A request may tighten, but never loosen, the operator's sandbox ceiling."""
+    configured = os.getenv("CODEX_SANDBOX", "read-only").strip()
+    if configured not in _SANDBOX_ORDER:
+        configured = "read-only"
+    requested_mode = (requested or "").strip()
+    if requested_mode not in _SANDBOX_ORDER:
+        return configured
+    if _SANDBOX_ORDER[requested_mode] <= _SANDBOX_ORDER[configured]:
+        return requested_mode
+    return configured
 
 
 def _normalize_codex_model_name(value: str) -> str:
@@ -104,7 +119,10 @@ def _resolve_codex_exec_target(selector: str) -> tuple[list[str], str]:
 
 
 async def _run_codex_exec(
-    prompt: str, sandbox: str, exec_target: list[str]
+    prompt: str,
+    sandbox: str,
+    exec_target: list[str],
+    config_overrides: dict[str, str] | None = None,
 ) -> tuple[int, str, str]:
     codex_bin = resolve_cli_binary("codex", env_var="CODEX_CLI_PATH")
     if not codex_bin:
@@ -115,6 +133,17 @@ async def _run_codex_exec(
     # is needed). `--skip-git-repo-check` is required because the gateway runs
     # from a non-repo working directory (launchd home), which Codex otherwise
     # refuses to execute in ("not inside a trusted directory").
+    overrides: list[str] = []
+    allowed_override_keys = {
+        "model_reasoning_effort",
+        "model_verbosity",
+        "model_reasoning_summary",
+    }
+    for key, value in (config_overrides or {}).items():
+        if key not in allowed_override_keys:
+            continue
+        overrides.extend(("-c", f"{key}={json.dumps(str(value))}"))
+
     proc = await asyncio.create_subprocess_exec(
         codex_bin,
         "exec",
@@ -122,6 +151,7 @@ async def _run_codex_exec(
         sandbox,
         "--skip-git-repo-check",
         *exec_target,
+        *overrides,
         "-",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
@@ -131,7 +161,7 @@ async def _run_codex_exec(
         proc.communicate(input=prompt.encode("utf-8")), timeout=180
     )
     return (
-        proc.returncode,
+        proc.returncode if proc.returncode is not None else -1,
         stdout.decode("utf-8", errors="replace").strip(),
         stderr.decode("utf-8", errors="replace").strip(),
     )
@@ -152,13 +182,19 @@ class CodexCLIAdapter(BaseAdapter):
 
         # Per-request sandbox override via metadata, else env var, else default
         metadata = body.get("metadata", {})
-        sandbox = metadata.get("sandbox_mode") or os.getenv(
-            "CODEX_SANDBOX", "read-only"
-        )
+        sandbox = _resolve_codex_sandbox(metadata.get("sandbox_mode"))
+        execution = metadata.get("multillm_execution") or {}
+        config_overrides: dict[str, str] = {}
+        effort = str(execution.get("reasoning_effort") or "").strip().lower()
+        if effort in {"none", "low", "medium", "high", "xhigh", "max"}:
+            config_overrides["model_reasoning_effort"] = effort
+        verbosity = str(execution.get("verbosity") or "").strip().lower()
+        if verbosity in {"concise", "balanced", "detailed", "low", "medium", "high"}:
+            config_overrides["model_verbosity"] = verbosity
 
         try:
             returncode, text, stderr = await _run_codex_exec(
-                prompt, sandbox, exec_target
+                prompt, sandbox, exec_target, config_overrides
             )
 
             # Route aliases may target a model while the local machine only has a profile for it.
@@ -169,7 +205,7 @@ class CodexCLIAdapter(BaseAdapter):
                 and "config profile" in stderr.lower()
             ):
                 returncode, text, stderr = await _run_codex_exec(
-                    prompt, sandbox, ["-m", resolved_model]
+                    prompt, sandbox, ["-m", resolved_model], config_overrides
                 )
 
             if returncode != 0 and not text:

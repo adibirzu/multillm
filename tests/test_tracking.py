@@ -6,6 +6,36 @@
 from multillm.tracking import record_usage, get_usage_summary, get_project_summary
 
 
+def test_record_usage_persists_normalized_reasoning_and_service_tier(
+    tmp_path, monkeypatch
+):
+    import sqlite3
+
+    from multillm import tracking
+
+    database = tmp_path / "usage.db"
+    monkeypatch.setattr(tracking, "DB_PATH", database)
+    tracking._sessions.clear()
+
+    tracking.record_usage(
+        project="test",
+        model_alias="openai/gpt-5-5",
+        backend="openai",
+        real_model="gpt-5.5-2026-01-01",
+        input_tokens=100,
+        output_tokens=40,
+        reasoning_tokens=25,
+        service_tier="default",
+        latency_ms=10,
+    )
+
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            "SELECT reasoning_tokens, service_tier, real_model FROM usage"
+        ).fetchone()
+    assert row == (25, "default", "gpt-5.5-2026-01-01")
+
+
 class TestUsageTracking:
     def test_record_and_query(self):
         record_usage(

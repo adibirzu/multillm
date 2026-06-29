@@ -17,13 +17,16 @@ Usage:
 """
 
 import asyncio
+import hashlib
 import logging
+import math
 import os
 import random
 import re
 import time
 import uuid
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -36,6 +39,7 @@ from fastapi.responses import (
     RedirectResponse,
     StreamingResponse,
 )
+from pydantic import ValidationError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
@@ -145,6 +149,11 @@ from . import fusion
 from . import complexity
 from . import router as query_router
 from . import result_cache
+from .adaptive_orchestration import AdaptiveOrchestrator, classify_task
+from .evidence import EvidenceSource, build_evidence_pack, validate_public_url
+from .model_registry import ModelRegistry
+from .orchestration_contracts import ModelScorecard, OrchestrationPolicy
+from .orchestration_store import OrchestrationStore
 from .stats_cache import ttl_cache
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
@@ -263,7 +272,118 @@ def _extract_usage_metrics(payload: dict) -> dict:
             )
             or 0
         ),
+        "reasoning_tokens": usage.get("reasoning_tokens", 0) or 0,
+        "service_tier": usage.get("service_tier"),
+        "provider_model": usage.get("provider_model", payload.get("model")),
     }
+
+
+def _discovered_openai_model_ids() -> set[str]:
+    return {
+        str(route.get("model"))
+        for route in ROUTES.values()
+        if route.get("backend") == "openai"
+        and route.get("discovered")
+        and route.get("model")
+    }
+
+
+def _effective_model_registry() -> ModelRegistry:
+    return ModelRegistry.from_routes(
+        ROUTES, discovered_model_ids=_discovered_openai_model_ids()
+    )
+
+
+@lru_cache(maxsize=1)
+def _orchestration_store() -> OrchestrationStore:
+    return OrchestrationStore(DATA_DIR / "multillm.db")
+
+
+def _resolve_orchestration_policy(
+    body: dict, *, preset: str | None = None
+) -> OrchestrationPolicy:
+    metadata = body.get("metadata") or {}
+    raw = metadata.get("multillm") or {}
+    if not isinstance(raw, dict):
+        raise HTTPException(
+            status_code=400, detail="metadata.multillm must be an object"
+        )
+    values = dict(raw)
+    for field in OrchestrationPolicy.model_fields:
+        if field in body:
+            values[field] = body[field]
+    if preset:
+        values["preset"] = preset
+    try:
+        requested = OrchestrationPolicy.model_validate(values)
+    except ValidationError as exc:
+        messages = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors()
+        )
+        raise HTTPException(
+            status_code=400, detail=f"Invalid metadata.multillm policy: {messages}"
+        ) from exc
+
+    from .memory import get_setting
+
+    limits = get_setting("orchestration_policy_limits", {}) or {}
+    if not isinstance(limits, dict):
+        return requested
+    effective = requested.model_dump(mode="json")
+    try:
+        if "max_cost_usd" in limits:
+            effective["max_cost_usd"] = min(
+                requested.max_cost_usd, float(limits["max_cost_usd"])
+            )
+        if "max_latency_ms" in limits:
+            effective["max_latency_ms"] = min(
+                requested.max_latency_ms, int(limits["max_latency_ms"])
+            )
+    except (TypeError, ValueError):
+        log.warning("Ignoring invalid numeric orchestration_policy_limits")
+    effort_order = ("none", "low", "medium", "high", "xhigh", "max")
+    server_effort = str(limits.get("reasoning_ceiling") or "")
+    if server_effort in effort_order:
+        effective["reasoning_ceiling"] = effort_order[
+            min(
+                effort_order.index(requested.reasoning_ceiling.value),
+                effort_order.index(server_effort),
+            )
+        ]
+    server_providers = limits.get("allowed_providers") or []
+    if isinstance(server_providers, (list, tuple)) and server_providers:
+        normalized_server = {str(provider).strip().lower() for provider in server_providers}
+        effective["allowed_providers"] = [
+            provider
+            for provider in requested.allowed_providers
+            if provider in normalized_server
+        ] or (list(normalized_server) if not requested.allowed_providers else [])
+    if limits.get("require_sources"):
+        effective["require_sources"] = True
+    if limits.get("require_vendor_diversity"):
+        effective["require_vendor_diversity"] = True
+    try:
+        return OrchestrationPolicy.model_validate(effective)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=500, detail="Server orchestration policy limits are invalid"
+        ) from exc
+
+
+def _adaptive_auto_enabled(prompt: str) -> bool:
+    """Deterministic rollout bucket with a one-setting rollback."""
+    from .memory import get_setting
+
+    if not bool(get_setting("adaptive_auto_enabled", True)):
+        return False
+    try:
+        percentage = int(get_setting("adaptive_auto_rollout_percent", 100))
+    except (TypeError, ValueError):
+        percentage = 100
+    percentage = max(0, min(100, percentage))
+    bucket = int(hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:8], 16) % 100
+    return bucket < percentage
 
 
 async def _run_discovery():
@@ -277,6 +397,13 @@ async def _run_discovery():
             if alias not in ROUTES:
                 ROUTES[alias] = route
                 added += 1
+            preview_alias = {
+                "gpt-5.6-luna": "openai/luna",
+                "gpt-5.6-terra": "openai/terra",
+                "gpt-5.6-sol": "openai/sol",
+            }.get(str(route.get("model")))
+            if route.get("backend") == "openai" and preview_alias:
+                ROUTES[preview_alias] = {**route, "discovered": True}
         if added:
             log.info("Discovery added %d new routes (total: %d)", added, len(ROUTES))
     except Exception as e:
@@ -769,11 +896,20 @@ async def messages(request: Request):
     is_streaming = body.get("stream", False)
 
     # ── Fusion / auto model-slug interception ────────────────────
-    # `fusion` runs the panel→judge→synthesis pipeline and returns one response.
-    # `auto` estimates prompt complexity and escalates only hard prompts to
-    # fusion, routing easy ones to a single capable model.
+    # Explicit `fusion` keeps the legacy fixed-panel contract. Presets and
+    # `auto` use the shared progressive cheap-first engine.
     if requested_alias == "fusion" or requested_alias.startswith("fusion/"):
         try:
+            explicit_panel = bool(
+                body.get("fusion_panel")
+                or (body.get("metadata") or {}).get("fusion_panel")
+            )
+            if requested_alias.startswith("fusion/") and not explicit_panel:
+                preset = requested_alias.split("/", 1)[1]
+                result = await _run_adaptive(
+                    body, preset=preset, force_deliberation=True
+                )
+                return _fusion_response(result, requested_alias, is_streaming)
             return _fusion_response(
                 await _run_fusion(body), requested_alias, is_streaming
             )
@@ -782,9 +918,26 @@ async def messages(request: Request):
                 release_concurrent(client_id)
 
     if requested_alias == "auto" or requested_alias.startswith("auto/"):
+        prompt = extract_text_from_anthropic(body)
+        preset = requested_alias.split("/", 1)[1] if "/" in requested_alias else None
+        try:
+            _resolve_orchestration_policy(body, preset=preset)
+        except HTTPException:
+            if client_id:
+                release_concurrent(client_id)
+            raise
+        if _adaptive_auto_enabled(prompt):
+            try:
+                result = await _run_adaptive(body, preset=preset)
+                return _fusion_response(result, "auto", is_streaming)
+            finally:
+                if client_id:
+                    release_concurrent(client_id)
+
+        # Rollback/holdout path retains the pre-v2 binary auto behavior.
         from .memory import get_setting
 
-        comp = complexity.estimate_complexity(extract_text_from_anthropic(body))
+        comp = complexity.estimate_complexity(prompt)
         threshold = float(get_setting("fusion_auto_threshold", 0.6))
         if comp["score"] >= threshold:
             try:
@@ -792,9 +945,7 @@ async def messages(request: Request):
             finally:
                 if client_id:
                     release_concurrent(client_id)
-        # Easy prompt → let the log-driven router pick the best single model
-        # (historical performance + health + cost), then continue normally.
-        decision = _route_decision(extract_text_from_anthropic(body))
+        decision = _route_decision(prompt)
         requested_alias = decision.get("model") or get_setting(
             "fusion_judge", _DEFAULT_FUSION_JUDGE
         )
@@ -961,11 +1112,14 @@ async def messages(request: Request):
                 project=PROJECT,
                 model_alias=effective_alias,
                 backend=backend,
-                real_model=route.get("model", effective_alias),
+                real_model=usage.get("provider_model")
+                or route.get("model", effective_alias),
                 input_tokens=in_tok,
                 output_tokens=out_tok,
                 cache_read_input_tokens=cache_read_tok,
                 cache_creation_input_tokens=cache_create_tok,
+                reasoning_tokens=usage["reasoning_tokens"],
+                service_tier=usage["service_tier"],
                 latency_ms=elapsed_ms,
             )
 
@@ -1136,13 +1290,16 @@ async def messages(request: Request):
                         project=PROJECT,
                         model_alias=cand_alias,
                         backend=cand_backend,
-                        real_model=cand_route.get("model", cand_alias),
+                        real_model=usage.get("provider_model")
+                        or cand_route.get("model", cand_alias),
                         input_tokens=usage["input_tokens"],
                         output_tokens=usage["output_tokens"],
                         cache_read_input_tokens=usage["cache_read_input_tokens"],
                         cache_creation_input_tokens=usage[
                             "cache_creation_input_tokens"
                         ],
+                        reasoning_tokens=usage["reasoning_tokens"],
+                        service_tier=usage["service_tier"],
                         latency_ms=elapsed_ms,
                         status="fallback",
                     )
@@ -2136,7 +2293,11 @@ async def cost_estimate_api(body: dict | None = None):
 
 
 async def _council_query_one(
-    alias: str, prompt: str, max_tokens: int, temperature: float
+    alias: str,
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    controls: dict[str, str] | None = None,
 ) -> dict:
     """Query one model for the council; never raises — errors are captured."""
     body = {
@@ -2145,6 +2306,54 @@ async def _council_query_one(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    if controls:
+        body["metadata"] = {"multillm_execution": dict(controls)}
+        if controls.get("structured_output") == "verifier":
+            body["output_schema"] = {
+                "name": "multillm_verifier_verdict",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "correctness": {"type": "number", "minimum": 0, "maximum": 1},
+                        "completeness": {"type": "number", "minimum": 0, "maximum": 1},
+                        "evidence_support": {"type": "number", "minimum": 0, "maximum": 1},
+                        "uncertainty": {"type": "number", "minimum": 0, "maximum": 1},
+                        "defects": {"type": "array", "items": {"type": "string"}},
+                        "accepted": {"type": "boolean"},
+                    },
+                    "required": [
+                        "correctness",
+                        "completeness",
+                        "evidence_support",
+                        "uncertainty",
+                        "defects",
+                        "accepted",
+                    ],
+                    "additionalProperties": False,
+                },
+            }
+        elif controls.get("structured_output") == "comparison":
+            properties = {
+                key: {"type": "array", "items": {"type": "string"}}
+                for key in (
+                    "consensus",
+                    "contradictions",
+                    "unsupported_claims",
+                    "partial_coverage",
+                    "unique_insights",
+                    "blind_spots",
+                )
+            }
+            properties["best_response_index"] = {"type": "integer", "minimum": 0}
+            body["output_schema"] = {
+                "name": "multillm_comparison",
+                "schema": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": list(properties),
+                    "additionalProperties": False,
+                },
+            }
     t0 = time.time()
     try:
         result = await route_request(body)
@@ -2153,19 +2362,42 @@ async def _council_query_one(
         text = next((b.get("text", "") for b in content if b.get("type") == "text"), "")
         route = ROUTES.get(alias, {})
         backend = route.get("backend", "")
-        cost = _estimate_cost(
-            backend,
-            usage["input_tokens"],
-            usage["output_tokens"],
-            usage["cache_read_input_tokens"],
-            usage["cache_creation_input_tokens"],
-        )
+        profile = _effective_model_registry().get(alias)
+        if profile is not None:
+            billable_input = usage["input_tokens"]
+            if profile.provider in {"openai", "azure_openai"}:
+                billable_input = max(
+                    0,
+                    usage["input_tokens"]
+                    - usage["cache_read_input_tokens"]
+                    - usage["cache_creation_input_tokens"],
+                )
+            cost = profile.pricing.estimate(
+                input_tokens=billable_input,
+                output_tokens=usage["output_tokens"],
+                cached_read_tokens=usage["cache_read_input_tokens"],
+                cache_write_tokens=usage["cache_creation_input_tokens"],
+                reasoning_tokens=usage["reasoning_tokens"],
+            )
+        else:
+            cost = _estimate_cost(
+                backend,
+                usage["input_tokens"],
+                usage["output_tokens"],
+                usage["cache_read_input_tokens"],
+                usage["cache_creation_input_tokens"],
+            )
         return {
             "alias": alias,
             "backend": backend,
             "text": text,
             "inputTokens": usage["input_tokens"],
             "outputTokens": usage["output_tokens"],
+            "cacheReadInputTokens": usage["cache_read_input_tokens"],
+            "cacheWriteInputTokens": usage["cache_creation_input_tokens"],
+            "reasoningTokens": usage["reasoning_tokens"],
+            "serviceTier": usage["service_tier"],
+            "providerModel": usage["provider_model"],
             "actualCostUSD": round(cost, 6),
             "latencyMs": round((time.time() - t0) * 1000, 1),
             "error": None,
@@ -2202,6 +2434,28 @@ async def council_api(body: dict | None = None):
     prompt = body.get("prompt", "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Missing 'prompt'")
+
+    mode = str(body.get("mode", "raw")).strip().lower()
+    if mode not in {"raw", "adaptive", "synthesized"}:
+        raise HTTPException(
+            status_code=400, detail="mode must be raw, adaptive, or synthesized"
+        )
+
+    if mode != "raw":
+        result = await _run_adaptive(
+            body,
+            preset=body.get("preset"),
+            candidates=body.get("models") or None,
+            force_deliberation=mode == "synthesized",
+        )
+        if mode == "adaptive":
+            return {
+                **result,
+                "mode": mode,
+                "responses": result.get("panel", []),
+                "finalAnswer": None,
+            }
+        return {**result, "mode": mode, "responses": result.get("panel", [])}
 
     from .memory import get_setting
 
@@ -2265,20 +2519,61 @@ async def _fusion_query_fn(
     otherwise recorded; logging each here keeps cost tracking, budgets, and the
     forecast accurate for fusion runs.
     """
-    r = await _council_query_one(alias, prompt, max_tokens, temperature)
+    is_judge = "judge of a multi-model panel" in prompt.lower()
+    controls = {
+        "reasoning_effort": "medium" if is_judge else "low",
+        "execution_mode": "standard",
+        "verbosity": "balanced" if is_judge else "concise",
+    }
+    r = await _council_query_one(
+        alias, prompt, max_tokens, temperature, controls=controls
+    )
     if not r.get("error"):
         route = ROUTES.get(alias, {})
         record_usage(
             project=PROJECT,
             model_alias=alias,
             backend=r.get("backend", ""),
-            real_model=route.get("model", alias),
+            real_model=r.get("providerModel") or route.get("model", alias),
             input_tokens=r.get("inputTokens", 0),
             output_tokens=r.get("outputTokens", 0),
+            cache_read_input_tokens=r.get("cacheReadInputTokens", 0),
+            cache_creation_input_tokens=r.get("cacheWriteInputTokens", 0),
+            reasoning_tokens=r.get("reasoningTokens", 0),
+            service_tier=r.get("serviceTier"),
             latency_ms=r.get("latencyMs", 0),
             status="fusion",
         )
     return r
+
+
+async def _adaptive_query_fn(
+    alias: str,
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    controls: dict[str, str],
+) -> dict:
+    result = await _council_query_one(
+        alias, prompt, max_tokens, temperature, controls=controls
+    )
+    if not result.get("error"):
+        route = ROUTES.get(alias, {})
+        record_usage(
+            project=PROJECT,
+            model_alias=alias,
+            backend=result.get("backend", ""),
+            real_model=result.get("providerModel") or route.get("model", alias),
+            input_tokens=result.get("inputTokens", 0),
+            output_tokens=result.get("outputTokens", 0),
+            cache_read_input_tokens=result.get("cacheReadInputTokens", 0),
+            cache_creation_input_tokens=result.get("cacheWriteInputTokens", 0),
+            reasoning_tokens=result.get("reasoningTokens", 0),
+            service_tier=result.get("serviceTier"),
+            latency_ms=result.get("latencyMs", 0),
+            status="orchestration",
+        )
+    return result
 
 
 def _resolve_fusion_config(body: dict) -> tuple[list, str, int, float]:
@@ -2355,6 +2650,157 @@ async def _run_fusion(body: dict) -> dict:
     return result
 
 
+async def _run_adaptive(
+    body: dict,
+    *,
+    preset: str | None = None,
+    candidates: list[str] | None = None,
+    force_deliberation: bool = False,
+) -> dict:
+    """Run adaptive fusion, persist a sanitized trace, and preserve legacy fields."""
+    prompt = extract_text_from_anthropic(body)
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Missing prompt content")
+    policy = _resolve_orchestration_policy(body, preset=preset)
+    try:
+        max_tokens = int(body.get("max_tokens", 1024))
+        temperature = float(body.get("temperature", 0.2))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400, detail="max_tokens and temperature must be numeric"
+        ) from exc
+    if not 1 <= max_tokens <= 131_072:
+        raise HTTPException(status_code=400, detail="max_tokens must be from 1 to 131072")
+    if not math.isfinite(temperature) or not 0 <= temperature <= 2:
+        raise HTTPException(status_code=400, detail="temperature must be from 0 to 2")
+    has_images = any(
+        isinstance(message.get("content"), list)
+        and any(block.get("type") == "image" for block in message["content"])
+        for message in body.get("messages", [])
+    )
+    evidence_pack = None
+    raw_evidence = body.get("evidence") or []
+    if raw_evidence:
+        if not isinstance(raw_evidence, list) or len(raw_evidence) > 20:
+            raise HTTPException(
+                status_code=400, detail="evidence must be an array of at most 20 sources"
+            )
+        try:
+            evidence_sources = [EvidenceSource.model_validate(item) for item in raw_evidence]
+            validated_sources = []
+            for source in evidence_sources:
+                validated_url = await validate_public_url(source.url)
+                validated_sources.append(
+                    source.model_copy(update={"url": validated_url})
+                )
+            evidence_pack = build_evidence_pack(validated_sources, max_sources=6)
+        except (ValidationError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid evidence: {exc}") from exc
+    try:
+        raw_scorecards = _orchestration_store().get_scorecards("default")
+    except Exception as exc:
+        log.warning("Could not load orchestration scorecards: %s", exc)
+        raw_scorecards = []
+    scorecards = {
+        (item["model"], item["task_type"]): ModelScorecard.model_validate(
+            {
+                "model": item["model"],
+                "task_type": item["task_type"],
+                "quality_mean": item["quality_mean"],
+                "reliability_mean": item["reliability_mean"],
+                "avg_cost_usd": item["avg_cost_usd"],
+                "sample_count": item["sample_count"],
+                "confidence_lower": item["confidence_lower"],
+            }
+        )
+        for item in raw_scorecards
+    }
+    providers = {
+        profile.provider for profile in _effective_model_registry().profiles
+    }
+    health_scores = {}
+    for provider in providers:
+        try:
+            health_scores[provider] = float(score_backend(provider).get("score", 0.5))
+        except Exception:
+            health_scores[provider] = 0.5
+    engine = AdaptiveOrchestrator(
+        registry=_effective_model_registry(),
+        query_fn=_adaptive_query_fn,
+        scorecards=scorecards,
+        health_scores=health_scores,
+    )
+    result = await engine.run(
+        prompt=prompt,
+        policy=policy,
+        candidates=candidates,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        has_images=has_images,
+        has_tools=bool(body.get("tools")),
+        force_deliberation=force_deliberation,
+        evidence_pack=evidence_pack,
+    )
+    if evidence_pack is not None:
+        result = {
+            **result,
+            "evidence": {
+                "sourceCount": len(evidence_pack.sources),
+                "sources": [
+                    {
+                        "url": source.url,
+                        "title": source.title,
+                        "publishedAt": source.published_at,
+                        "contentHash": source.content_hash,
+                    }
+                    for source in evidence_pack.sources
+                ],
+            },
+        }
+
+    # Prompt text and answer content are intentionally absent from persistence.
+    task_features = result.get("decision", {}).get("task", {})
+    try:
+        store = _orchestration_store()
+        persisted_id = store.create_run(
+            "default",
+            prompt,
+            policy.model_dump(mode="json"),
+            task_features,
+        )
+        for stage in result.get("stages", []):
+            if not stage.get("model"):
+                continue
+            store.record_call(
+                tenant_id="default",
+                run_id=persisted_id,
+                stage=stage.get("stage", "unknown"),
+                model=stage["model"],
+                effort=stage.get("effort", "none"),
+                usage={
+                    "input_tokens": stage.get("input_tokens", 0),
+                    "output_tokens": stage.get("output_tokens", 0),
+                    "cache_read_tokens": stage.get("cache_read_tokens", 0),
+                    "cache_write_tokens": stage.get("cache_write_tokens", 0),
+                    "reasoning_tokens": stage.get("reasoning_tokens", 0),
+                },
+                cost_usd=stage.get("actual_cost_usd", 0),
+                latency_ms=stage.get("latency_ms", 0),
+                status=stage.get("status", "unknown"),
+            )
+        store.complete_run(
+            "default",
+            persisted_id,
+            decision=result.get("decision", {}),
+            totals=result.get("totals", {}),
+            outcome=result.get("status", "unknown"),
+        )
+        result = {**result, "runId": persisted_id}
+    except Exception as exc:  # trace failure must not lose a completed answer
+        log.warning("Could not persist orchestration trace: %s", exc)
+    return result
+
+
 def _fusion_usage(result: dict) -> tuple[int, int]:
     """Aggregate (input, output) tokens across the panel + judge."""
     in_tok = sum(
@@ -2370,6 +2816,8 @@ def _fusion_usage(result: dict) -> tuple[int, int]:
 def _fusion_to_anthropic(result: dict, model_label: str) -> JSONResponse:
     """Abstract a fusion result into a single Anthropic-format JSON response."""
     text = result.get("finalAnswer") or "[fusion produced no answer]"
+    if fusion.FINAL_ANSWER_MARKER in text:
+        _, text = fusion.split_judge_output(text)
     in_tok, out_tok = _fusion_usage(result)
     resp = make_anthropic_response(
         text,
@@ -2392,6 +2840,8 @@ def _fusion_to_anthropic_stream(result: dict, model_label: str) -> StreamingResp
     expecting a stream (e.g. Claude Code) can consume.
     """
     text = result.get("finalAnswer") or "[fusion produced no answer]"
+    if fusion.FINAL_ANSWER_MARKER in text:
+        _, text = fusion.split_judge_output(text)
     in_tok, out_tok = _fusion_usage(result)
 
     async def gen():
@@ -2428,6 +2878,14 @@ async def fusion_api(body: dict | None = None):
     # /api/fusion takes prompt directly; adapt it to the messages body shape.
     adapted = dict(body)
     adapted["messages"] = [{"role": "user", "content": body["prompt"]}]
+    explicit = bool(body.get("fusion_panel") or body.get("fusion_judge"))
+    if body.get("preset") and not explicit:
+        return await _run_adaptive(
+            adapted,
+            preset=str(body["preset"]),
+            candidates=body.get("models") or None,
+            force_deliberation=True,
+        )
     return await _run_fusion(adapted)
 
 
@@ -2606,6 +3064,33 @@ def _route_decision(
         routes=ROUTES,
     )
     decision["complexityReasons"] = comp["reasons"]
+    task = classify_task(prompt)
+    registry = _effective_model_registry()
+    selected = registry.get(decision.get("model") or "")
+    decision["taskType"] = task.task_type.value
+    decision["risk"] = task.risk.value
+    decision["capabilityFilters"] = list(task.required_capabilities)
+    decision["predictedQuality"] = (
+        round(selected.task_score(task.task_type), 3) if selected else None
+    )
+    decision["selectedEffort"] = (
+        "low" if task.complexity < 0.35 else "medium"
+    )
+    decision["expectedCostUSD"] = (
+        round(
+            selected.pricing.estimate(
+                input_tokens=max(1, len(prompt) // 4), output_tokens=500
+            ),
+            6,
+        )
+        if selected
+        else None
+    )
+    tier_order = ("local", "economy", "balanced", "frontier")
+    available_tiers = {profile.tier.value for profile in registry.profiles}
+    decision["escalationPath"] = [
+        tier for tier in tier_order if tier in available_tiers
+    ]
     return decision
 
 
@@ -2622,6 +3107,80 @@ async def routing_decision_api(
     if not prompt:
         raise HTTPException(status_code=400, detail="Missing 'prompt'")
     return _route_decision(prompt, bias=bias, project=project)
+
+
+@app.get("/api/models/capabilities")
+async def model_capabilities_api():
+    registry = _effective_model_registry()
+    return {
+        "profiles": registry.public_profiles(),
+        "pricingFreshness": "static_or_discovered",
+        "previewModelsRequireDiscovery": True,
+    }
+
+
+@app.get("/api/orchestration/{run_id}")
+async def orchestration_trace_api(run_id: str):
+    trace = _orchestration_store().get_trace("default", run_id)
+    if trace is None:
+        raise HTTPException(status_code=404, detail="Orchestration run not found")
+    return trace
+
+
+@app.post("/api/orchestration/{run_id}/feedback")
+async def orchestration_feedback_api(run_id: str, body: dict | None = None):
+    body = body or {}
+    allowed = {"rating", "issue_categories", "preferred_model"}
+    unknown = set(body) - allowed
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown feedback field(s): {', '.join(sorted(unknown))}",
+        )
+    issues = body.get("issue_categories") or []
+    if not isinstance(issues, list) or len(issues) > 20:
+        raise HTTPException(
+            status_code=400, detail="issue_categories must be an array of at most 20 values"
+        )
+    if any(not isinstance(issue, str) or len(issue) > 100 for issue in issues):
+        raise HTTPException(
+            status_code=400,
+            detail="issue categories must be strings of at most 100 characters",
+        )
+    preferred_model = body.get("preferred_model")
+    if preferred_model is not None and (
+        not isinstance(preferred_model, str) or len(preferred_model) > 200
+    ):
+        raise HTTPException(
+            status_code=400, detail="preferred_model must be at most 200 characters"
+        )
+    try:
+        created = _orchestration_store().add_feedback(
+            "default",
+            run_id,
+            rating=body.get("rating"),
+            issue_categories=tuple(issues),
+            preferred_model=preferred_model,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not created:
+        raise HTTPException(status_code=404, detail="Orchestration run not found")
+    trace = _orchestration_store().get_trace("default", run_id) or {}
+    decision = trace.get("decision") or {}
+    selected = decision.get("selectedModels") or []
+    observed_model = body.get("preferred_model") or (selected[-1] if selected else None)
+    task_type = ((trace.get("taskFeatures") or {}).get("task_type") or "general")
+    if observed_model:
+        _orchestration_store().record_scorecard_observation(
+            "default",
+            model=observed_model,
+            task_type=task_type,
+            quality=float(body["rating"]) / 5.0,
+            reliable=True,
+            cost_usd=float((trace.get("totals") or {}).get("actualCostUSD", 0) or 0),
+        )
+    return {"status": "accepted", "runId": run_id}
 
 
 @app.get("/api/routing/scores")
