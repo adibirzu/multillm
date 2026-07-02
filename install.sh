@@ -1,15 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
-# MultiLLM Gateway — One-line installer for Claude Code
-# Usage: curl -sSL https://raw.githubusercontent.com/adibirzu/multillm/main/install.sh | bash
+# MultiLLM selective installer.
+# Usage: ./install.sh [--component NAME ...] [--dry-run]
 
 REPO_URL="https://github.com/adibirzu/multillm.git"
 INSTALL_DIR="${MULTILLM_INSTALL_DIR:-$HOME/.local/share/multillm}"
-DATA_DIR="$HOME/.multillm"
-CLAUDE_DIR="$HOME/.claude"
-LOCAL_BIN_DIR="$HOME/.local/bin"
-MCP_FILE="$CLAUDE_DIR/.mcp.json"
+DATA_DIR="${MULTILLM_HOME:-$HOME/.multillm}"
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+LOCAL_BIN_DIR="${MULTILLM_BIN_DIR:-$HOME/.local/bin}"
 
 C_GREEN='\033[0;32m'
 C_CYAN='\033[0;36m'
@@ -18,36 +18,154 @@ C_RED='\033[0;31m'
 C_BOLD='\033[1m'
 C_RESET='\033[0m'
 
-info()  { echo -e "${C_CYAN}▸${C_RESET} $*"; }
-ok()    { echo -e "${C_GREEN}✓${C_RESET} $*"; }
-warn()  { echo -e "${C_YELLOW}!${C_RESET} $*"; }
-fail()  { echo -e "${C_RED}✗${C_RESET} $*" >&2; exit 1; }
+info() { echo -e "${C_CYAN}▸${C_RESET} $*"; }
+ok() { echo -e "${C_GREEN}✓${C_RESET} $*"; }
+warn() { echo -e "${C_YELLOW}!${C_RESET} $*"; }
+fail() { echo -e "${C_RED}✗${C_RESET} $*" >&2; exit 1; }
 
-echo -e "\n${C_BOLD}MultiLLM Gateway — Installer${C_RESET}\n"
+list_components() {
+    cat <<'EOF'
+Available components:
+  gateway       Core Python gateway, configuration template, and runtime data
+  codex-mcp     Codex MCP registration and launcher (depends on: gateway)
+  codex-skills  Reusable Codex workflow skills (standalone)
+  claude        Claude hooks, MCP configuration, and launcher (depends on: gateway)
+  all           Complete backward-compatible installation
+EOF
+}
 
-# ── Prerequisites ──────────────────────────────────────────────────────────
-command -v python3 >/dev/null 2>&1 || fail "python3 is required. Install Python 3.11+."
-command -v pip3 >/dev/null 2>&1 || command -v pip >/dev/null 2>&1 || fail "pip is required."
-command -v git >/dev/null 2>&1 || fail "git is required."
+usage() {
+    cat <<'EOF'
+Usage: ./install.sh [OPTIONS]
 
-PY_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
-PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-if [[ "$PY_MAJOR" -lt 3 ]] || [[ "$PY_MAJOR" -eq 3 && "$PY_MINOR" -lt 11 ]]; then
-    fail "Python 3.11+ required (found $PY_VERSION)"
+Options:
+  --component NAME   Install a component; may be repeated
+  --list-components  List available components and dependencies
+  --dry-run          Print the resolved plan without making changes
+  -h, --help         Show this help
+
+With no --component option, the installer selects "all".
+EOF
+}
+
+is_known_component() {
+    case "$1" in
+        gateway|codex-mcp|codex-skills|claude|all) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+contains_component() {
+    local needle="$1"
+    shift
+    local item
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+append_resolved() {
+    local component="$1"
+    if ! contains_component "$component" "${RESOLVED_COMPONENTS[@]:-}"; then
+        RESOLVED_COMPONENTS+=("$component")
+    fi
+}
+
+SELECTED_COMPONENTS=()
+RESOLVED_COMPONENTS=()
+DRY_RUN=false
+SHOW_COMPONENTS=false
+
+# Argument parsing and validation deliberately happen before all checks and writes.
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --component)
+            [[ $# -ge 2 ]] || fail "--component requires a value"
+            is_known_component "$2" || fail "Unknown component: $2"
+            SELECTED_COMPONENTS+=("$2")
+            shift 2
+            ;;
+        --list-components)
+            SHOW_COMPONENTS=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            fail "Unknown option: $1"
+            ;;
+    esac
+done
+
+if [[ "$SHOW_COMPONENTS" == true ]]; then
+    list_components
+    exit 0
 fi
-ok "Python $PY_VERSION"
 
-# ── Detect if running from inside the repo ─────────────────────────────────
+if [[ ${#SELECTED_COMPONENTS[@]} -eq 0 ]]; then
+    SELECTED_COMPONENTS=(all)
+fi
+
+for component in "${SELECTED_COMPONENTS[@]}"; do
+    case "$component" in
+        gateway) append_resolved gateway ;;
+        codex-mcp)
+            append_resolved gateway
+            append_resolved codex-mcp
+            ;;
+        codex-skills) append_resolved codex-skills ;;
+        claude)
+            append_resolved gateway
+            append_resolved claude
+            ;;
+        all)
+            append_resolved gateway
+            append_resolved codex-mcp
+            append_resolved codex-skills
+            append_resolved claude
+            ;;
+    esac
+done
+
+join_components() {
+    local output=""
+    local component
+    for component in "$@"; do
+        [[ -z "$output" ]] || output="$output, "
+        output="$output$component"
+    done
+    printf '%s' "$output"
+}
+
+echo "Selected components: $(join_components "${SELECTED_COMPONENTS[@]}")"
+echo "Resolved components: $(join_components "${RESOLVED_COMPONENTS[@]}")"
+
+if [[ "$DRY_RUN" == true ]]; then
+    echo "Dry run; no changes will be made."
+    for component in "${RESOLVED_COMPONENTS[@]}"; do
+        echo "Would install: $component"
+    done
+    exit 0
+fi
+
+echo -e "\n${C_BOLD}MultiLLM — Installer${C_RESET}\n"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -f "$SCRIPT_DIR/multillm/gateway.py" ]]; then
     INSTALL_DIR="$SCRIPT_DIR"
     info "Running from repo directory: $INSTALL_DIR"
 else
-    # Clone or update
+    command -v git >/dev/null 2>&1 || fail "git is required to download MultiLLM."
     if [[ -d "$INSTALL_DIR/.git" ]]; then
         info "Updating existing installation..."
-        cd "$INSTALL_DIR" && git pull --ff-only 2>/dev/null || true
+        git -C "$INSTALL_DIR" pull --ff-only
     else
         info "Cloning MultiLLM to $INSTALL_DIR..."
         mkdir -p "$(dirname "$INSTALL_DIR")"
@@ -56,172 +174,171 @@ else
 fi
 ok "Source ready at $INSTALL_DIR"
 
-# ── Install Python package ─────────────────────────────────────────────────
-info "Installing Python package..."
-PIP_CMD="pip3"
-command -v pip3 >/dev/null 2>&1 || PIP_CMD="pip"
-cd "$INSTALL_DIR"
-$PIP_CMD install -e "." --quiet 2>/dev/null || $PIP_CMD install -e "." 2>&1 | tail -3
-ok "Python package installed"
-
-# ── Create data directory ──────────────────────────────────────────────────
-mkdir -p "$DATA_DIR"
-mkdir -p "$LOCAL_BIN_DIR"
-
-# ── Create .env if missing ─────────────────────────────────────────────────
-if [[ ! -f "$INSTALL_DIR/.env" && -f "$INSTALL_DIR/.env.example" ]]; then
-    cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
-    ok "Created .env from template (edit $INSTALL_DIR/.env to add API keys)"
-fi
-
-# ── Register Claude Code hooks ─────────────────────────────────────────────
-HOOKS_FILE="$CLAUDE_DIR/hooks.json"
-GATEWAY_HOOK_CMD="$INSTALL_DIR/hooks/start-gateway.sh"
-
-info "Registering Claude Code hooks..."
-mkdir -p "$CLAUDE_DIR"
-
-if [[ -f "$HOOKS_FILE" ]]; then
-    # Check if hook already registered
-    if grep -q "start-gateway.sh" "$HOOKS_FILE" 2>/dev/null; then
-        ok "Hooks already registered"
-    else
-        # Merge into existing hooks.json
-        python3 -c "
-import json, sys
-with open('$HOOKS_FILE') as f:
-    hooks = json.load(f)
-entry = {
-    'hooks': [{
-        'type': 'command',
-        'command': '$GATEWAY_HOOK_CMD',
-        'timeout': 15,
-        'statusMessage': 'Starting MultiLLM gateway...'
-    }]
-}
-hooks.setdefault('SessionStart', []).append(entry)
-with open('$HOOKS_FILE', 'w') as f:
-    json.dump(hooks, f, indent=2)
-print('Merged hook into existing hooks.json')
-" && ok "Hook added to $HOOKS_FILE"
+install_gateway() {
+    command -v python3 >/dev/null 2>&1 || fail "python3 is required. Install Python 3.11+."
+    local python_version python_major python_minor venv_python
+    python_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+    python_major="${python_version%%.*}"
+    python_minor="${python_version#*.}"
+    if [[ "$python_major" -lt 3 ]] || [[ "$python_major" -eq 3 && "$python_minor" -lt 11 ]]; then
+        fail "Python 3.11+ required (found $python_version)"
     fi
-else
-    cat > "$HOOKS_FILE" <<HOOKEOF
-{
-  "SessionStart": [
-    {
-      "hooks": [
-        {
-          "type": "command",
-          "command": "$GATEWAY_HOOK_CMD",
-          "timeout": 15,
-          "statusMessage": "Starting MultiLLM gateway..."
-        }
-      ]
-    }
-  ]
+    ok "Python $python_version"
+
+    if [[ ! -x "$INSTALL_DIR/.venv/bin/python" ]]; then
+        info "Creating isolated Python runtime..."
+        python3 -m venv "$INSTALL_DIR/.venv"
+    fi
+    venv_python="$INSTALL_DIR/.venv/bin/python"
+    info "Installing gateway package..."
+    "$venv_python" -m pip install --quiet --editable "$INSTALL_DIR"
+
+    mkdir -p "$DATA_DIR" "$LOCAL_BIN_DIR"
+    if [[ ! -f "$INSTALL_DIR/.env" && -f "$INSTALL_DIR/.env.example" ]]; then
+        cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
+        ok "Created configuration template at $INSTALL_DIR/.env"
+    fi
+
+    cat > "$LOCAL_BIN_DIR/multillm-gateway" <<EOF
+#!/bin/bash
+export MULTILLM_HOME="\${MULTILLM_HOME:-$DATA_DIR}"
+exec "$venv_python" -m multillm.gateway "\$@"
+EOF
+    chmod +x "$LOCAL_BIN_DIR/multillm-gateway"
+    ok "Gateway installed"
 }
-HOOKEOF
-    ok "Created $HOOKS_FILE"
-fi
 
-# ── Make hook executable ───────────────────────────────────────────────────
-chmod +x "$INSTALL_DIR/hooks/start-gateway.sh"
+install_mcp_launcher() {
+    local venv_python="$INSTALL_DIR/.venv/bin/python"
+    mkdir -p "$LOCAL_BIN_DIR"
+    cat > "$LOCAL_BIN_DIR/multillm-mcp" <<EOF
+#!/bin/bash
+export MULTILLM_HOME="\${MULTILLM_HOME:-$DATA_DIR}"
+export LLM_GATEWAY_URL="\${LLM_GATEWAY_URL:-http://localhost:8080}"
+exec "$venv_python" -m multillm.mcp_server "\$@"
+EOF
+    chmod +x "$LOCAL_BIN_DIR/multillm-mcp"
+}
 
-# ── Install launcher wrappers ───────────────────────────────────────────────
-info "Installing launcher wrappers..."
-cat > "$LOCAL_BIN_DIR/claude-multillm" <<EOF
+install_codex_mcp() {
+    local mcp_launcher="$LOCAL_BIN_DIR/multillm-mcp"
+    install_mcp_launcher
+    cat > "$LOCAL_BIN_DIR/codex-multillm" <<EOF
+#!/bin/bash
+export MULTILLM_HOME="\${MULTILLM_HOME:-$DATA_DIR}"
+exec codex "\$@"
+EOF
+    chmod +x "$LOCAL_BIN_DIR/codex-multillm"
+
+    if command -v codex >/dev/null 2>&1; then
+        local existing=""
+        existing="$(codex mcp get multillm 2>&1 || true)"
+        if [[ "$existing" != *"$mcp_launcher"* ]]; then
+            if [[ -n "$existing" ]]; then
+                codex mcp remove multillm >/dev/null 2>&1 || true
+            fi
+            codex mcp add multillm -- "$mcp_launcher" >/dev/null
+        fi
+        ok "Codex MCP registration ready"
+    else
+        warn "Codex CLI not found; launcher installed but MCP registration skipped"
+    fi
+}
+
+install_codex_skills() {
+    local skill_dir skill_name target_dir
+    mkdir -p "$CODEX_DIR/skills"
+    for skill_dir in "$INSTALL_DIR"/skills/*; do
+        [[ -d "$skill_dir" ]] || continue
+        skill_name="$(basename "$skill_dir")"
+        target_dir="$CODEX_DIR/skills/$skill_name"
+        mkdir -p "$target_dir"
+        cp -R "$skill_dir/." "$target_dir/"
+    done
+    ok "Codex skills installed at $CODEX_DIR/skills"
+}
+
+write_claude_configuration() {
+    local hooks_file="$CLAUDE_DIR/hooks.json"
+    local mcp_file="$CLAUDE_DIR/.mcp.json"
+    local hook_command="$INSTALL_DIR/hooks/start-gateway.sh"
+    local mcp_launcher="$LOCAL_BIN_DIR/multillm-mcp"
+
+    mkdir -p "$CLAUDE_DIR"
+    chmod +x "$hook_command"
+    HOOKS_FILE="$hooks_file" HOOK_COMMAND="$hook_command" python3 <<'PY'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["HOOKS_FILE"])
+current = json.loads(path.read_text()) if path.exists() else {}
+session_start = current.get("SessionStart", [])
+preserved = [
+    entry
+    for entry in session_start
+    if "start-gateway.sh" not in json.dumps(entry)
+]
+multillm_entry = {
+    "hooks": [
+        {
+            "type": "command",
+            "command": os.environ["HOOK_COMMAND"],
+            "timeout": 15,
+            "statusMessage": "Starting MultiLLM gateway...",
+        }
+    ]
+}
+updated = {**current, "SessionStart": [*preserved, multillm_entry]}
+path.write_text(json.dumps(updated, indent=2) + "\n")
+PY
+
+    MCP_FILE="$mcp_file" MCP_LAUNCHER="$mcp_launcher" python3 <<'PY'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["MCP_FILE"])
+current = json.loads(path.read_text()) if path.exists() else {}
+servers = current.get("mcpServers", {})
+multillm = {"command": os.environ["MCP_LAUNCHER"], "args": []}
+updated = {**current, "mcpServers": {**servers, "multillm": multillm}}
+path.write_text(json.dumps(updated, indent=2) + "\n")
+PY
+}
+
+install_claude() {
+    install_mcp_launcher
+    mkdir -p "$LOCAL_BIN_DIR"
+    cat > "$LOCAL_BIN_DIR/claude-multillm" <<EOF
 #!/bin/bash
 export MULTILLM_HOME="\${MULTILLM_HOME:-$DATA_DIR}"
 export ANTHROPIC_BASE_URL="\${ANTHROPIC_BASE_URL:-http://localhost:8080}"
 exec claude "\$@"
 EOF
-chmod +x "$LOCAL_BIN_DIR/claude-multillm"
-
-cat > "$LOCAL_BIN_DIR/codex-multillm" <<EOF
-#!/bin/bash
-export MULTILLM_HOME="\${MULTILLM_HOME:-$DATA_DIR}"
-exec codex "\$@"
-EOF
-chmod +x "$LOCAL_BIN_DIR/codex-multillm"
-ok "Installed launcher wrappers in $LOCAL_BIN_DIR"
-
-# ── Register MCP server for Claude/Codex-compatible clients ───────────────
-info "Registering MCP server config..."
-mkdir -p "$CLAUDE_DIR"
-if [[ -f "$MCP_FILE" ]]; then
-    python3 -c "
-import json
-from pathlib import Path
-p = Path('$MCP_FILE')
-data = json.loads(p.read_text())
-data.setdefault('mcpServers', {})['multillm'] = {
-    'command': 'python3',
-    'args': ['-m', 'multillm.mcp_server'],
-    'env': {'LLM_GATEWAY_URL': 'http://localhost:8080'}
+    chmod +x "$LOCAL_BIN_DIR/claude-multillm"
+    write_claude_configuration
+    ok "Claude hooks, MCP configuration, and launcher installed"
 }
-p.write_text(json.dumps(data, indent=2))
-print('Updated MCP config')
-"
-else
-    cat > "$MCP_FILE" <<MCPEOF
-{
-  "mcpServers": {
-    "multillm": {
-      "command": "python3",
-      "args": ["-m", "multillm.mcp_server"],
-      "env": {
-        "LLM_GATEWAY_URL": "http://localhost:8080"
-      }
-    }
-  }
-}
-MCPEOF
-fi
-ok "MCP config ready at $MCP_FILE"
 
-# ── Register MCP server for Codex CLI when available ──────────────────────
-if command -v codex >/dev/null 2>&1; then
-    info "Registering MCP server for Codex CLI..."
-    codex mcp get multillm >/dev/null 2>&1 || \
-      codex mcp add multillm --env LLM_GATEWAY_URL=http://localhost:8080 -- python3 -m multillm.mcp_server >/dev/null 2>&1 || true
-    ok "Codex MCP registration checked"
-else
-    warn "Codex CLI not found — skipping Codex MCP registration"
-fi
+for component in "${RESOLVED_COMPONENTS[@]}"; do
+    case "$component" in
+        gateway) install_gateway ;;
+        codex-mcp) install_codex_mcp ;;
+        codex-skills) install_codex_skills ;;
+        claude) install_claude ;;
+    esac
+done
 
-# ── Verify installation ───────────────────────────────────────────────────
-if python3 -c "import multillm" 2>/dev/null; then
-    ok "Package verified"
-else
-    warn "Package import check failed — may need to restart shell"
-fi
-
-# ── Summary ────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${C_BOLD}${C_GREEN}Installation complete!${C_RESET}"
-echo ""
-echo -e "${C_BOLD}Quick Start:${C_RESET}"
-echo ""
-echo "  1. Start the gateway:"
-echo -e "     ${C_CYAN}python -m multillm.gateway${C_RESET}"
-echo ""
-echo "  2. Connect Claude Code:"
-echo -e "     ${C_CYAN}export ANTHROPIC_BASE_URL=http://localhost:8080${C_RESET}"
-echo -e "     ${C_CYAN}claude${C_RESET}"
-echo -e "     ${C_CYAN}# or just run: claude-multillm${C_RESET}"
-echo ""
-echo "  3. Use slash commands:"
-echo -e "     ${C_CYAN}/llm-ask ollama/llama3 explain this code${C_RESET}"
-echo -e "     ${C_CYAN}/llm-usage${C_RESET}"
-echo -e "     ${C_CYAN}/llm-council what's the best approach?${C_RESET}"
-echo ""
-echo -e "  Dashboard: ${C_CYAN}http://localhost:8080/dashboard${C_RESET}"
-echo -e "  Config:    ${C_CYAN}$INSTALL_DIR/.env${C_RESET}"
-echo -e "  Launchers: ${C_CYAN}$LOCAL_BIN_DIR/claude-multillm${C_RESET} ${C_CYAN}$LOCAL_BIN_DIR/codex-multillm${C_RESET}"
-echo ""
-echo -e "  The gateway auto-starts with Claude Code sessions via hooks."
-echo -e "  Add API keys to .env for cloud backends (Ollama works out of the box)."
-echo -e "  Use the work-orchestrator / council / security agents for automatic cross-LLM help."
-echo -e "  Codex will use MultiLLM via MCP if Codex CLI is installed."
-echo ""
+echo "Installed components: $(join_components "${RESOLVED_COMPONENTS[@]}")"
+if contains_component gateway "${RESOLVED_COMPONENTS[@]}"; then
+    echo "Start the gateway: $LOCAL_BIN_DIR/multillm-gateway"
+    echo "Dashboard: http://localhost:8080/dashboard"
+    echo "Configuration: $INSTALL_DIR/.env"
+fi
+if contains_component codex-mcp "${RESOLVED_COMPONENTS[@]}" || \
+   contains_component codex-skills "${RESOLVED_COMPONENTS[@]}"; then
+    echo "Start a fresh Codex thread to load newly installed tools and skills."
+fi

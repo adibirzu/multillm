@@ -77,6 +77,18 @@ kubectl set image deploy/multillm gateway=ghcr.io/${OWNER}/multillm:vX.Y.Z
 kubectl rollout status deploy/multillm
 ```
 
+For installations created by `install.sh`, update the checkout and repeat the
+same component selection. Inspect the mutation-free plan first:
+
+```bash
+./install.sh --dry-run --component codex-mcp --component codex-skills
+./install.sh --component codex-mcp --component codex-skills
+```
+
+The installer preserves `.env`, updates MCP registrations by name, and refreshes
+skills in place. Start a fresh Codex thread after an MCP or skills upgrade. See
+[Selective installation](../installation.md) for all components and removal.
+
 ### 5. Verify
 
 After the new version starts, confirm three things:

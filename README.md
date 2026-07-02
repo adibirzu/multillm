@@ -160,6 +160,7 @@ The wizard at `/setup` covers the common path (admin user, backend keys, observa
 ## Operations
 
 - [Deployment recipes](docs/operations/deployment.md) — Docker Compose, systemd, Kubernetes
+- [Selective installation](docs/installation.md) — gateway, Codex MCP/skills, and Claude components
 - [Backup & restore](docs/operations/backup-restore.md) — SQLite snapshots and recovery
 - [Upgrades](docs/operations/upgrade.md) — version migration procedure
 - [Troubleshooting](docs/operations/troubleshooting.md) — common failures and fixes
@@ -211,24 +212,35 @@ MultiLLM is optional. Start a normal Claude or Codex session when one model is
 enough; choose the gateway for independent answers, cost-aware routing, or one
 synthesized answer across locally available agents.
 
-From a checkout, install the optional integration and start the gateway:
+From a checkout, install only the integration you need and start the gateway:
 
 ```bash
-./install.sh
-./hooks/start-gateway.sh
+./install.sh --list-components
+./install.sh --component codex-mcp --component codex-skills
+multillm-gateway
 ```
 
-The installer creates optional launchers and registers the MCP server:
+`codex-mcp` explicitly includes its `gateway` dependency. Skills remain
+standalone, so this installs only reusable workflows and no gateway or MCP
+server:
+
+```bash
+./install.sh --component codex-skills
+```
+
+Running `./install.sh` without arguments remains the complete installation and
+creates both optional launchers:
 
 ```bash
 claude-multillm
 codex-multillm
 ```
 
-This checkout's `.codex/config.toml` and `.mcp.json` use
-`.venv/bin/python`, not the system `python3`, because MultiLLM requires Python
-3.11+. That makes Codex and Claude MCP traffic use the same verified local
-runtime as the gateway.
+Installed MCP clients invoke the generated `multillm-mcp` executable, which is
+bound to MultiLLM's isolated Python 3.11+ runtime. This avoids relying on the
+client's working directory or system Python. Start a fresh Codex thread after
+installing MCP tools or skills. See [Selective installation](docs/installation.md)
+for dry runs, dependencies, upgrades, and removal.
 
 In either session, use `llm_adaptive` for cheap-first work, `llm_moa` for
 layered proposer → refiner → aggregator synthesis, or `llm_fusion` for the
