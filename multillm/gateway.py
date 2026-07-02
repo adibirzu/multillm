@@ -120,6 +120,7 @@ from .langfuse_integration import (
     shutdown_langfuse,
     trace_llm_generation,
     trace_fusion_run,
+    trace_evaluation_run,
     get_langfuse_status,
 )
 from .llm_observability import build_llm_observability_summary
@@ -146,14 +147,31 @@ from .usage_reports import build_usage_report
 from . import failover
 from . import budgets
 from . import fusion
+from . import moa
 from . import complexity
 from . import router as query_router
 from . import result_cache
+from .private_credit_overlay import (
+    get_private_credit_overlay,
+    save_private_credit_overlay,
+)
+from .codex_identity import get_codex_login_identity
 from .adaptive_orchestration import AdaptiveOrchestrator, classify_task
 from .evidence import EvidenceSource, build_evidence_pack, validate_public_url
 from .model_registry import ModelRegistry
 from .orchestration_contracts import ModelScorecard, OrchestrationPolicy
 from .orchestration_store import OrchestrationStore
+from .evaluation.api import (
+    get_evaluation_store,
+    router as evaluation_router,
+)
+from .evaluation.contracts import EvaluationCase, EvaluationRunRequest, ExecutionMode
+from .evaluation.runner import (
+    EvaluationResponse,
+    EvaluationRunner,
+    EvaluationStageUsage,
+    deduplicate_targets,
+)
 from .stats_cache import ttl_cache
 from .http_pool import close_all as close_http_pools
 from .auth import AuthMiddleware, auth_enabled
@@ -247,6 +265,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 # ── FastAPI app ──────────────────────────────────────────────────────────────
 ROUTES = load_routes()
 PROJECT = detect_project()
+_EVALUATION_PREFLIGHTS: dict[str, dict] = {}
 
 
 def _extract_usage_metrics(payload: dict) -> dict:
@@ -292,6 +311,178 @@ def _effective_model_registry() -> ModelRegistry:
     return ModelRegistry.from_routes(
         ROUTES, discovered_model_ids=_discovered_openai_model_ids()
     )
+
+
+async def _gateway_evaluation_execute(
+    target: str, case: EvaluationCase, request: EvaluationRunRequest
+) -> EvaluationResponse:
+    """Execute one evaluation target without ever downgrading live runs to fixtures."""
+    if request.execution_mode is ExecutionMode.FIXTURE:
+        text = case.reference_answer or " ".join(case.required_terms)
+        if not text:
+            text = f"Fixture response for {case.id}"
+        return EvaluationResponse(
+            text=text,
+            input_tokens=max(1, len(case.prompt) // 4),
+            output_tokens=max(1, len(text) // 4),
+            total_ms=0,
+            ttft_unavailable_reason="fixture",
+            resolved_model=f"fixture:{target}",
+        )
+    if request.execution_mode is ExecutionMode.REPLAY:
+        raise RuntimeError("replay execution requires a recorded response source")
+
+    receipt = _EVALUATION_PREFLIGHTS.get(str(request.preflight_receipt))
+    if not receipt or float(receipt.get("expiresAt", 0)) <= time.time():
+        raise RuntimeError("live evaluation preflight receipt is missing or expired")
+
+    if target == "moa" or target.startswith("moa/"):
+        candidates = list(request.candidates) or list(_DEFAULT_FUSION_PANEL)
+        panel = request.metadata.get("moa_panel") or candidates
+        if not set(panel).issubset(set(receipt.get("targets") or ())):
+            raise RuntimeError("MoA panel does not match the live preflight receipt")
+        aggregator = request.metadata.get("moa_aggregator") or (
+            candidates[-1] if candidates else _DEFAULT_FUSION_JUDGE
+        )
+        result = await _run_moa_request(
+            {
+                "prompt": case.prompt,
+                "models": panel,
+                "aggregator": aggregator,
+                "preset": target.split("/", 1)[1] if "/" in target else "quality",
+                "max_tokens": int(request.metadata.get("max_tokens", 4096)),
+            }
+        )
+        if not result.get("finalAnswer"):
+            raise RuntimeError(f"MoA execution failed: {result.get('degradedReason') or result.get('status')}")
+        totals = result.get("totals") or {}
+        stage_usage = tuple(
+            EvaluationStageUsage(
+                stage=str(stage.get("stage") or "unknown"),
+                input_tokens=sum(
+                    int(model.get("inputTokens", 0) or 0)
+                    for model in stage.get("models") or ()
+                ),
+                output_tokens=sum(
+                    int(model.get("outputTokens", 0) or 0)
+                    for model in stage.get("models") or ()
+                ),
+            )
+            for stage in result.get("stages") or ()
+        )
+        return EvaluationResponse(
+            text=str(result["finalAnswer"]),
+            input_tokens=int(totals.get("inputTokens", 0) or 0),
+            output_tokens=int(totals.get("outputTokens", 0) or 0),
+            reasoning_tokens=int(totals.get("reasoningTokens", 0) or 0),
+            total_ms=float(totals.get("criticalPathMs", 0) or 0),
+            ttft_unavailable_reason="moa_requires_complete_synthesis",
+            actual_cost_usd=None,
+            normalized_cost_usd=float(totals.get("actualCostUSD", 0) or 0),
+            resolved_model=target,
+            participant_models=tuple(dict.fromkeys([*panel, aggregator])),
+            stage_usage=stage_usage,
+        )
+
+    if target not in set(receipt.get("targets") or ()):
+        raise RuntimeError(f"{target} is not covered by the live preflight receipt")
+    result = await _council_query_one(
+        target,
+        case.prompt,
+        int(request.metadata.get("max_tokens", 4096)),
+        float(request.metadata.get("temperature", 0.2)),
+        controls={
+            "reasoning_effort": str(request.metadata.get("reasoning_effort", "medium")),
+            "execution_mode": "standard",
+            "verbosity": "balanced",
+        },
+    )
+    if result.get("error") or not str(result.get("text", "")).strip():
+        raise RuntimeError(f"{target} execution failed: {result.get('error') or 'empty output'}")
+    return EvaluationResponse(
+        text=str(result["text"]),
+        input_tokens=int(result.get("inputTokens", 0) or 0),
+        output_tokens=int(result.get("outputTokens", 0) or 0),
+        reasoning_tokens=int(result.get("reasoningTokens", 0) or 0),
+        cache_read_tokens=int(result.get("cacheReadInputTokens", 0) or 0),
+        cache_write_tokens=int(result.get("cacheWriteInputTokens", 0) or 0),
+        total_ms=float(result.get("latencyMs", 0) or 0),
+        ttft_unavailable_reason="non_streaming_evaluation_call",
+        actual_cost_usd=None,
+        normalized_cost_usd=float(result.get("actualCostUSD", 0) or 0),
+        pricing_version="model-registry-current",
+        resolved_model=str(result.get("providerModel") or target),
+    )
+
+
+async def _gateway_evaluation_judge(
+    judge_alias: str, prompt: str, request: EvaluationRunRequest
+) -> str:
+    """Run an independent judge covered by the same live-host preflight."""
+    if request.execution_mode is not ExecutionMode.LIVE_HOST:
+        raise RuntimeError("model judging requires live_host execution or a test judge")
+    receipt = _EVALUATION_PREFLIGHTS.get(str(request.preflight_receipt))
+    if (
+        not receipt
+        or float(receipt.get("expiresAt", 0)) <= time.time()
+        or judge_alias not in set(receipt.get("targets") or ())
+    ):
+        raise RuntimeError("judge is not covered by the live preflight receipt")
+    result = await _council_query_one(
+        judge_alias,
+        prompt,
+        2_048,
+        0,
+        controls={
+            "reasoning_effort": "medium",
+            "execution_mode": "standard",
+            "verbosity": "concise",
+        },
+    )
+    if result.get("error") or not str(result.get("text", "")).strip():
+        raise RuntimeError(f"judge execution failed: {result.get('error') or 'empty output'}")
+    return str(result["text"])
+
+
+async def _evaluation_worker_loop() -> None:
+    """Lease and execute queued runs; expired leases are safely reclaimed."""
+    try:
+        store = get_evaluation_store()
+    except (RuntimeError, ValueError) as exc:
+        log.info("Evaluation worker disabled: %s", exc)
+        return
+    def trace_completed_run(run: dict) -> None:
+        request = run.get("request") or {}
+        trace_evaluation_run(
+            run_id=str(run["id"]),
+            suite_id=str(run["suiteId"]),
+            tenant_id=str(run["tenantId"]),
+            status=str(run["status"]),
+            profile=str(request.get("profile") or ""),
+            execution_mode=str(request.get("execution_mode") or ""),
+            candidates=tuple(request.get("candidates") or ()),
+            moa_variants=tuple(request.get("moa_variants") or ()),
+            judge_pool=tuple(request.get("judge_pool") or ()),
+            summary=run.get("summary") or {},
+        )
+
+    runner = EvaluationRunner(
+        store=store,
+        execute=_gateway_evaluation_execute,
+        judge=_gateway_evaluation_judge,
+        worker_id=f"gateway-{uuid.uuid4().hex[:10]}",
+        on_complete=trace_completed_run,
+    )
+    while True:
+        try:
+            run_id = await runner.run_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Evaluation worker iteration failed; leased run can be reclaimed")
+            await asyncio.sleep(2.0)
+            continue
+        await asyncio.sleep(0.25 if run_id else 2.0)
 
 
 @lru_cache(maxsize=1)
@@ -431,7 +622,16 @@ async def lifespan(application: FastAPI):
     # the persisted copy refreshes without anyone waiting on a cold scan.
     await asyncio.to_thread(bundle_cache.warm_load)
     asyncio.create_task(_prime_dashboard_bundle())
+    evaluation_task = None
+    if os.getenv("MULTILLM_EVAL_WORKER_ENABLED", "true").lower() in {"1", "true", "yes"}:
+        evaluation_task = asyncio.create_task(_evaluation_worker_loop())
     yield
+    if evaluation_task is not None:
+        evaluation_task.cancel()
+        try:
+            await evaluation_task
+        except asyncio.CancelledError:
+            pass
     stop_health_checks()
     shutdown_langfuse()
     await close_http_pools()
@@ -451,6 +651,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 # ensures the wizard is reachable before AuthMiddleware can demand a key.
 app.add_middleware(SetupRedirectMiddleware)
 app.include_router(setup_router, prefix="/setup")
+app.include_router(evaluation_router)
 mount_setup_static(app)
 
 # Register multi-tenant team usage monitoring (per-user / per-account).
@@ -895,6 +1096,37 @@ async def messages(request: Request):
     requested_alias = body.get("model", "ollama/llama3")
     is_streaming = body.get("stream", False)
 
+    # ── Canonical layered Mixture of Agents interception ─────────
+    if requested_alias == "moa" or requested_alias.startswith("moa/"):
+        try:
+            preset = (
+                requested_alias.split("/", 1)[1]
+                if "/" in requested_alias
+                else "quality"
+            )
+            adapted = {
+                **body,
+                "prompt": extract_text_from_anthropic(body),
+                "preset": preset,
+                "models": body.get("models") or body.get("moa_panel") or [],
+                "aggregator": body.get("aggregator")
+                or body.get("moa_aggregator")
+                or "",
+            }
+            if len(adapted["models"]) < 2 or not adapted["aggregator"]:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "MoA requires moa_panel with at least two models and "
+                        "moa_aggregator"
+                    ),
+                )
+            result = await _run_moa_request(adapted)
+            return _fusion_response(result, requested_alias, is_streaming)
+        finally:
+            if client_id:
+                release_concurrent(client_id)
+
     # ── Fusion / auto model-slug interception ────────────────────
     # Explicit `fusion` keeps the legacy fixed-panel contract. Presets and
     # `auto` use the shared progressive cheap-first engine.
@@ -963,6 +1195,20 @@ async def messages(request: Request):
     budget_cfg = _get_setting("budgets", {}) or {}
     if budget_cfg.get("enabled") and backend in CLOUD_BACKENDS:
         try:
+            try:
+                expected_output_tokens = max(0, int(body.get("max_tokens", 4096)))
+            except (TypeError, ValueError):
+                expected_output_tokens = 4096
+            estimate = cost_forecast.estimate_prompt_cost(
+                prompt=extract_text_from_anthropic(body),
+                routes=ROUTES,
+                candidates=[effective_alias],
+                expected_output_tokens=expected_output_tokens,
+            )
+            anticipated_cost = float(
+                (estimate.get("cheapest") or {}).get("estimatedCostUSD", 0.0)
+                or 0.0
+            )
             snap = _gateway_spend_snapshot(None)
             proj_spend = {PROJECT: _gateway_spend_snapshot(PROJECT)} if PROJECT else {}
             allowed, reason = budgets.check_request_allowed(
@@ -971,6 +1217,7 @@ async def messages(request: Request):
                 spent_today=snap["today"],
                 spent_month=snap["month"],
                 project_spend=proj_spend,
+                anticipated_cost=anticipated_cost,
             )
         except Exception:
             # A spend-snapshot failure must not leak the concurrency slot. The
@@ -1465,6 +1712,33 @@ async def get_settings():
     return _get_settings()
 
 
+@app.get("/api/private-credit")
+async def private_credit_api(request: Request):
+    """Return the operator's private credit overlay to local browsers only."""
+    client_host = request.client.host if request.client else ""
+    if not is_loopback_host(client_host):
+        raise HTTPException(status_code=404, detail="Not found")
+    overlay = get_private_credit_overlay()
+    required_domain = overlay.get("requiredEmailDomain")
+    identity = get_codex_login_identity()
+    if required_domain and identity.get("emailDomain") != required_domain:
+        return {"configured": False}
+    return overlay
+
+
+@app.put("/api/private-credit")
+async def update_private_credit_api(request: Request):
+    """Update the owner-only local credit overlay from a local browser."""
+    client_host = request.client.host if request.client else ""
+    if not is_loopback_host(client_host):
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        payload = await request.json()
+        return save_private_credit_overlay(payload)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.put("/settings")
 async def update_settings(request: Request):
     from .memory import update_settings as _update_settings
@@ -1603,6 +1877,87 @@ async def get_context_api(session_id: str, target_llm: Optional[str] = None):
 @app.get("/api/dashboard")
 async def dashboard_api(hours: int = 720, project: Optional[str] = None):
     return get_dashboard_stats(hours=hours, project=project)
+
+
+def _scan_tenant(value: Optional[str]) -> str:
+    tenant_id = (value or "default").strip()
+    if not tenant_id or len(tenant_id) > 120:
+        raise HTTPException(status_code=422, detail="Invalid tenant identifier")
+    return tenant_id
+
+
+def _validate_scan_report_payload(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="Scan report must be an object")
+    findings = payload.get("findings")
+    if not isinstance(findings, list) or len(findings) > 1_000:
+        raise HTTPException(status_code=422, detail="findings must contain at most 1000 items")
+    for field, maximum in (("source", 80), ("project", 160), ("title", 240)):
+        if not isinstance(payload.get(field), str) or not payload[field].strip() or len(payload[field]) > maximum:
+            raise HTTPException(status_code=422, detail=f"{field} is required and too long")
+    if not isinstance(payload.get("metadata", {}), dict):
+        raise HTTPException(status_code=422, detail="metadata must be an object")
+    for finding in findings:
+        if not isinstance(finding, dict):
+            raise HTTPException(status_code=422, detail="each finding must be an object")
+        if not isinstance(finding.get("metadata", {}), dict):
+            raise HTTPException(status_code=422, detail="finding metadata must be an object")
+    return payload
+
+
+@app.post("/api/scan-reports", status_code=201)
+async def create_scan_report_api(
+    payload: dict,
+    x_multillm_tenant: Optional[str] = Header(None),
+):
+    """Ingest a bounded, prompt-free scan report for the authenticated tenant."""
+    tenant_id = _scan_tenant(x_multillm_tenant)
+    try:
+        report_id = _orchestration_store().create_scan_report(
+            tenant_id, _validate_scan_report_payload(payload)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"data": {"id": report_id}}
+
+
+@app.get("/api/scan-reports")
+async def list_scan_reports_api(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    x_multillm_tenant: Optional[str] = Header(None),
+):
+    tenant_id = _scan_tenant(x_multillm_tenant)
+    reports = _orchestration_store().list_scan_reports(tenant_id, limit=limit, offset=offset)
+    return {"data": reports, "meta": {"limit": limit, "offset": offset, "count": len(reports)}}
+
+
+@app.get("/api/scan-reports/summary")
+async def scan_report_summary_api(x_multillm_tenant: Optional[str] = Header(None)):
+    return {"data": _orchestration_store().get_scan_summary(_scan_tenant(x_multillm_tenant))}
+
+
+@app.get("/api/scan-reports/export")
+async def export_scan_reports_api(
+    format: str = Query("json", pattern="^(json|csv)$"),
+    x_multillm_tenant: Optional[str] = Header(None),
+):
+    tenant_id = _scan_tenant(x_multillm_tenant)
+    store = _orchestration_store()
+    if format == "csv":
+        return Response(
+            content=store.scan_findings_csv(tenant_id), media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=scan-findings.csv"},
+        )
+    return {"data": store.export_scan_findings(tenant_id)}
+
+
+@app.get("/api/scan-reports/{report_id}")
+async def scan_report_detail_api(report_id: str, x_multillm_tenant: Optional[str] = Header(None)):
+    report = _orchestration_store().get_scan_report(_scan_tenant(x_multillm_tenant), report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Scan report not found")
+    return {"data": report}
 
 
 @app.get("/api/status")
@@ -1780,10 +2135,20 @@ async def backends_api(refresh: bool = False):
     # Merge in the local CLI-agent backends (claude / codex / gemini / agy). These
     # are subprocess tools, not HTTP endpoints, so discover_all_models() never
     # probes them — detection is a cheap PATH lookup done here on each call.
-    from .cli_discovery import discover_cli_agents
+    from .cli_discovery import discover_cli_agents, fusion_capability, moa_capability
 
     summary.update(discover_cli_agents(ROUTES))
-    return {"backends": summary, "total_routes": len(ROUTES)}
+    summary["fusion"] = fusion_capability(summary)
+    summary["moa"] = moa_capability(summary)
+    return {
+        "backends": summary,
+        "total_routes": len(ROUTES),
+        "discovery": {
+            "refreshed": bool(refresh),
+            "observed_at": time.time(),
+            "eligibility": "live discovery and a healthy configured provider are required; catalog entries alone are not availability proof",
+        },
+    }
 
 
 @app.post("/api/routes")
@@ -2650,6 +3015,43 @@ async def _run_fusion(body: dict) -> dict:
     return result
 
 
+async def _run_moa_request(body: dict) -> dict:
+    """Run the canonical layered Mixture of Agents pipeline."""
+    prompt = str(body.get("prompt") or "").strip()
+    models = body.get("models") or body.get("moa_panel") or []
+    aggregator = str(body.get("aggregator") or body.get("moa_aggregator") or "").strip()
+    preset = str(body.get("preset") or "quality").strip().lower()
+    refiners = body.get("refiner_layers")
+    if refiners is None:
+        refiners = [models] if preset in {"quality", "critical"} else []
+        if preset == "critical":
+            refiners = [models, models]
+    try:
+        config = moa.MoAConfig(
+            proposer_models=tuple(models),
+            refiner_layers=tuple(tuple(layer) for layer in refiners),
+            aggregator_model=aggregator,
+            max_tokens=int(body.get("max_tokens", 4096)),
+            temperature=float(body.get("temperature", 0.2)),
+            max_context_chars=int(body.get("max_context_chars", 48_000)),
+            per_call_timeout_seconds=float(body.get("timeout_seconds", 180)),
+        )
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid MoA configuration: {exc}") from exc
+    result = await moa.run_moa(prompt=prompt, config=config, query_fn=_fusion_query_fn)
+    trace_fusion_run(
+        kind="moa",
+        prompt=prompt,
+        panel_results=[],
+        judge=aggregator,
+        analysis=str(result.get("analysis", {})),
+        final_answer=result.get("finalAnswer", ""),
+        status=result.get("status", ""),
+        project=PROJECT,
+    )
+    return result
+
+
 async def _run_adaptive(
     body: dict,
     *,
@@ -2803,6 +3205,11 @@ async def _run_adaptive(
 
 def _fusion_usage(result: dict) -> tuple[int, int]:
     """Aggregate (input, output) tokens across the panel + judge."""
+    if result.get("kind") == "moa":
+        totals = result.get("totals") or {}
+        return int(totals.get("inputTokens", 0) or 0), int(
+            totals.get("outputTokens", 0) or 0
+        )
     in_tok = sum(
         r.get("inputTokens", 0) for r in result.get("panel", []) if not r.get("error")
     )
@@ -2887,6 +3294,41 @@ async def fusion_api(body: dict | None = None):
             force_deliberation=True,
         )
     return await _run_fusion(adapted)
+
+
+@app.post("/api/moa")
+async def moa_api(body: dict | None = None):
+    """Run canonical layered Mixture of Agents orchestration.
+
+    ``/api/fusion`` remains available as a backwards-compatible one-layer or
+    adaptive entry point; new integrations should use this endpoint.
+    """
+    body = body or {}
+    if not isinstance(body.get("prompt"), str) or not body["prompt"].strip():
+        raise HTTPException(status_code=400, detail="Missing 'prompt'")
+    models = body.get("models") or body.get("moa_panel")
+    aggregator = body.get("aggregator") or body.get("moa_aggregator")
+    if not isinstance(models, list) or len(models) < 2:
+        raise HTTPException(status_code=422, detail="MoA requires at least two models")
+    if not isinstance(aggregator, str) or not aggregator.strip():
+        raise HTTPException(status_code=422, detail="MoA aggregator is required")
+    return await _run_moa_request(body)
+
+
+@app.post("/api/adaptive")
+async def adaptive_api(body: dict | None = None):
+    """Run cheap-first orchestration without requiring forced deliberation."""
+    body = body or {}
+    if not isinstance(body.get("prompt"), str) or not body["prompt"].strip():
+        raise HTTPException(status_code=400, detail="Missing 'prompt'")
+    adapted = dict(body)
+    adapted["messages"] = [{"role": "user", "content": body["prompt"]}]
+    return await _run_adaptive(
+        adapted,
+        preset=str(body.get("preset") or "balanced"),
+        candidates=body.get("models") or None,
+        force_deliberation=False,
+    )
 
 
 @app.get("/api/budgets")
@@ -3119,6 +3561,58 @@ async def model_capabilities_api():
     }
 
 
+@app.get("/api/models/scorecards")
+async def model_scorecards_api(min_samples: int = 20, task_type: str | None = None):
+    if not 1 <= min_samples <= 1_000_000:
+        raise HTTPException(status_code=400, detail="min_samples must be from 1 to 1000000")
+    if task_type is not None and (not task_type.strip() or len(task_type) > 100):
+        raise HTTPException(status_code=400, detail="task_type must be a non-empty value of at most 100 characters")
+    return {"scorecards": _orchestration_store().get_scorecards("default", min_samples=min_samples, task_type=task_type)}
+
+
+@app.get("/api/models/catalog")
+async def model_catalog_api(refresh: bool = False):
+    """Return discovery-backed capability, pricing, and scorecard data.
+
+    A configured route is not treated as evidence that a provider is currently
+    usable: consumers must use `available` and `classificationSource`.
+    """
+    discovered = await discover_all_models(force=refresh)
+    live = {(str(model.get("backend")), str(model.get("model"))) for models in discovered.values() for model in models}
+    from .cli_discovery import discover_cli_agents
+
+    cli_backends = discover_cli_agents(ROUTES)
+    live_aliases = {
+        str(model.get("id"))
+        for backend in cli_backends.values()
+        if backend.get("available")
+        for model in backend.get("models", [])
+    }
+    scorecards = _orchestration_store().get_scorecards("default", min_samples=1)
+    by_model = {item["model"]: item for item in scorecards}
+    models = []
+    for profile in _effective_model_registry().public_profiles():
+        observed = (
+            (profile["provider"], profile["provider_model_id"]) in live
+            or profile["alias"] in live_aliases
+        )
+        try:
+            health = float(score_backend(profile["provider"]).get("score", 0.0))
+        except Exception:
+            health = 0.0
+        models.append({
+            **profile,
+            "available": observed,
+            "health": health,
+            "classificationSource": (
+                "cli_discovery" if profile["alias"] in live_aliases
+                else "live_discovery" if observed else "route_configuration"
+            ),
+            "scorecard": by_model.get(profile["alias"]),
+        })
+    return {"models": models, "refreshed": bool(refresh), "observed_at": time.time()}
+
+
 @app.get("/api/orchestration/{run_id}")
 async def orchestration_trace_api(run_id: str):
     trace = _orchestration_store().get_trace("default", run_id)
@@ -3285,6 +3779,158 @@ async def trigger_discovery():
     return {"status": "ok", "discovered": total, "total_routes": len(ROUTES)}
 
 
+@app.post("/api/evaluations/preflight")
+async def evaluation_live_preflight(body: dict | None = None):
+    """Execute bounded probes and issue a target-bound live-host receipt."""
+    if os.getenv("MULTILLM_EVAL_ALLOW_LIVE_HOST", "false").lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "success": False,
+                "data": None,
+                "error": {
+                    "message": (
+                        "Live evaluation is disabled; set "
+                        "MULTILLM_EVAL_ALLOW_LIVE_HOST=true on the host gateway"
+                    )
+                },
+                "meta": {},
+            },
+        )
+    body = body or {}
+    targets = body.get("targets")
+    if (
+        not isinstance(targets, list)
+        or not 1 <= len(targets) <= 20
+        or any(not isinstance(item, str) or not item.strip() for item in targets)
+    ):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"message": "targets must contain 1 to 20 aliases"},
+                "meta": {},
+            },
+        )
+    normalized = tuple(dict.fromkeys(item.strip() for item in targets))
+    unknown = [target for target in normalized if target not in ROUTES]
+    if unknown:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"message": f"Unknown evaluation aliases: {unknown}"},
+                "meta": {},
+            },
+        )
+
+    marker = "MULTILLM_EVAL_PROBE_OK"
+    prompt = (
+        f"Reply with exactly {marker} and nothing else. "
+        "Do not call tools, read files, or modify any external state."
+    )
+
+    async def probe(target: str) -> dict:
+        result = await _council_query_one(
+            target,
+            prompt,
+            64,
+            0,
+            controls={
+                "reasoning_effort": "low",
+                "execution_mode": "standard",
+                "verbosity": "concise",
+            },
+        )
+        verified = not result.get("error") and str(result.get("text", "")).strip() == marker
+        return {
+            "alias": target,
+            "executionVerified": verified,
+            "resolvedModel": result.get("providerModel") if verified else None,
+            "latencyMs": result.get("latencyMs"),
+            "error": None if verified else "probe_failed",
+        }
+
+    results = list(await asyncio.gather(*(probe(target) for target in normalized)))
+    verified = all(item["executionVerified"] for item in results)
+    receipt = None
+    expires_at = None
+    if verified:
+        receipt = f"evalpf_{uuid.uuid4().hex}"
+        expires_at = time.time() + 1_800
+        _EVALUATION_PREFLIGHTS[receipt] = {
+            "targets": set(normalized),
+            "expiresAt": expires_at,
+        }
+    data = {
+        "receipt": receipt,
+        "expiresAt": expires_at,
+        "executionMode": "live_host",
+        "sandboxFallback": False,
+        "targets": results,
+    }
+    return JSONResponse(
+        status_code=200 if verified else 409,
+        content={
+            "success": verified,
+            "data": data,
+            "error": None if verified else {"message": "One or more execution probes failed"},
+            "meta": {},
+        },
+    )
+
+
+@app.get("/api/evaluations/live-targets")
+async def evaluation_live_targets():
+    """List configured host CLI candidates; execution proof remains separate."""
+    from .cli_discovery import discover_cli_agents
+
+    catalog: list[dict] = []
+    for backend, capability in discover_cli_agents(ROUTES).items():
+        if not capability.get("available"):
+            continue
+        for model in capability.get("models") or []:
+            alias = str(model.get("id") or "").strip()
+            if not alias:
+                continue
+            route = ROUTES.get(alias) or {}
+            catalog.append(
+                {
+                    "alias": alias,
+                    "provider": backend,
+                    "providerModel": str(model.get("model") or alias),
+                    "reasoning": str(route.get("reasoning_effort") or "default"),
+                }
+            )
+    targets = [
+        {
+            "alias": item["alias"],
+            "backend": item["provider"],
+            "providerModel": item["providerModel"],
+            "equivalentAliases": item["equivalentAliases"],
+        }
+        for item in deduplicate_targets(catalog)
+    ]
+    targets.sort(key=lambda item: item["alias"])
+    return {
+        "success": True,
+        "data": {"targets": targets},
+        "error": None,
+        "meta": {
+            "count": len(targets),
+            "discoveryVerified": True,
+            "executionVerified": False,
+            "next": "POST /api/evaluations/preflight",
+        },
+    }
+
+
 @app.get("/dashboard")
 async def dashboard_page():
     static_dir = Path(__file__).parent / "static"
@@ -3292,6 +3938,27 @@ async def dashboard_page():
     if not html_file.exists():
         raise HTTPException(status_code=404, detail="Dashboard not found")
     return HTMLResponse(html_file.read_text())
+
+
+@app.get("/evaluations")
+async def evaluations_page():
+    static_dir = Path(__file__).parent / "static"
+    html_file = static_dir / "evaluations.html"
+    if not html_file.exists():
+        raise HTTPException(status_code=404, detail="Evaluation workspace not found")
+    return HTMLResponse(html_file.read_text(encoding="utf-8"))
+
+
+@app.get("/evaluations/assets/{asset_name}")
+async def evaluation_asset(asset_name: str):
+    if asset_name not in {"evaluations.js", "d3.v7.min.js"}:
+        raise HTTPException(status_code=404, detail="Evaluation asset not found")
+    asset = Path(__file__).parent / "static" / (
+        f"vendor/{asset_name}" if asset_name == "d3.v7.min.js" else asset_name
+    )
+    if not asset.exists():
+        raise HTTPException(status_code=404, detail="Evaluation asset not built")
+    return Response(content=asset.read_bytes(), media_type="text/javascript")
 
 
 @app.get("/")

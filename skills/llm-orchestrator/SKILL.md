@@ -12,6 +12,7 @@ Use MultiLLM as the control plane for cross-model work instead of treating other
 1. Assume the gateway is `http://localhost:8080` unless the environment says otherwise.
 2. If the user asks about usage, costs, sessions, or hourly trends, use the dashboard and usage commands first.
 3. If the user wants other models involved, prefer the MultiLLM MCP tools instead of manual copy/paste.
+4. For coding, architecture, planning, or reviews where an independent check is useful, use `llm_fusion` with the `balanced` preset first; increase to `quality` only when the task remains unresolved.
 4. If work must appear across multiple devices, assume a shared `MULTILLM_HOME` is the intended consolidation mechanism.
 
 ## Fusion & Smart Routing (multi-model synthesis)

@@ -2,7 +2,7 @@
   "_comment": "Project-local MCP server for clients that read .mcp.json. Claude Code also has slash commands; Codex CLI has .codex/config.toml.",
   "mcpServers": {
     "multillm": {
-      "command": "python3",
+      "command": ".venv/bin/python",
       "args": ["-m", "multillm.mcp_server"],
       "env": {
         "LLM_GATEWAY_URL": "http://localhost:8080"

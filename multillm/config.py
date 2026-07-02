@@ -256,6 +256,11 @@ DEFAULT_ROUTES: dict[str, dict] = {
     "codex/gpt-5-codex": {"backend": "codex_cli", "model": "codex:gpt-5-codex"},
     "codex/gpt-5-2-codex": {"backend": "codex_cli", "model": "codex:gpt-5-2-codex"},
     "codex/gpt-5-3-codex": {"backend": "codex_cli", "model": "codex:gpt-5-3-codex"},
+    # GPT-5.6 Codex variants; availability is confirmed by local Codex CLI
+    # discovery before automatic selection or evaluation.
+    "codex/gpt-5-6-luna": {"backend": "codex_cli", "model": "codex:gpt-5-6-luna"},
+    "codex/gpt-5-6-terra": {"backend": "codex_cli", "model": "codex:gpt-5-6-terra"},
+    "codex/gpt-5-6-sol": {"backend": "codex_cli", "model": "codex:gpt-5-6-sol"},
     # ── Cline-compatible backends ──────────────────────────────────────────
     # Groq (ultra-fast inference)
     "groq/llama-3.3-70b": {"backend": "groq", "model": "llama-3.3-70b-versatile"},

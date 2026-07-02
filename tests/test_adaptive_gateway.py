@@ -1,8 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import json
+import os
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -12,6 +16,16 @@ from multillm.orchestration_store import OrchestrationStore
 
 
 client = TestClient(app)
+
+DEEPEVAL_ROOT = Path(__file__).resolve().parents[1] / "evals" / "deepeval"
+
+
+def test_deepeval_target_catalog_is_extensible_and_moa_is_final_target():
+    models = json.loads((DEEPEVAL_ROOT / "models.json").read_text(encoding="utf-8"))
+    assert models["schema_version"] == 1
+    assert len(models["targets"]) >= 6
+    assert all({"id", "label", "default_alias", "alias_env", "reasoning_ceiling"} <= set(target) for target in models["targets"])
+    assert models["moa"]["id"] == "moa-quality"
 
 
 def _adaptive_result():
@@ -78,6 +92,94 @@ def test_fusion_preset_uses_adaptive_engine_and_preserves_response_shape():
     assert run.await_args.kwargs["force_deliberation"] is True
 
 
+def test_adaptive_endpoint_preserves_full_result_without_forced_deliberation():
+    with patch(
+        "multillm.gateway._run_adaptive", new=AsyncMock(return_value=_adaptive_result())
+    ) as run:
+        response = client.post("/api/adaptive", json={"prompt": "Review this", "preset": "balanced"})
+
+    assert response.status_code == 200
+    assert response.json()["runId"] == "orch_test"
+    assert run.await_args.kwargs["force_deliberation"] is False
+
+
+def test_adaptive_endpoint_requires_a_prompt():
+    assert client.post("/api/adaptive", json={}).status_code == 400
+
+
+@pytest.mark.skipif(os.getenv("DEEPEVAL_E2E") != "1", reason="live DeepEval is opt-in")
+def test_deepeval_compares_live_models_then_moa_last():
+    """A live black-box comparison kept outside the OCI Skills repository."""
+    from deepeval import assert_test
+    from deepeval.metrics import GEval
+    from deepeval.models.base_model import DeepEvalBaseLLM
+    from deepeval.test_case import LLMTestCase, SingleTurnParams
+
+    models = json.loads((DEEPEVAL_ROOT / "models.json").read_text(encoding="utf-8"))
+    cases = json.loads((DEEPEVAL_ROOT / "cases.json").read_text(encoding="utf-8"))["cases"]
+    gateway_url = os.getenv("LLM_GATEWAY_URL", "http://localhost:8080").rstrip("/")
+    judge_alias = os.getenv("MULTILLM_EVAL_JUDGE_ALIAS", "").strip()
+    if not judge_alias:
+        pytest.skip("MULTILLM_EVAL_JUDGE_ALIAS is required")
+
+    import httpx
+    headers = {"X-API-Key": os.environ["MULTILLM_API_KEY"]} if os.getenv("MULTILLM_API_KEY") else {}
+    with httpx.Client(timeout=30) as live_client:
+        try:
+            catalog_response = live_client.get(f"{gateway_url}/api/models/catalog", params={"refresh": "true"}, headers=headers)
+            catalog_response.raise_for_status()
+            catalog = catalog_response.json()
+        except httpx.HTTPError as exc:
+            pytest.skip(f"live discovery unavailable: {type(exc).__name__}")
+        available = {item["alias"] for item in catalog.get("models", []) if item.get("available")}
+        targets = [target for target in models["targets"] if os.getenv(target["alias_env"], target["default_alias"]) in available]
+        if not targets:
+            pytest.skip("no configured evaluation aliases were live after discovery")
+        if len(targets) < 2:
+            pytest.fail(f"Fusion comparison requires at least two live targets; got {[target['id'] for target in targets]}")
+
+        def ask(alias: str, command: str, effort: str = "medium") -> str:
+            response = live_client.post(f"{gateway_url}/v1/messages", headers=headers, json={"model": alias, "messages": [{"role": "user", "content": command}], "metadata": {"multillm": {"reasoning_ceiling": effort}}})
+            response.raise_for_status()
+            return str((response.json().get("content") or [{}])[0].get("text") or "")
+
+        # Individual targets must complete before the final Fusion request.
+        outputs = [(target["label"], ask(os.getenv(target["alias_env"], target["default_alias"]), case["command"])) for target in targets for case in cases]
+        aliases = [os.getenv(target["alias_env"], target["default_alias"]) for target in targets]
+        for case in cases:
+            aggregator = os.getenv(
+                models["moa"]["aggregator_alias_env"],
+                models["moa"]["default_aggregator_alias"],
+            )
+            response = live_client.post(
+                f"{gateway_url}/api/moa",
+                headers=headers,
+                json={
+                    "prompt": case["command"],
+                    "models": aliases,
+                    "aggregator": aggregator,
+                    "preset": models["moa"]["preset"],
+                },
+            )
+            response.raise_for_status()
+            outputs.append((models["moa"]["label"], str(response.json().get("finalAnswer") or "")))
+
+    class GatewayJudge(DeepEvalBaseLLM):
+        def load_model(self): return self
+        def generate(self, prompt: str) -> str:
+            with httpx.Client(timeout=180) as judge_client:
+                response = judge_client.post(f"{gateway_url}/v1/messages", headers=headers, json={"model": judge_alias, "messages": [{"role": "user", "content": prompt}], "metadata": {"multillm": {"reasoning_ceiling": "medium"}}})
+                response.raise_for_status()
+                return str((response.json().get("content") or [{}])[0].get("text") or "")
+        async def a_generate(self, prompt: str) -> str: return self.generate(prompt)
+        def get_model_name(self) -> str: return f"gateway:{judge_alias}"
+
+    for index, (_label, output) in enumerate(outputs):
+        case = cases[index % len(cases)]
+        metric = GEval(name="Gateway response quality", criteria=case["criteria"], evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT], model=GatewayJudge(), threshold=0.5)
+        assert_test(LLMTestCase(input=case["command"], actual_output=output), [metric])
+
+
 def test_explicit_fusion_panel_still_uses_legacy_pipeline():
     legacy = {
         "status": "single",
@@ -139,6 +241,22 @@ def test_capabilities_endpoint_reports_model_level_pricing_and_controls():
     assert profiles["openai/gpt-5-5"]["protocol"] == "responses"
     assert profiles["openai/gpt-5-5"]["pricing"]["output_per_million"] > 0
     assert "high" in profiles["openai/gpt-5-5"]["reasoning_efforts"]
+
+
+def test_catalog_treats_detected_cli_models_as_live():
+    routes = {"codex/gpt-5-5": {"backend": "codex_cli", "model": "codex:gpt-5-5"}}
+    cli = {"codex_cli": {"available": True, "models": [{"id": "codex/gpt-5-5"}]}}
+    with (
+        patch.dict("multillm.gateway.ROUTES", routes, clear=True),
+        patch("multillm.gateway.discover_all_models", new=AsyncMock(return_value={})),
+        patch("multillm.cli_discovery.discover_cli_agents", return_value=cli),
+    ):
+        response = client.get("/api/models/catalog")
+
+    assert response.status_code == 200
+    model = response.json()["models"][0]
+    assert model["available"] is True
+    assert model["classificationSource"] == "cli_discovery"
 
 
 def test_normalized_usage_includes_reasoning_cache_and_model_identity():

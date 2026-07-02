@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import sqlite3
 import time
@@ -91,6 +93,34 @@ class OrchestrationStore:
                     updated_at REAL NOT NULL,
                     PRIMARY KEY (tenant_id, model, task_type)
                 );
+                CREATE TABLE IF NOT EXISTS scan_reports (
+                    id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    source TEXT NOT NULL,
+                    project TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    PRIMARY KEY (tenant_id, id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_scan_reports_tenant_created
+                    ON scan_reports (tenant_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS scan_findings (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    report_id TEXT NOT NULL,
+                    external_id TEXT,
+                    severity TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    resource TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    FOREIGN KEY (tenant_id, report_id)
+                        REFERENCES scan_reports (tenant_id, id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_scan_findings_tenant_report
+                    ON scan_findings (tenant_id, report_id, severity, status);
                 """
             )
 
@@ -330,15 +360,164 @@ class OrchestrationStore:
             )
 
     def get_scorecards(
-        self, tenant_id: str, *, min_samples: int = 20
+        self, tenant_id: str, *, min_samples: int = 20, task_type: str | None = None
     ) -> list[dict[str, Any]]:
+        where = "WHERE tenant_id = ? AND sample_count >= ?"
+        values: list[Any] = [tenant_id, max(1, int(min_samples))]
+        if task_type:
+            where += " AND task_type = ?"
+            values.append(task_type)
         with self._connect() as connection:
             rows = connection.execute(
                 """SELECT model, task_type, quality_mean, reliability_mean,
                           avg_cost_usd, sample_count, confidence_lower, updated_at
                    FROM model_scorecards
-                   WHERE tenant_id = ? AND sample_count >= ?
-                   ORDER BY confidence_lower DESC""",
-                (tenant_id, max(1, int(min_samples))),
+                   """ + where + " ORDER BY confidence_lower DESC",
+                values,
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def create_scan_report(self, tenant_id: str, payload: dict[str, Any]) -> str:
+        """Persist a normalized scan report without cross-tenant visibility."""
+        report_id = f"scan_{uuid.uuid4().hex[:20]}"
+        findings = payload.get("findings", [])
+        if not isinstance(findings, list):
+            raise ValueError("findings must be an array")
+        source = str(payload.get("source", "")).strip()
+        project = str(payload.get("project", "")).strip()
+        title = str(payload.get("title", "")).strip()
+        if not tenant_id or not source or not project or not title:
+            raise ValueError("tenant_id, source, project, and title are required")
+        now = time.time()
+        report_metadata = payload.get("metadata", {})
+        if not isinstance(report_metadata, dict):
+            raise ValueError("metadata must be an object")
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO scan_reports
+                   (id, tenant_id, created_at, source, project, title, metadata_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (report_id, tenant_id, now, source, project, title,
+                 json.dumps(report_metadata, sort_keys=True)),
+            )
+            for finding in findings:
+                if not isinstance(finding, dict):
+                    raise ValueError("each finding must be an object")
+                severity = str(finding.get("severity", "")).lower().strip()
+                category = str(finding.get("category", "")).strip()
+                finding_title = str(finding.get("title", "")).strip()
+                status = str(finding.get("status", "open")).lower().strip()
+                if severity not in {"critical", "high", "medium", "low", "info"}:
+                    raise ValueError("finding severity is invalid")
+                if status not in {"open", "accepted", "resolved", "suppressed"}:
+                    raise ValueError("finding status is invalid")
+                if not category or not finding_title:
+                    raise ValueError("finding category and title are required")
+                metadata = finding.get("metadata", {})
+                if not isinstance(metadata, dict):
+                    raise ValueError("finding metadata must be an object")
+                connection.execute(
+                    """INSERT INTO scan_findings
+                       (id, tenant_id, report_id, external_id, severity, category,
+                        title, resource, status, metadata_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (f"finding_{uuid.uuid4().hex[:20]}", tenant_id, report_id,
+                     str(finding.get("externalId", "")).strip() or None, severity,
+                     category, finding_title, str(finding.get("resource", "")).strip(),
+                     status, json.dumps(metadata, sort_keys=True)),
+                )
+        return report_id
+
+    def get_scan_report(self, tenant_id: str, report_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            report = connection.execute(
+                "SELECT * FROM scan_reports WHERE tenant_id = ? AND id = ?",
+                (tenant_id, report_id),
+            ).fetchone()
+            if report is None:
+                return None
+            findings = connection.execute(
+                """SELECT external_id, severity, category, title, resource, status,
+                          metadata_json FROM scan_findings
+                   WHERE tenant_id = ? AND report_id = ? ORDER BY severity, title""",
+                (tenant_id, report_id),
+            ).fetchall()
+        finding_rows = [
+            {"externalId": row["external_id"], "severity": row["severity"],
+             "category": row["category"], "title": row["title"],
+             "resource": row["resource"], "status": row["status"],
+             "metadata": json.loads(row["metadata_json"])}
+            for row in findings
+        ]
+        by_severity = {severity: sum(1 for row in finding_rows if row["severity"] == severity)
+                       for severity in ("critical", "high", "medium", "low", "info")}
+        return {"id": report["id"], "createdAt": report["created_at"],
+                "source": report["source"], "project": report["project"],
+                "title": report["title"], "metadata": json.loads(report["metadata_json"]),
+                "findings": finding_rows,
+                "summary": {**{key: value for key, value in by_severity.items() if value},
+                            "total": len(finding_rows)}}
+
+    def list_scan_reports(self, tenant_id: str, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+        limit = max(1, min(int(limit), 200))
+        offset = max(0, int(offset))
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT r.id, r.created_at, r.source, r.project, r.title,
+                          COUNT(f.id) AS finding_count,
+                          SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical_count,
+                          SUM(CASE WHEN f.severity = 'high' THEN 1 ELSE 0 END) AS high_count
+                   FROM scan_reports r LEFT JOIN scan_findings f
+                     ON f.tenant_id = r.tenant_id AND f.report_id = r.id
+                   WHERE r.tenant_id = ? GROUP BY r.id
+                   ORDER BY r.created_at DESC LIMIT ? OFFSET ?""",
+                (tenant_id, limit, offset),
+            ).fetchall()
+        return [{"id": row["id"], "createdAt": row["created_at"], "source": row["source"],
+                 "project": row["project"], "title": row["title"],
+                 "findingCount": row["finding_count"], "criticalCount": row["critical_count"] or 0,
+                 "highCount": row["high_count"] or 0} for row in rows]
+
+    def get_scan_summary(self, tenant_id: str) -> dict[str, Any]:
+        with self._connect() as connection:
+            report_count = connection.execute(
+                "SELECT COUNT(*) FROM scan_reports WHERE tenant_id = ?", (tenant_id,)
+            ).fetchone()[0]
+            severity_rows = connection.execute(
+                "SELECT severity, COUNT(*) AS count FROM scan_findings WHERE tenant_id = ? GROUP BY severity",
+                (tenant_id,),
+            ).fetchall()
+            status_rows = connection.execute(
+                "SELECT status, COUNT(*) AS count FROM scan_findings WHERE tenant_id = ? GROUP BY status",
+                (tenant_id,),
+            ).fetchall()
+        return {"reports": report_count,
+                "findingsBySeverity": {row["severity"]: row["count"] for row in severity_rows},
+                "findingsByStatus": {row["status"]: row["count"] for row in status_rows}}
+
+    def export_scan_findings(self, tenant_id: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT r.id AS report_id, r.created_at, r.source, r.project, r.title AS report_title,
+                          f.external_id, f.severity, f.category, f.title, f.resource, f.status
+                   FROM scan_reports r JOIN scan_findings f
+                     ON f.tenant_id = r.tenant_id AND f.report_id = r.id
+                   WHERE r.tenant_id = ? ORDER BY r.created_at DESC, f.severity, f.title""",
+                (tenant_id,),
+            ).fetchall()
+        return [{"reportId": row["report_id"], "createdAt": row["created_at"],
+                 "source": row["source"], "project": row["project"],
+                 "reportTitle": row["report_title"], "externalId": row["external_id"] or "",
+                 "severity": row["severity"], "category": row["category"],
+                 "title": row["title"], "resource": row["resource"], "status": row["status"]}
+                for row in rows]
+
+    def scan_findings_csv(self, tenant_id: str) -> str:
+        rows = self.export_scan_findings(tenant_id)
+        output = io.StringIO()
+        fields = ["reportId", "createdAt", "source", "project", "reportTitle", "externalId",
+                  "severity", "category", "title", "resource", "status"]
+        writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+        return output.getvalue()

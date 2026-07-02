@@ -54,7 +54,7 @@ def _column_names(db_path: Path, table: str) -> list[str]:
         conn.close()
 
 
-_HEAD_REVISION = "0004_adaptive_orchestration"
+_HEAD_REVISION = "0006_evaluation_metric_attempts"
 
 
 def test_dry_run_lists_pending_migrations_on_fresh_db(bootstrapped_db: Path) -> None:
@@ -68,6 +68,8 @@ def test_dry_run_lists_pending_migrations_on_fresh_db(bootstrapped_db: Path) -> 
         "0002_setup_state",
         "0003_auth_tenancy",
         "0004_adaptive_orchestration",
+        "0005_evaluations",
+        "0006_evaluation_metric_attempts",
     ]
 
 

@@ -1,4 +1,17 @@
-# Adaptive Fusion v2
+# Adaptive Fusion v2 and layered MoA
+
+MultiLLM exposes three distinct orchestration contracts:
+
+- `auto` / `POST /api/adaptive`: cheap-first progressive routing that may stop
+  after one answer.
+- `fusion/*`, `POST /api/fusion`, and `llm_fusion`: compatibility/adaptive
+  Fusion surfaces.
+- `moa/*`, `POST /api/moa`, and `llm_moa`: canonical layered
+  Mixture-of-Agents with parallel proposers, optional refiner layers, and one
+  structured final aggregator.
+
+MoA is unrelated to Oracle Fusion. Recursive `moa/*`, `fusion/*`, and `auto`
+aliases are rejected from all MoA roles.
 
 Adaptive Fusion is the default implementation behind `model: "auto"`. It
 starts with the least expensive capable model, runs deterministic checks and an
@@ -10,6 +23,30 @@ Explicit `model: "fusion"` remains the fixed panel → judge compatibility path.
 Use `fusion/economy`, `fusion/balanced`, `fusion/quality`, or
 `fusion/critical` to force progressive deliberation. Request-level
 `fusion_panel` and `fusion_judge` values override presets.
+
+## Layered MoA
+
+```json
+{
+  "prompt": "Review this FinOps anomaly explanation.",
+  "models": ["codex/gpt-5-5", "antigravity/pro"],
+  "refiner_layers": [["gemini-cli/flash"]],
+  "aggregator": "claude-cli/sonnet",
+  "preset": "quality",
+  "max_tokens": 4096
+}
+```
+
+Proposers receive the exact user prompt in parallel. Refiners and the
+aggregator receive bounded, anonymously labeled response blocks; model aliases
+are removed from copied response text. The aggregator must return structured
+JSON with `analysis`, `final_answer`, and `confidence`. If aggregation fails,
+MoA degrades to the highest explicit quality score rather than choosing the
+longest answer. Per-call timeouts and maximum context characters bound each
+stage.
+
+For model/MoA comparisons, confidence intervals, independent judging, and audit
+exports, use [Model and MoA evaluation](evaluations.md).
 
 ## Policy controls
 

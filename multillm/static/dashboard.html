@@ -574,6 +574,7 @@
 <div class="header">
   <h1><span>Multi</span>LLM Dashboard</h1>
   <div class="controls">
+    <a href="/evaluations" style="color:var(--accent2);font-size:12px">MoA Evaluations</a>
     <select id="timeRange">
       <option value="1">Last 1h</option>
       <option value="6">Last 6h</option>
@@ -664,21 +665,42 @@
     </div>
   </div>
 
-  <!-- Council: ask multiple models -->
+  <div class="panel" id="privateCreditPanel" style="margin-bottom:24px;display:none">
+    <div class="panel-header">
+      <span>Private Credit Overlay</span>
+      <span style="font-size:10px;color:var(--text-dim)">local operator data</span>
+    </div>
+    <div class="panel-body" id="privateCreditBody"></div>
+  </div>
+
+  <!-- Mixture of Agents (MoA) and Council workbench -->
   <div class="panel" style="margin-bottom:24px">
     <div class="panel-header">
-      <span>Adaptive Council — Verified Synthesis</span>
-      <span style="font-size:10px;color:var(--text-dim)">cheap-first escalation, trace, cost, and feedback</span>
+      <span>Mixture of Agents (MoA) Workbench</span>
+      <span style="font-size:10px;color:var(--text-dim)">adaptive multi-model synthesis (not Oracle Fusion) or Council</span>
     </div>
     <div class="panel-body" style="padding:14px 16px">
-      <textarea id="councilPrompt" rows="3" placeholder="Ask a question to several models at once…"
+      <textarea id="councilPrompt" rows="3" placeholder="Ask the Mixture of Agents a question…"
         style="width:100%;box-sizing:border-box;background:var(--bg2,#15151f);color:var(--text);border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:10px;font:inherit;font-size:13px;resize:vertical"></textarea>
       <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
-        <input id="councilModels" type="text" placeholder="models (comma-separated) — blank = defaults"
+        <select id="councilMode" aria-label="Answer mode"
+          style="background:var(--bg2,#15151f);color:var(--text);border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:8px 10px;font:inherit;font-size:12px">
+          <option value="fusion" selected>Mixture of Agents — verify and escalate</option>
+          <option value="council">Council — synthesized opinions</option>
+        </select>
+        <select id="councilPreset" aria-label="Fusion preset"
+          style="background:var(--bg2,#15151f);color:var(--text);border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:8px 10px;font:inherit;font-size:12px">
+          <option value="economy">economy</option>
+          <option value="balanced" selected>balanced</option>
+          <option value="quality">quality</option>
+          <option value="critical">critical</option>
+        </select>
+        <input id="councilModels" type="text" placeholder="candidate models (optional, comma-separated)"
           style="flex:1;min-width:240px;background:var(--bg2,#15151f);color:var(--text);border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:8px 10px;font:inherit;font-size:12px">
         <button id="councilAsk" type="button"
-          style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 18px;font:inherit;font-weight:600;cursor:pointer">Ask Council</button>
+          style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 18px;font:inherit;font-weight:600;cursor:pointer">Ask MoA</button>
       </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:8px">Codex can call the same capability through the configured MultiLLM MCP tool: <code>llm_fusion</code>.</div>
       <div id="councilResult" style="margin-top:14px"></div>
     </div>
   </div>
@@ -1786,6 +1808,7 @@ function renderDashboard(payload) {
   renderModelBars(filteredModels);
   renderSessions(filteredSessions);
   renderBackends(payload.backends.backends || {});
+  renderPrivateCredit(payload.privateCredit);
   renderClaudeModelUsage(payload.claudeStats);
   renderClaudeHistory(payload.claudeStats);
   renderCodexModelUsage(payload.codexStats);
@@ -1798,13 +1821,51 @@ function renderDashboard(payload) {
   document.getElementById('lastUpdate').textContent = freshnessLabel(payload.performance);
 }
 
-// Council: fire one prompt at several models, show pre-flight cost then each
-// response with its actual cost. Wired to POST /api/council.
+function renderPrivateCredit(data) {
+  const panel = document.getElementById('privateCreditPanel');
+  const body = document.getElementById('privateCreditBody');
+  if (!panel || !body) return;
+  if (!data || !data.configured) {
+    panel.style.display = 'none';
+    body.innerHTML = '';
+    return;
+  }
+  panel.style.display = 'block';
+  const credits = Number(data.creditsUsed || 0).toLocaleString(undefined, {maximumFractionDigits: 3});
+  const mappedCost = data.mappedCostUSD == null
+    ? '<span style="color:var(--accent3)">cost rate not configured</span>'
+    : `<strong style="color:var(--accent2)">${fmtCost(data.mappedCostUSD)}</strong>`;
+  const rate = data.creditToUsd == null
+    ? ''
+    : `<span style="color:var(--text-dim)"> · ${fmtCost(data.creditToUsd)} / credit</span>`;
+  body.innerHTML = `<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <strong style="font-size:20px;color:var(--accent5)">${credits} credits</strong>
+    <span style="font-size:12px;color:var(--text-dim)">${escapeHtml(data.period || 'current period')}</span>
+    <span style="font-size:13px">Mapped cost: ${mappedCost}${rate}</span>
+  </div>`;
+}
+
+// Fusion is the default workbench mode; Council remains available for users
+// who specifically need parallel individual opinions.
 function wireCouncil() {
   const btn = document.getElementById('councilAsk');
   if (!btn || btn._wired) return;
   btn._wired = true;
   btn.addEventListener('click', askCouncil);
+  const mode = document.getElementById('councilMode');
+  if (mode) mode.addEventListener('change', syncCouncilControls);
+  syncCouncilControls();
+}
+
+function syncCouncilControls() {
+  const mode = document.getElementById('councilMode');
+  const preset = document.getElementById('councilPreset');
+  const button = document.getElementById('councilAsk');
+  if (!mode || !preset || !button) return;
+  const fusion = mode.value === 'fusion';
+  preset.disabled = !fusion;
+  preset.style.opacity = fusion ? '1' : '0.55';
+  button.textContent = fusion ? 'Ask MoA' : 'Ask Council';
 }
 
 // Smart Routing: show which model the log-driven router would pick for a prompt
@@ -1886,20 +1947,25 @@ async function askCouncil() {
   const out = document.getElementById('councilResult');
   const prompt = (document.getElementById('councilPrompt').value || '').trim();
   if (!prompt) { out.innerHTML = '<div style="color:var(--accent4);font-size:12px">Enter a prompt first.</div>'; return; }
+  const mode = document.getElementById('councilMode').value;
+  const preset = document.getElementById('councilPreset').value;
   const modelsRaw = (document.getElementById('councilModels').value || '').trim();
   const models = modelsRaw ? modelsRaw.split(',').map(s => s.trim()).filter(Boolean) : undefined;
 
-  btn.disabled = true; btn.textContent = 'Asking…';
-  out.innerHTML = '<div class="loading">Querying models in parallel…</div>';
+  btn.disabled = true; btn.textContent = mode === 'fusion' ? 'Synthesizing…' : 'Asking…';
+  out.innerHTML = `<div class="loading">${mode === 'fusion' ? 'Drafting, verifying, and escalating only if needed…' : 'Querying models in parallel…'}</div>`;
   try {
-    const body = {prompt, max_tokens: 1024, mode: 'synthesized', preset: 'balanced'};
+    const body = mode === 'fusion'
+      ? {prompt, max_tokens: 1024, preset}
+      : {prompt, max_tokens: 1024, mode: 'synthesized', preset};
     if (models) body.models = models;
-    const d = await fetchJSON(`${API}/api/council`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    const endpoint = mode === 'fusion' ? `${API}/api/fusion` : `${API}/api/council`;
+    const d = await fetchJSON(endpoint, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     out.innerHTML = renderCouncil(d);
   } catch (e) {
-    out.innerHTML = `<div style="color:var(--accent4);font-size:12px">Council failed: ${e.message || e}</div>`;
+    out.innerHTML = `<div style="color:var(--accent4);font-size:12px">${mode === 'fusion' ? 'Mixture of Agents' : 'Council'} failed: ${e.message || e}</div>`;
   } finally {
-    btn.disabled = false; btn.textContent = 'Ask Council';
+    btn.disabled = false; syncCouncilControls();
   }
 }
 
@@ -1909,7 +1975,7 @@ function renderCouncil(d) {
     `<span style="display:inline-block;background:var(--bg2,#15151f);border:1px solid var(--border,#2a2a3a);border-radius:12px;padding:2px 10px;margin:2px;font-size:11px;color:${e.isFree ? 'var(--accent2)' : 'var(--text-dim)'}">${e.alias}: ${e.isFree ? 'free' : fmtCostP(e.estimatedCostUSD)}</span>`
   ).join('');
 
-  const cards = (d.responses || []).map(r => {
+  const cards = (d.responses || d.panel || []).map(r => {
     if (r.error) {
       return `<div style="border:1px solid var(--accent4);border-radius:8px;padding:10px;margin-bottom:10px">
         <div style="font-weight:600;color:var(--accent4)">${escapeHtml(r.alias || '?')}</div>
@@ -1918,7 +1984,7 @@ function renderCouncil(d) {
     const escaped = (r.text || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
     return `<div style="border:1px solid var(--border,#2a2a3a);border-radius:8px;padding:10px;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <div style="font-weight:600;color:var(--accent5)">${escapeHtml(r.alias || '?')}</div>
+        <div style="font-weight:600;color:var(--accent5)">${escapeHtml(r.alias || r.model || '?')}</div>
         <div style="font-size:11px;color:var(--text-dim)">${fmtCostP(r.actualCostUSD)} · ${r.inputTokens}/${r.outputTokens} tok · ${Math.round(r.latencyMs)}ms</div>
       </div>
       <div style="font-size:13px;white-space:pre-wrap;margin-top:6px">${escaped}</div>
@@ -2193,13 +2259,14 @@ async function loadDashboard(force = false) {
     setCalculationState(hours);
 
     const refreshParam = force ? '&refresh=true' : '';
-    const [bundle, backends, cacheStats, active, otelStatus, status] = await Promise.all([
+    const [bundle, backends, cacheStats, active, otelStatus, status, privateCredit] = await Promise.all([
       fetchJSON(`${API}/api/dashboard-bundle?hours=${hours}&session_limit=50${projectParam}${refreshParam}`, options),
       optionalFetchJSON(`${API}/api/backends?refresh=false`, {backends: {}}, options),
       optionalFetchJSON(`${API}/api/cache`, {}, options),
       optionalFetchJSON(`${API}/api/active-sessions`, [], options),
       optionalFetchJSON(`${API}/api/otel`, {enabled: false}, options),
       optionalFetchJSON(`${API}/api/status`, null, options),
+      optionalFetchJSON(`${API}/api/private-credit`, {configured: false}, options),
     ]);
 
     if (requestId !== loadSequence) return;
@@ -2211,7 +2278,7 @@ async function loadDashboard(force = false) {
     const geminiStats = bundle.geminiStats || {available: false};
     const unified = bundle.unified || {};
     const performance = bundle.performance || {};
-    renderDashboard({stats, sessions, backends, cacheStats, claudeStats, codexStats, geminiStats, unified, active, otelStatus, status, performance});
+    renderDashboard({stats, sessions, backends, cacheStats, claudeStats, codexStats, geminiStats, unified, active, otelStatus, status, privateCredit, performance});
     loadCostForecast();
     loadBudgets();
   } catch (error) {
@@ -2447,15 +2514,23 @@ function renderBackends(backends) {
   container.innerHTML = names.map(name => {
     const info = backends[name];
     const color = BACKEND_COLORS[name] || '#6c5ce7';
+    const isCli = info.kind === 'cli_agent';
+    const isFusion = info.kind === 'orchestrator';
     const statusDot = info.available
       ? `<span style="color:${color}">●</span>`
       : info.status === 'catalog_only'
         ? '<span style="color:var(--accent3)">◐</span>'
         : '<span style="color:var(--text-dim)">○</span>';
-    const statusText = info.available
-      ? `${info.model_count} models`
+    const statusText = isFusion
+      ? info.available
+        ? `ready · ${info.eligible_model_count || 0} eligible routes`
+        : 'needs an available model route'
+      : info.available
+      ? isCli ? `installed · ${info.model_count} configured routes` : `${info.model_count} models`
       : info.catalog_available
         ? `${info.model_count} models · catalog only`
+        : isCli && info.installed
+          ? 'installed · no routes configured'
         : info.status === 'offline'
           ? 'offline'
           : 'not configured';
@@ -2465,11 +2540,11 @@ function renderBackends(backends) {
     return `<div style="margin-bottom:12px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
         ${statusDot}
-        <span style="font-weight:600;font-size:12px;text-transform:uppercase;color:${color}">${name}</span>
+        <span style="font-weight:600;font-size:12px;text-transform:uppercase;color:${color}">${info.label || name}</span>
         <span style="font-size:10px;color:var(--text-dim)">${statusText}</span>
       </div>
       <div style="padding-left:20px">${models || '<span style="color:var(--text-dim);font-size:11px">offline or not configured</span>'}</div>
-      ${info.note ? `<div style="padding-left:20px;margin-top:4px;font-size:10px;color:var(--text-dim)">${info.note}</div>` : ''}
+      ${info.note ? `<div style="padding-left:20px;margin-top:4px;font-size:10px;color:var(--text-dim)">${escapeHtml(info.note)}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -2868,8 +2943,15 @@ function renderActiveSessions(active) {
 
 function renderClaudeModelUsage(data) {
   const el = document.getElementById('claudeModelUsage');
+  const subscription = data && data.subscription;
+  const subscriptionLine = subscription && subscription.detected
+    ? `<div style="margin-bottom:8px;font-size:11px;color:var(--text-dim)">
+        Plan: <strong style="color:var(--accent2)">${escapeHtml(subscription.plan || 'Claude account')}</strong>
+        ${subscription.rateLimitTier ? `&middot; ${escapeHtml(subscription.rateLimitTier)}` : ''}
+      </div>`
+    : '';
   if (!data || !data.available) {
-    el.innerHTML = '<div class="empty-state">No Claude Code stats found<br><span style="font-size:10px;color:var(--text-dim)">Stats appear after Claude Code usage (~/.claude/stats-cache.json)</span></div>';
+    el.innerHTML = `${subscriptionLine}<div class="empty-state">No Claude Code stats found<br><span style="font-size:10px;color:var(--text-dim)">Stats appear after Claude Code usage (~/.claude/stats-cache.json)</span></div>`;
     return;
   }
   const models = data.modelUsage || {};
@@ -2893,7 +2975,7 @@ function renderClaudeModelUsage(data) {
     </tr>`;
   });
   el.innerHTML = `
-    <div style="margin-bottom:8px;font-size:11px;color:var(--text-dim)">
+    ${subscriptionLine}<div style="margin-bottom:8px;font-size:11px;color:var(--text-dim)">
       ${fmt(data.totalSessions)} sessions &middot; ${fmt(data.totalMessages)} messages &middot;
       Est. total: <span style="color:var(--accent3)">${fmtCost(totalCost)}</span>
     </div>

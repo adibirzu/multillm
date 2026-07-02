@@ -168,3 +168,39 @@ def test_get_claude_code_stats_applies_hours_and_project_filters(tmp_path, monke
     assert result["dailyActivity"] == [
         {"date": day, "messageCount": 1, "sessionCount": 1}
     ]
+
+
+def test_local_subscription_detects_claude_max_20x_without_account_data(
+    tmp_path, monkeypatch
+):
+    account_file = tmp_path / "claude.json"
+    _write_json(
+        account_file,
+        {
+            "oauthAccount": {
+                "billingType": "stripe_subscription",
+                "organizationRateLimitTier": "default_claude_max_20x",
+                "emailAddress": "private@example.test",
+                "accountUuid": "private-account-id",
+            }
+        },
+    )
+    monkeypatch.setattr(claude_stats, "CLAUDE_ACCOUNT_FILE", account_file)
+
+    subscription = claude_stats.get_claude_subscription()
+
+    assert subscription == {
+        "detected": True,
+        "plan": "Claude Max 20×",
+        "billingType": "subscription",
+        "rateLimitTier": "default_claude_max_20x",
+        "extraUsageEnabled": False,
+    }
+
+
+def test_local_subscription_is_unavailable_when_account_metadata_is_missing(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(claude_stats, "CLAUDE_ACCOUNT_FILE", tmp_path / "missing.json")
+
+    assert claude_stats.get_claude_subscription() == {"detected": False}

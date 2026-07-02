@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "judge_alias_env": "MULTILLM_EVAL_JUDGE_ALIAS",
+  "targets": [
+    {"id": "gpt55-medium", "label": "GPT-5.5 medium", "default_alias": "codex/gpt-5-5", "alias_env": "MULTILLM_EVAL_GPT55_ALIAS", "reasoning_ceiling": "medium"},
+    {"id": "gemini-flash-cli", "label": "Gemini Flash CLI", "default_alias": "gemini-cli/flash", "alias_env": "MULTILLM_EVAL_GEMINI_FLASH_ALIAS", "reasoning_ceiling": "medium"},
+    {"id": "gpt56-sol-medium", "label": "GPT-5.6 Sol medium", "default_alias": "codex/gpt-5-6-sol", "alias_env": "MULTILLM_EVAL_GPT56_SOL_ALIAS", "reasoning_ceiling": "medium"},
+    {"id": "claude-sonnet-cli", "label": "Claude Sonnet CLI", "default_alias": "claude-cli/sonnet", "alias_env": "MULTILLM_EVAL_CLAUDE_SONNET_ALIAS", "reasoning_ceiling": "medium"},
+    {"id": "gpt56-terra-medium", "label": "GPT-5.6 Terra medium", "default_alias": "codex/gpt-5-6-terra", "alias_env": "MULTILLM_EVAL_GPT56_TERRA_ALIAS", "reasoning_ceiling": "medium"},
+    {"id": "antigravity-pro", "label": "Antigravity Pro", "default_alias": "antigravity/pro", "alias_env": "MULTILLM_EVAL_ANTIGRAVITY_PRO_ALIAS", "reasoning_ceiling": "medium"}
+  ],
+  "moa": {
+    "id": "moa-quality",
+    "label": "Mixture of Agents quality",
+    "preset": "quality",
+    "aggregator_alias_env": "MULTILLM_EVAL_MOA_AGGREGATOR",
+    "default_aggregator_alias": "claude-cli/opus"
+  }
+}

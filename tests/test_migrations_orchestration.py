@@ -15,7 +15,7 @@ def test_adaptive_orchestration_migration_creates_tenant_scoped_tables(
 
     from multillm.migrations.runner import migrate_up
 
-    assert migrate_up() == "0004_adaptive_orchestration"
+    assert migrate_up() == "0006_evaluation_metric_attempts"
     with sqlite3.connect(database) as connection:
         tables = {
             row[0]

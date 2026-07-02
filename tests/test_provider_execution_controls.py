@@ -166,7 +166,7 @@ def test_codex_send_passes_execution_controls_and_returns_usage(monkeypatch):
     overrides = call.await_args.args[3]
     assert overrides == {
         "model_reasoning_effort": "low",
-        "model_verbosity": "concise",
+        "model_verbosity": "low",
     }
     assert result["content"][0]["text"] == "codex answer"
 

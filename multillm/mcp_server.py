@@ -7,6 +7,8 @@ MultiLLM MCP Server — multi-LLM routing + memory + tracking + settings as MCP 
 Tools:
   LLM Routing:
     - llm_ask_model         Ask any routed model
+    - llm_moa               Ask canonical layered Mixture of Agents
+    - llm_fusion            Backward-compatible adaptive Fusion entry point
     - llm_second_opinion    Code/plan review by another LLM
     - llm_council           Query 2-5 models in parallel
     - llm_summarize_cheap   Compress text via local model
@@ -38,7 +40,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -94,6 +96,12 @@ log = logging.getLogger("multillm.mcp")
 
 GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "http://localhost:8080")
 
+
+def _gateway_headers() -> dict[str, str]:
+    """Forward the optional gateway key without logging or rendering it."""
+    key = os.getenv("MULTILLM_API_KEY")
+    return {"X-API-Key": key} if key else {}
+
 # Shared HTTP client for gateway calls — avoids creating a new client per tool invocation.
 # Lazily initialized on first use, reused across all MCP tool calls.
 _gateway_client: Optional[httpx.AsyncClient] = None
@@ -144,6 +152,60 @@ class CouncilInput(BaseModel):
     )
     prompt: str = Field(..., min_length=1)
     system: Optional[str] = Field(default=None)
+
+
+class FusionInput(BaseModel):
+    """Validated input for the adaptive Fusion capability exposed to Codex."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    prompt: str = Field(..., min_length=1, max_length=100_000)
+    preset: Literal["economy", "balanced", "quality", "critical"] = "balanced"
+    models: Optional[list[str]] = Field(default=None, min_length=1, max_length=8)
+
+
+class MoAInput(BaseModel):
+    """Validated canonical layered Mixture of Agents request."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    prompt: str = Field(..., min_length=1, max_length=100_000)
+    preset: Literal["economy", "balanced", "quality", "critical"] = "quality"
+    models: list[str] = Field(..., min_length=2, max_length=12)
+    aggregator: str = Field(..., min_length=1, max_length=200)
+    refiner_layers: Optional[list[list[str]]] = Field(default=None, max_length=4)
+
+
+class AdaptiveInput(FusionInput):
+    """Cheap-first adaptive request; unlike Fusion it does not force a panel."""
+
+
+class CostEstimateInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    prompt: str = Field(..., min_length=1, max_length=100_000)
+    models: Optional[list[str]] = Field(default=None, min_length=1, max_length=32)
+    expected_output_tokens: int = Field(default=500, ge=1, le=131_072)
+
+
+class RoutingDecisionInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    prompt: str = Field(..., min_length=1, max_length=100_000)
+    bias: Optional[float] = Field(default=None, ge=0, le=1)
+
+
+class TraceInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    run_id: str = Field(..., pattern=r"^orch_[a-z0-9]{8,64}$")
+
+
+class FeedbackInput(TraceInput):
+    rating: int = Field(..., ge=1, le=5)
+    issue_categories: list[str] = Field(default_factory=list, max_length=20)
+    preferred_model: Optional[str] = Field(default=None, max_length=200)
+
+
+class ScorecardsInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    min_samples: int = Field(default=20, ge=1, le=1_000_000)
+    task_type: Optional[str] = Field(default=None, max_length=100)
 
 
 class SummarizeInput(BaseModel):
@@ -220,7 +282,7 @@ async def _call_gateway(
         payload["system"] = system
 
     client = _get_gateway_client()
-    r = await client.post(f"{GATEWAY_URL}/v1/messages", json=payload)
+    r = await client.post(f"{GATEWAY_URL}/v1/messages", json=payload, headers=_gateway_headers())
     r.raise_for_status()
     data = r.json()
 
@@ -228,6 +290,65 @@ async def _call_gateway(
     if content and isinstance(content, list):
         return content[0].get("text", "")
     return str(data)
+
+
+async def _call_fusion(params: FusionInput) -> str:
+    """Run adaptive Fusion and return a compact, agent-readable result."""
+    payload: dict[str, object] = {"prompt": params.prompt, "preset": params.preset}
+    if params.models:
+        payload["models"] = params.models
+
+    client = _get_gateway_client()
+    response = await client.post(f"{GATEWAY_URL}/api/fusion", json=payload, headers=_gateway_headers())
+    response.raise_for_status()
+    result = response.json()
+    totals = result.get("totals") or {}
+    decision = result.get("decision") or {}
+    answer = str(result.get("finalAnswer") or "No answer was produced.")
+    confidence = float(result.get("confidence") or 0)
+    reason = str(decision.get("earlyExitReason") or result.get("status") or "complete")
+    cost = float(totals.get("actualCostUSD") or 0)
+    stages = int(totals.get("modelsQueried") or 0)
+    return (
+        f"[Fusion · {params.preset}]\n\n{answer}\n\n"
+        f"confidence {confidence:.2f} · {reason} · ${cost:.4f} · {stages} stages"
+    )
+
+
+async def _call_moa(params: MoAInput) -> str:
+    """Run canonical layered MoA and return an agent-readable trace summary."""
+    payload: dict[str, object] = {
+        "prompt": params.prompt,
+        "preset": params.preset,
+        "models": params.models,
+        "aggregator": params.aggregator,
+    }
+    if params.refiner_layers is not None:
+        payload["refiner_layers"] = params.refiner_layers
+    client = _get_gateway_client()
+    response = await client.post(
+        f"{GATEWAY_URL}/api/moa", json=payload, headers=_gateway_headers()
+    )
+    response.raise_for_status()
+    result = response.json()
+    totals = result.get("totals") or {}
+    answer = str(result.get("finalAnswer") or "No answer was produced.")
+    confidence = float(result.get("confidence") or 0)
+    calls = int(totals.get("modelsQueried") or 0)
+    stages = len(result.get("stages") or [])
+    cost = float(totals.get("actualCostUSD") or 0)
+    return (
+        f"[Mixture of Agents · {params.preset}]\n\n{answer}\n\n"
+        f"confidence {confidence:.2f} · {stages} layers · {calls} model calls · ${cost:.4f}"
+    )
+
+
+async def _gateway_json(method: str, path: str, *, payload: dict | None = None, params: dict | None = None) -> dict:
+    response = await _get_gateway_client().request(
+        method, f"{GATEWAY_URL}{path}", json=payload, params=params, headers=_gateway_headers()
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 # ── LLM Tools ────────────────────────────────────────────────────────────────
@@ -300,6 +421,106 @@ async def llm_council(params: CouncilInput) -> str:
 
 
 @mcp.tool(
+    name="llm_moa",
+    annotations={"title": "Answer with layered Mixture of Agents", "readOnlyHint": True},
+)
+async def llm_moa(params: MoAInput) -> str:
+    """Ask multiple installed models to propose, refine, and synthesize one answer."""
+    try:
+        return await _call_moa(params)
+    except httpx.HTTPStatusError as exc:
+        return f"MoA error ({exc.response.status_code}): {exc.response.text[:300]}"
+    except httpx.ConnectError:
+        return f"Cannot reach gateway at {GATEWAY_URL}. Is it running?"
+    except Exception as exc:  # noqa: BLE001 - MCP tools return useful errors
+        return f"MoA failed: {type(exc).__name__}: {exc}"
+
+
+@mcp.tool(
+    name="llm_fusion",
+    annotations={"title": "Answer with adaptive MultiLLM Fusion", "readOnlyHint": True},
+)
+async def llm_fusion(params: FusionInput) -> str:
+    """Ask MultiLLM Fusion to draft, verify, and escalate only when needed.
+
+    This is the direct Codex integration: choose a preset and optionally limit
+    candidate aliases, while MultiLLM retains budget and safety controls.
+    """
+    try:
+        return await _call_fusion(params)
+    except httpx.HTTPStatusError as exc:
+        return f"Fusion error ({exc.response.status_code}): {exc.response.text[:300]}"
+    except httpx.ConnectError:
+        return f"Cannot reach gateway at {GATEWAY_URL}. Is it running?"
+    except Exception as exc:  # noqa: BLE001 - MCP tools return useful errors
+        return f"Fusion failed: {type(exc).__name__}: {exc}"
+
+
+@mcp.tool(name="llm_adaptive", annotations={"title": "Run cheap-first adaptive orchestration", "readOnlyHint": True})
+async def llm_adaptive(params: AdaptiveInput) -> str:
+    """Return the complete adaptive result without forcing multiple models."""
+    payload: dict[str, object] = {"prompt": params.prompt, "preset": params.preset}
+    if params.models:
+        payload["models"] = params.models
+    try:
+        return json.dumps(await _gateway_json("POST", "/api/adaptive", payload=payload), sort_keys=True)
+    except Exception as exc:  # noqa: BLE001
+        return f"Adaptive orchestration failed: {type(exc).__name__}: {exc}"
+
+
+@mcp.tool(name="llm_model_catalog", annotations={"title": "Inspect discovery-backed model catalog", "readOnlyHint": True})
+async def llm_model_catalog(refresh: bool = True) -> str:
+    """Show live discovery, capabilities, pricing, and scorecards; static routes are not availability proof."""
+    try:
+        return json.dumps(await _gateway_json("GET", "/api/models/catalog", params={"refresh": str(refresh).lower()}), sort_keys=True)
+    except Exception as exc:  # noqa: BLE001
+        return f"Model catalog failed: {type(exc).__name__}: {exc}"
+
+
+@mcp.tool(name="llm_cost_estimate", annotations={"title": "Estimate model token cost", "readOnlyHint": True})
+async def llm_cost_estimate(params: CostEstimateInput) -> str:
+    try:
+        return json.dumps(await _gateway_json("POST", "/api/cost/estimate", payload=params.model_dump()), sort_keys=True)
+    except Exception as exc:  # noqa: BLE001
+        return f"Cost estimate failed: {type(exc).__name__}: {exc}"
+
+
+@mcp.tool(name="llm_routing_decision", annotations={"title": "Explain adaptive routing decision", "readOnlyHint": True})
+async def llm_routing_decision(params: RoutingDecisionInput) -> str:
+    try:
+        payload = params.model_dump(exclude_none=True)
+        return json.dumps(await _gateway_json("GET", "/api/routing/decision", params=payload), sort_keys=True)
+    except Exception as exc:  # noqa: BLE001
+        return f"Routing decision failed: {type(exc).__name__}: {exc}"
+
+
+@mcp.tool(name="llm_orchestration_trace", annotations={"title": "Read sanitized orchestration trace", "readOnlyHint": True})
+async def llm_orchestration_trace(params: TraceInput) -> str:
+    try:
+        return json.dumps(await _gateway_json("GET", f"/api/orchestration/{params.run_id}"), sort_keys=True)
+    except Exception as exc:  # noqa: BLE001
+        return f"Trace lookup failed: {type(exc).__name__}: {exc}"
+
+
+@mcp.tool(name="llm_orchestration_feedback", annotations={"title": "Record orchestration feedback", "readOnlyHint": False})
+async def llm_orchestration_feedback(params: FeedbackInput) -> str:
+    try:
+        body = params.model_dump(exclude={"run_id"}, exclude_none=True)
+        return json.dumps(await _gateway_json("POST", f"/api/orchestration/{params.run_id}/feedback", payload=body), sort_keys=True)
+    except Exception as exc:  # noqa: BLE001
+        return f"Feedback failed: {type(exc).__name__}: {exc}"
+
+
+@mcp.tool(name="llm_model_scorecards", annotations={"title": "Read model scorecards", "readOnlyHint": True})
+async def llm_model_scorecards(params: ScorecardsInput) -> str:
+    try:
+        query = params.model_dump(exclude_none=True)
+        return json.dumps(await _gateway_json("GET", "/api/models/scorecards", params=query), sort_keys=True)
+    except Exception as exc:  # noqa: BLE001
+        return f"Scorecard lookup failed: {type(exc).__name__}: {exc}"
+
+
+@mcp.tool(
     name="llm_summarize_cheap",
     annotations={"title": "Summarize with cheap local model", "readOnlyHint": True},
 )
@@ -331,7 +552,7 @@ async def llm_list_models() -> str:
     """List all model aliases available in the gateway (Ollama, Codex, Gemini, OpenAI, etc.)."""
     try:
         client = _get_gateway_client()
-        r = await client.get(f"{GATEWAY_URL}/routes")
+        r = await client.get(f"{GATEWAY_URL}/routes", headers=_gateway_headers())
         r.raise_for_status()
         routes = r.json()
 
@@ -362,7 +583,7 @@ async def llm_status() -> str:
     """Show gateway runtime status, auth mode, backend health, and direct-client visibility."""
     try:
         client = _get_gateway_client()
-        r = await client.get(f"{GATEWAY_URL}/api/status")
+        r = await client.get(f"{GATEWAY_URL}/api/status", headers=_gateway_headers())
         r.raise_for_status()
         data = r.json()
         gateway = data.get("gateway", {})
@@ -418,7 +639,7 @@ async def llm_discover_models(
     try:
         client = _get_gateway_client()
         r = await client.get(
-            f"{GATEWAY_URL}/api/backends", params={"refresh": str(refresh).lower()}
+            f"{GATEWAY_URL}/api/backends", params={"refresh": str(refresh).lower()}, headers=_gateway_headers()
         )
         r.raise_for_status()
         data = r.json()
@@ -466,7 +687,7 @@ async def llm_add_route(alias: str, backend: str, model: str) -> str:
         client = _get_gateway_client()
         r = await client.post(
             f"{GATEWAY_URL}/api/routes",
-            json={"alias": alias, "backend": backend, "model": model},
+            json={"alias": alias, "backend": backend, "model": model}, headers=_gateway_headers(),
         )
         r.raise_for_status()
         data = r.json()
@@ -483,7 +704,7 @@ async def llm_remove_route(alias: str) -> str:
     """Remove a model route by alias."""
     try:
         client = _get_gateway_client()
-        r = await client.delete(f"{GATEWAY_URL}/api/routes/{alias}")
+        r = await client.delete(f"{GATEWAY_URL}/api/routes/{alias}", headers=_gateway_headers())
         r.raise_for_status()
         return f"Route removed: `{alias}`"
     except httpx.HTTPStatusError as e:
@@ -581,7 +802,7 @@ async def llm_cache_stats() -> str:
     """Show Redis LangCache statistics (hit rate, stored entries, cost savings)."""
     try:
         client = _get_gateway_client()
-        r = await client.get(f"{GATEWAY_URL}/api/cache")
+        r = await client.get(f"{GATEWAY_URL}/api/cache", headers=_gateway_headers())
         r.raise_for_status()
         stats = r.json()
 

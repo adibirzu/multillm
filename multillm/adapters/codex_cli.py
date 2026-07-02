@@ -152,14 +152,11 @@ async def _run_codex_exec(
         "--skip-git-repo-check",
         *exec_target,
         *overrides,
-        "-",
-        stdin=asyncio.subprocess.PIPE,
+        prompt,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await asyncio.wait_for(
-        proc.communicate(input=prompt.encode("utf-8")), timeout=180
-    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
     return (
         proc.returncode if proc.returncode is not None else -1,
         stdout.decode("utf-8", errors="replace").strip(),
@@ -189,7 +186,9 @@ class CodexCLIAdapter(BaseAdapter):
         if effort in {"none", "low", "medium", "high", "xhigh", "max"}:
             config_overrides["model_reasoning_effort"] = effort
         verbosity = str(execution.get("verbosity") or "").strip().lower()
-        if verbosity in {"concise", "balanced", "detailed", "low", "medium", "high"}:
+        verbosity_map = {"concise": "low", "balanced": "medium", "detailed": "high"}
+        verbosity = verbosity_map.get(verbosity, verbosity)
+        if verbosity in {"low", "medium", "high"}:
             config_overrides["model_verbosity"] = verbosity
 
         try:

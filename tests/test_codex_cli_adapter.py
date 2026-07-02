@@ -72,6 +72,7 @@ def test_run_codex_exec_uses_modern_flags(monkeypatch):
     assert "--full-auto" not in args
     assert "--skip-git-repo-check" in args
     assert "exec" in args and "-s" in args and "read-only" in args
+    assert args[-1] == "hello"
 
 
 def test_run_codex_exec_isolates_per_request_effort_and_verbosity(monkeypatch):
@@ -101,13 +102,13 @@ def test_run_codex_exec_isolates_per_request_effort_and_verbosity(monkeypatch):
             ["-p", "prof"],
             config_overrides={
                 "model_reasoning_effort": "low",
-                "model_verbosity": "concise",
+                "model_verbosity": "low",
             },
         )
     )
 
     args = captured["args"]
     effort_index = args.index("model_reasoning_effort=\"low\"")
-    verbosity_index = args.index("model_verbosity=\"concise\"")
+    verbosity_index = args.index("model_verbosity=\"low\"")
     assert args[effort_index - 1] == "-c"
     assert args[verbosity_index - 1] == "-c"

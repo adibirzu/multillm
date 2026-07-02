@@ -24,6 +24,7 @@ from .stats_cache import ttl_cache
 log = logging.getLogger("multillm.claude_stats")
 
 CLAUDE_DIR = Path.home() / ".claude"
+CLAUDE_ACCOUNT_FILE = Path.home() / ".claude.json"
 STATS_FILE = CLAUDE_DIR / "stats-cache.json"
 HISTORY_FILE = CLAUDE_DIR / "history.jsonl"
 PROJECTS_DIR = CLAUDE_DIR / "projects"
@@ -67,6 +68,63 @@ def _load_stats() -> dict:
     except (json.JSONDecodeError, OSError) as e:
         log.debug("Failed to load Claude stats: %s", e)
         return {}
+
+
+def _subscription_plan_label(rate_limit_tier: str) -> str | None:
+    """Map Claude Code's local tier identifiers to a display-safe plan name."""
+    tier = rate_limit_tier.lower()
+    if "max_20x" in tier:
+        return "Claude Max 20×"
+    if "max_5x" in tier:
+        return "Claude Max 5×"
+    if "max" in tier:
+        return "Claude Max"
+    if "pro" in tier:
+        return "Claude Pro"
+    return None
+
+
+def get_claude_subscription() -> dict:
+    """Read only non-sensitive Claude Code subscription metadata from disk.
+
+    Claude Code caches account information locally after OAuth login. We expose
+    the normalized plan and rate-limit tier only; email addresses, account IDs,
+    organizations, OAuth credentials, and timestamps are intentionally omitted.
+    """
+    if not CLAUDE_ACCOUNT_FILE.exists():
+        return {"detected": False}
+    try:
+        with open(CLAUDE_ACCOUNT_FILE) as handle:
+            payload = json.load(handle)
+    except (json.JSONDecodeError, OSError) as exc:
+        log.debug("Failed to load Claude subscription metadata: %s", exc)
+        return {"detected": False}
+
+    account = payload.get("oauthAccount")
+    if not isinstance(account, dict):
+        return {"detected": False}
+
+    rate_limit_tier = str(
+        account.get("organizationRateLimitTier")
+        or account.get("userRateLimitTier")
+        or ""
+    ).strip()
+    billing_type = str(account.get("billingType") or "").strip().lower()
+    plan = _subscription_plan_label(rate_limit_tier)
+    if plan is None and billing_type.endswith("_subscription"):
+        plan = "Claude subscription"
+    if not plan and not billing_type:
+        return {"detected": False}
+
+    return {
+        "detected": True,
+        "plan": plan or "Claude account",
+        "billingType": (
+            "subscription" if billing_type.endswith("_subscription") else billing_type
+        ),
+        "rateLimitTier": rate_limit_tier or None,
+        "extraUsageEnabled": bool(account.get("hasExtraUsageEnabled")),
+    }
 
 
 def _estimate_cost(model: str, usage: dict) -> float:
@@ -419,9 +477,14 @@ def get_claude_code_stats(
     hours: Optional[int] = None, project: Optional[str] = None
 ) -> dict:
     """Get comprehensive Claude Code usage stats."""
+    subscription = get_claude_subscription()
     stats = _load_stats()
     if not stats:
-        return {"available": False, "error": "No Claude Code stats found"}
+        return {
+            "available": False,
+            "error": "No Claude Code stats found",
+            "subscription": subscription,
+        }
 
     lifetime_model_usage = _with_estimated_cost(stats.get("modelUsage", {}))
     lifetime_daily = stats.get("dailyActivity", [])[-30:]
@@ -451,6 +514,7 @@ def get_claude_code_stats(
         "latestTokens": latest_tokens,
         "latestDate": latest_date,
         "latestActivity": latest_activity,
+        "subscription": subscription,
     }
 
     if filtered is not None:

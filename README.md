@@ -12,7 +12,7 @@
 - **Self-hostable in one command.** `docker compose up` brings up the whole gateway. No vendor account, no per-seat pricing, no telemetry that leaves your network.
 - **Cost-aware by default.** Real-time burn-rate, spend projection (day/week/month), quota-exhaustion ETA, pre-flight per-model estimates, and budget caps with alerts and optional auto-reject.
 - **Resilient.** Quota-aware failover continues on the next provider when one runs out of tokens; per-backend circuit breakers and health-aware routing.
-- **Adaptive fusion.** `auto` starts with the cheapest capable model, verifies the answer, and escalates across vendors only when risk or quality requires it. Explicit `fusion` keeps the fixed-panel compatibility contract; `fusion/economy`, `fusion/balanced`, `fusion/quality`, and `fusion/critical` provide bounded progressive deliberation.
+- **Mixture of Agents (MoA).** `moa/*`, `POST /api/moa`, and MCP `llm_moa` run parallel proposers, optional refiners, and a structured final aggregator. `auto` remains cheap-first adaptive routing; `fusion/*` remains a compatibility surface. MoA is unrelated to Oracle Fusion.
 - **Built for multi-LLM workflows.** Cross-LLM shared memory (FTS5), cost-aware council mode, side-by-side compare, LLM-as-judge — first-class capabilities, not bolt-ons.
 - **Multi-tenant from day one.** API-key issuance, per-tenant budgets, and quota tracking are built in (the wizard provisions the first admin today).
 
@@ -94,6 +94,19 @@ Data lives in `MULTILLM_HOME` (defaults to `~/.multillm/` or the compose-mounted
 
 Adaptive policy controls, council modes, traces, GPT-5.6 discovery gating, and
 rollout guidance are documented in [Adaptive Fusion v2](docs/adaptive-fusion.md).
+The same-prompt evaluation methodology, live-host preflight, DeepEval workflow,
+D3 workspace, audit exports, and Codex steps are documented in
+[Model and MoA evaluation](docs/evaluations.md).
+
+## Optional use with OCI Skills
+
+OCI Skills can offer this gateway for model comparisons, cheap-first `auto`
+routing, Fusion synthesis, and sanitized cost/latency traces. It is strictly
+opt-in: OCI Skills never installs, enables, or sends project content to a
+MultiLLM provider unless the user chooses it. Work continues with the primary
+agent when the gateway is absent or declined. The separate
+[DeepEval comparison suite](evals/deepeval/README.md) exercises live configured
+models and runs Fusion last.
 
 ## Backends
 
@@ -159,12 +172,15 @@ Open `http://localhost:8080/dashboard` once setup is complete. Real-time usage, 
 | ---------- | --------------------------- | ---------------------------------------- |
 | POST       | `/v1/messages`              | Anthropic Messages API proxy (`fusion`/`auto` slugs work here) |
 | POST       | `/api/fusion`               | Fixed compatibility panel or adaptive preset with full trace |
+| POST       | `/api/adaptive`             | Cheap-first adaptive run; full result without forced fusion |
 | POST       | `/api/council`              | `raw`, `adaptive`, or `synthesized` council mode |
 | POST       | `/api/cost/estimate`        | Pre-flight cost per model                |
 | GET        | `/api/cost/forecast`        | Burn-rate, spend projection, quota ETA   |
 | GET / PUT  | `/api/budgets`              | Budget caps, alerts, enforcement         |
 | GET        | `/api/routing/decision`     | Which model the router would pick + why  |
 | GET        | `/api/models/capabilities`  | Effective capabilities, reasoning controls, and model prices |
+| GET        | `/api/models/catalog`       | Live-discovery-backed availability, health, pricing, and scorecards |
+| GET        | `/api/models/scorecards`    | Filtered local model quality/reliability scorecards |
 | GET        | `/api/orchestration/{id}`   | Sanitized, prompt-free orchestration trace |
 | POST       | `/api/orchestration/{id}/feedback` | Rating feedback for local scorecards |
 | GET        | `/health`                   | Liveness check                           |
@@ -176,6 +192,102 @@ Open `http://localhost:8080/dashboard` once setup is complete. Real-time usage, 
 | GET        | `/api/memory/search?q=...`  | FTS5 memory search                       |
 | GET / PUT  | `/settings`                 | Gateway settings                         |
 
+### Optional Codex gateway
+
+The project-local Codex configuration already registers the MultiLLM MCP
+server. It is optional: Codex and OCI Skills work normally without it. When a
+user chooses it, `llm_adaptive` runs cheap-first selection, `llm_fusion` forces
+a bounded synthesis, and the catalog/cost/routing/trace/feedback tools expose
+only the required operational evidence. The gateway retains validation, budget,
+verification, and prompt-free trace data; it does not make provider selection
+or external transmission mandatory.
+
+### Use Fusion from Claude Code or Codex
+
+MultiLLM is optional. Start a normal Claude or Codex session when one model is
+enough; choose the gateway for independent answers, cost-aware routing, or one
+synthesized answer across locally available agents.
+
+From a checkout, install the optional integration and start the gateway:
+
+```bash
+./install.sh
+./hooks/start-gateway.sh
+```
+
+The installer creates optional launchers and registers the MCP server:
+
+```bash
+claude-multillm
+codex-multillm
+```
+
+This checkout's `.codex/config.toml` and `.mcp.json` use
+`.venv/bin/python`, not the system `python3`, because MultiLLM requires Python
+3.11+. That makes Codex and Claude MCP traffic use the same verified local
+runtime as the gateway.
+
+In either session, use `llm_adaptive` for cheap-first work, `llm_moa` for
+layered proposer → refiner → aggregator synthesis, or `llm_fusion` for the
+compatibility workflow. Start with
+`llm_model_catalog` to see confirmed live aliases, then use
+`llm_orchestration_trace` for a prompt-free decision/cost/latency record.
+
+### Use Mixture of Agents (MoA) from Codex
+
+MoA is the canonical layered multi-model synthesis capability. Use `llm_moa`
+or `POST /api/moa`; the separately named Fusion tools remain compatible for
+existing clients. MoA is unrelated to Oracle Fusion.
+
+1. Start the gateway as a normal host process (not from a sandboxed test
+   runner) when using the local Codex CLI backend. Give it a writable data
+   directory:
+
+   ```bash
+   MULTILLM_HOME=./.multillm multillm serve
+   ```
+
+2. In Codex, use `llm_model_catalog` and select only aliases reported as
+   available. Local CLI routes commonly include `claude-cli/sonnet`,
+   `codex/gpt-5-6-terra`, and configured Antigravity routes.
+
+3. Call `llm_moa` with a prompt, `preset="quality"`, at least two proposer
+   aliases, and an independent aggregator. MoA retains only usable responses,
+   optionally refines them, and synthesizes last.
+
+4. For the reproducible FinOps evaluation, configure
+   `MULTILLM_EVAL_ARTIFACT_KEY` and `MULTILLM_EVAL_ALLOW_LIVE_HOST=true`, then
+   use `multillm eval run --all-live --live`. The full command, release gate,
+   review queue, and export steps are in
+   [Model and MoA evaluation](docs/evaluations.md). The smaller DeepEval smoke
+   remains opt-in:
+
+   ```bash
+   DEEPEVAL_E2E=1 MULTILLM_GATEWAY_URL=http://127.0.0.1:8080 \
+     .venv/bin/pytest evals/deepeval/test_gateway_model_comparison.py -q
+   ```
+
+   This test may incur provider usage. It skips safely when live evaluation is
+   not explicitly enabled or when no usable alias is discovered.
+
+5. Local CLI controls are inherited from the gateway process. For Codex GPT-5.6
+   runs, launch the gateway outside any parent sandbox that blocks Codex's local
+   app-server; `CODEX_SANDBOX` is a ceiling that can restrict a request but
+   cannot escape the parent process sandbox.
+
+For a direct API client, `auto` lets the gateway decide whether escalation is
+needed; `fusion/balanced` explicitly requests synthesis:
+
+```bash
+curl -X POST http://localhost:8080/v1/messages \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"fusion/balanced","messages":[{"role":"user","content":"Compare these implementation options."}]}'
+```
+
+The gateway uses only live discovered or locally authenticated candidates. An
+unavailable provider or gateway falls back to the primary-agent workflow rather
+than blocking development.
+
 ## Testing
 
 ```bash
@@ -183,7 +295,8 @@ pip install -e ".[test]"
 pytest tests/ -q
 ```
 
-Coverage gate is 70% (enforced in CI), plus ruff format/check and secret scans.
+Coverage gate is 80% for new evaluation/MoA work, plus ruff format/check and
+secret scans.
 
 ## Contributing
 

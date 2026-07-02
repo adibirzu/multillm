@@ -55,6 +55,9 @@ test = [
     "respx>=0.22",
     "pytest-cov>=5.0",
 ]
+eval = [
+    "deepeval>=4.0",
+]
 dev = [
     "pre-commit>=4.0",
     "ruff==0.14.10",
@@ -103,7 +106,7 @@ fireworks    = "multillm.adapters.cloud_openai_compat:make_fireworks"
 include = ["multillm*"]
 
 [tool.setuptools.package-data]
-multillm = ["static/*.html"]
+multillm = ["static/*.html", "static/*.js", "static/vendor/*.js", "static/vendor/*.md", "static/vendor/*.LICENSE", "evaluation/data/*.json"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
