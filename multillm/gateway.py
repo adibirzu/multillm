@@ -1108,10 +1108,12 @@ async def messages(request: Request):
                 **body,
                 "prompt": extract_text_from_anthropic(body),
                 "preset": preset,
-                "models": body.get("models") or body.get("moa_panel") or [],
+                "models": body.get("models")
+                or body.get("moa_panel")
+                or list(moa.DEFAULT_PROPOSER_MODELS),
                 "aggregator": body.get("aggregator")
                 or body.get("moa_aggregator")
-                or "",
+                or moa.DEFAULT_AGGREGATOR_MODEL,
             }
             if len(adapted["models"]) < 2 or not adapted["aggregator"]:
                 raise HTTPException(
@@ -1399,10 +1401,12 @@ async def messages(request: Request):
                 output_tokens=out_tok,
                 cache_read_tokens=cache_read_tok,
                 cache_create_tokens=cache_create_tok,
+                reasoning_tokens=usage["reasoning_tokens"],
                 latency_ms=elapsed_ms,
                 is_streaming=False,
                 request_id=request_id,
                 prompt_text=extract_text_from_anthropic(body),
+                response_text=extract_text_from_anthropic(result),
             )
 
             return JSONResponse(result)
@@ -2909,6 +2913,22 @@ async def _fusion_query_fn(
             latency_ms=r.get("latencyMs", 0),
             status="fusion",
         )
+        trace_llm_generation(
+            model_alias=alias,
+            backend=r.get("backend", ""),
+            real_model=r.get("providerModel") or route.get("model", alias),
+            project=PROJECT,
+            input_tokens=r.get("inputTokens", 0),
+            output_tokens=r.get("outputTokens", 0),
+            reasoning_tokens=r.get("reasoningTokens", 0),
+            cache_read_tokens=r.get("cacheReadInputTokens", 0),
+            cache_create_tokens=r.get("cacheWriteInputTokens", 0),
+            latency_ms=r.get("latencyMs", 0),
+            cost_usd=r.get("actualCostUSD", 0),
+            status="orchestration",
+            prompt_text=prompt,
+            response_text=r.get("text", ""),
+        )
     return r
 
 
@@ -3018,8 +3038,16 @@ async def _run_fusion(body: dict) -> dict:
 async def _run_moa_request(body: dict) -> dict:
     """Run the canonical layered Mixture of Agents pipeline."""
     prompt = str(body.get("prompt") or "").strip()
-    models = body.get("models") or body.get("moa_panel") or []
-    aggregator = str(body.get("aggregator") or body.get("moa_aggregator") or "").strip()
+    models = (
+        body.get("models")
+        or body.get("moa_panel")
+        or list(moa.DEFAULT_PROPOSER_MODELS)
+    )
+    aggregator = str(
+        body.get("aggregator")
+        or body.get("moa_aggregator")
+        or moa.DEFAULT_AGGREGATOR_MODEL
+    ).strip()
     preset = str(body.get("preset") or "quality").strip().lower()
     refiners = body.get("refiner_layers")
     if refiners is None:
@@ -3306,13 +3334,21 @@ async def moa_api(body: dict | None = None):
     body = body or {}
     if not isinstance(body.get("prompt"), str) or not body["prompt"].strip():
         raise HTTPException(status_code=400, detail="Missing 'prompt'")
-    models = body.get("models") or body.get("moa_panel")
-    aggregator = body.get("aggregator") or body.get("moa_aggregator")
+    models = (
+        body.get("models")
+        or body.get("moa_panel")
+        or list(moa.DEFAULT_PROPOSER_MODELS)
+    )
+    aggregator = (
+        body.get("aggregator")
+        or body.get("moa_aggregator")
+        or moa.DEFAULT_AGGREGATOR_MODEL
+    )
     if not isinstance(models, list) or len(models) < 2:
         raise HTTPException(status_code=422, detail="MoA requires at least two models")
     if not isinstance(aggregator, str) or not aggregator.strip():
         raise HTTPException(status_code=422, detail="MoA aggregator is required")
-    return await _run_moa_request(body)
+    return await _run_moa_request({**body, "models": list(models), "aggregator": aggregator})
 
 
 @app.post("/api/adaptive")

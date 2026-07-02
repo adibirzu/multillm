@@ -85,6 +85,31 @@ def test_evaluation_trace_only_emits_allowlisted_metadata(monkeypatch):
     ]
 
 
+def test_generation_trace_can_capture_bounded_visible_content(monkeypatch):
+    client = _Client()
+    monkeypatch.setattr(langfuse_integration, "_client", client)
+    monkeypatch.setattr(langfuse_integration, "LANGFUSE_CAPTURE_CONTENT", True)
+    monkeypatch.setattr(langfuse_integration, "LANGFUSE_CONTENT_MAX_CHARS", 12)
+
+    langfuse_integration.trace_llm_generation(
+        model_alias="claude-cli/fable",
+        backend="claude_cli",
+        real_model="claude-fable-5",
+        project="llm-project",
+        prompt_text="visible prompt content",
+        response_text="visible response content",
+        input_tokens=10,
+        output_tokens=20,
+        reasoning_tokens=7,
+    )
+
+    payload = client.observations[0].payload
+    assert payload["input"] == "visible prom"
+    assert payload["output"] == "visible resp"
+    assert payload["usage_details"]["reasoning"] == 7
+    assert payload["metadata"]["project"] == "llm-project"
+
+
 def test_langfuse_shutdown_is_bounded_when_delivery_is_stuck(monkeypatch):
     started = threading.Event()
     release = threading.Event()

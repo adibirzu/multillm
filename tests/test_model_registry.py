@@ -59,3 +59,17 @@ def test_registry_estimates_model_specific_cost():
     )
     assert luna == 7.0
     assert sol == 35.0
+
+
+def test_claude_fable_is_a_frontier_claude_capability():
+    registry = ModelRegistry.from_routes(
+        {"claude-fable": {"backend": "anthropic", "model": "claude-fable-5"}}
+    )
+
+    fable = registry.require("claude-fable")
+    assert fable.family == "claude"
+    assert fable.tier is ModelTier.FRONTIER
+    assert fable.auto_enabled is True
+    assert fable.pricing.input_per_million == 10.0
+    assert fable.pricing.output_per_million == 50.0
+    assert fable.pricing.cached_read_per_million == 1.0

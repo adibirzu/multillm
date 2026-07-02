@@ -131,6 +131,9 @@ models and runs Fusion last.
 | Azure OpenAI  | Cloud      | API key        | ✓ (SSE)   |
 | AWS Bedrock   | Cloud      | Cloud IAM      | ✓ (SSE)   |
 
+Claude Fable 5 is available as `claude-cli/fable` through the installed Claude
+Code login and as `claude-fable` through the Anthropic API.
+
 ## Plugin / Slash Commands
 
 | Command                       | What it does                                       |
@@ -237,7 +240,15 @@ compatibility workflow. Start with
 
 MoA is the canonical layered multi-model synthesis capability. Use `llm_moa`
 or `POST /api/moa`; the separately named Fusion tools remain compatible for
-existing clients. MoA is unrelated to Oracle Fusion.
+existing clients. When agents are omitted, the default roster uses Claude
+Sonnet, Codex GPT-5.5, and Gemini Flash as proposers, with Claude Opus as the
+aggregator. MoA is unrelated to Oracle Fusion.
+
+Langfuse receives model, project, token, cost, latency, and orchestration-stage
+metadata for gateway and MoA calls. Set
+`MULTILLM_LANGFUSE_CAPTURE_CONTENT=true` to include complete visible prompts
+and outputs (bounded by `MULTILLM_LANGFUSE_CONTENT_MAX_CHARS`). Hidden
+chain-of-thought is not available to the gateway and is never exported.
 
 1. Start the gateway as a normal host process (not from a sandboxed test
    runner) when using the local Codex CLI backend. Give it a writable data

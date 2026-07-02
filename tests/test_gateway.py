@@ -57,6 +57,12 @@ class TestRoutesEndpoint:
             assert "backend" in config, f"Route {alias} missing 'backend'"
             assert "model" in config, f"Route {alias} missing 'model'"
 
+    def test_routes_include_claude_fable_capabilities(self):
+        routes = client.get("/routes").json()
+
+        assert routes["claude-cli/fable"]["model"] == "claude:claude-fable-5"
+        assert routes["claude-fable"]["model"] == "claude-fable-5"
+
 
 class TestBackendsEndpoint:
     @patch("multillm.gateway.discover_all_models", new_callable=AsyncMock)

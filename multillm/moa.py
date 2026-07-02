@@ -16,6 +16,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 QueryFn = Callable[[str, str, int, float], Awaitable[dict[str, Any]]]
 
+# The built-in roster keeps the default MoA vendor-diverse while making Claude
+# a first-class proposer and the final synthesizer. Callers can still replace
+# either role explicitly.
+DEFAULT_PROPOSER_MODELS = (
+    "claude-cli/sonnet",
+    "codex/gpt-5-5",
+    "gemini-cli/flash",
+)
+DEFAULT_AGGREGATOR_MODEL = "claude-cli/opus"
+
 
 def _recursive(alias: str) -> bool:
     normalized = alias.strip().lower()

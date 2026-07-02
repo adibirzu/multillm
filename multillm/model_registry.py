@@ -55,6 +55,15 @@ _PROVIDER_PRICING: dict[str, ModelPricing] = {
     "oci_genai": ModelPricing(input_per_million=0.10, output_per_million=0.10),
 }
 
+_MODEL_PRICING: dict[str, ModelPricing] = {
+    "claude-fable-5": ModelPricing(
+        input_per_million=10.0,
+        output_per_million=50.0,
+        cached_read_per_million=1.0,
+        cache_write_per_million=12.5,
+    ),
+}
+
 class _PreviewModelConfig(TypedDict):
     alias: str
     tier: ModelTier
@@ -100,6 +109,8 @@ _PREVIEW_MODELS: dict[str, _PreviewModelConfig] = {
 
 def pricing_for(provider: str, provider_model_id: str = "") -> ModelPricing:
     """Return the most specific known pricing without enabling model routing."""
+    if provider_model_id in _MODEL_PRICING:
+        return _MODEL_PRICING[provider_model_id]
     preview = _PREVIEW_MODELS.get(provider_model_id)
     if preview is not None:
         return preview["pricing"]
@@ -124,7 +135,15 @@ def _classify_route(provider: str, model: str) -> tuple[ModelTier, bool]:
         return ModelTier.ECONOMY, True
     if any(
         term in value
-        for term in ("frontier", "opus", "405b", "reasoner", "gpt-5.5", "sol")
+        for term in (
+            "frontier",
+            "fable",
+            "opus",
+            "405b",
+            "reasoner",
+            "gpt-5.5",
+            "sol",
+        )
     ):
         return ModelTier.FRONTIER, True
     if any(
@@ -151,7 +170,10 @@ def _profile_from_route(alias: str, route: Mapping[str, object]) -> ModelProfile
         ReasoningEffort.NONE,
         ReasoningEffort.LOW,
     )
-    if any(token in model.lower() for token in ("gpt-5", "reasoner", "o1", "o3", "o4")):
+    if any(
+        token in model.lower()
+        for token in ("fable", "gpt-5", "reasoner", "o1", "o3", "o4")
+    ):
         reasoning = (
             ReasoningEffort.NONE,
             ReasoningEffort.LOW,

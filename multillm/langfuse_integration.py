@@ -25,6 +25,8 @@ from .config import (
     LANGFUSE_PUBLIC_KEY,
     LANGFUSE_SECRET_KEY,
     LANGFUSE_HOST,
+    LANGFUSE_CAPTURE_CONTENT,
+    LANGFUSE_CONTENT_MAX_CHARS,
 )
 
 log = logging.getLogger("multillm.langfuse")
@@ -116,9 +118,18 @@ _PROVIDER_MAP = {
     "fireworks": "fireworks",
     "azure_openai": "azure-openai",
     "bedrock": "aws-bedrock",
+    "claude_cli": "anthropic-claude-code",
     "codex_cli": "openai-codex",
     "gemini_cli": "google-gemini",
 }
+
+
+def _visible_content(value: Optional[str]) -> Optional[str]:
+    """Bound explicitly visible prompt/output content sent to Langfuse."""
+    if not value:
+        return None
+    limit = LANGFUSE_CONTENT_MAX_CHARS if LANGFUSE_CAPTURE_CONTENT else 500
+    return value[:limit]
 
 
 def trace_llm_generation(
@@ -129,6 +140,7 @@ def trace_llm_generation(
     project: str,
     input_tokens: int = 0,
     output_tokens: int = 0,
+    reasoning_tokens: int = 0,
     cache_read_tokens: int = 0,
     cache_create_tokens: int = 0,
     latency_ms: float = 0,
@@ -161,6 +173,8 @@ def trace_llm_generation(
             usage_details["cache_read"] = cache_read_tokens
         if cache_create_tokens:
             usage_details["cache_create"] = cache_create_tokens
+        if reasoning_tokens:
+            usage_details["reasoning"] = reasoning_tokens
 
         # Create a generation observation using v4 API
         generation = _client.start_observation(
@@ -172,15 +186,17 @@ def trace_llm_generation(
                 "backend": backend,
                 "streaming": is_streaming,
             },
-            input=prompt_text[:500] if prompt_text else None,
-            output=response_text[:500] if response_text else None,
+            input=_visible_content(prompt_text),
+            output=_visible_content(response_text),
             usage_details=usage_details,
             metadata={
                 "project": project,
                 "request_id": request_id or "",
                 "cache_read_tokens": cache_read_tokens,
                 "cache_create_tokens": cache_create_tokens,
+                "reasoning_tokens": reasoning_tokens,
                 "latency_ms": round(latency_ms, 1),
+                "content_capture": "full" if LANGFUSE_CAPTURE_CONTENT else "preview",
             },
             level="ERROR" if status != "ok" else "DEFAULT",
             status_message=error_message if error_message else None,
@@ -217,8 +233,8 @@ def trace_fusion_run(
         with _client.start_as_current_observation(
             name=f"{kind}",
             as_type="span",
-            input=(prompt or "")[:500],
-            output=(final_answer or "")[:500],
+            input=_visible_content(prompt),
+            output=_visible_content(final_answer),
             metadata={
                 "project": project,
                 "request_id": request_id or "",
@@ -232,8 +248,8 @@ def trace_fusion_run(
                     name=f"panel:{r.get('alias', '?')}",
                     as_type="generation",
                     model=r.get("alias"),
-                    input=(prompt or "")[:200],
-                    output=(r.get("text") or "")[:500],
+                    input=_visible_content(prompt),
+                    output=_visible_content(r.get("text") or ""),
                     usage_details={
                         "input": r.get("inputTokens", 0),
                         "output": r.get("outputTokens", 0),
@@ -249,8 +265,8 @@ def trace_fusion_run(
                     as_type="generation",
                     model=judge,
                     input="(panel responses → structured analysis)",
-                    output=(final_answer or "")[:500],
-                    metadata={"role": "judge", "analysis": (analysis or "")[:500]},
+                    output=_visible_content(final_answer),
+                    metadata={"role": "judge", "analysis": _visible_content(analysis)},
                 )
                 jg.end()
     except Exception as e:

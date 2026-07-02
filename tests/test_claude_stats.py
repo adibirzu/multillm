@@ -204,3 +204,17 @@ def test_local_subscription_is_unavailable_when_account_metadata_is_missing(
     monkeypatch.setattr(claude_stats, "CLAUDE_ACCOUNT_FILE", tmp_path / "missing.json")
 
     assert claude_stats.get_claude_subscription() == {"detected": False}
+
+
+def test_fable_usage_uses_current_model_pricing():
+    cost = claude_stats._estimate_cost(
+        "claude-fable-5",
+        {
+            "inputTokens": 1_000_000,
+            "outputTokens": 1_000_000,
+            "cacheReadInputTokens": 1_000_000,
+            "cacheCreationInputTokens": 1_000_000,
+        },
+    )
+
+    assert cost == 73.5

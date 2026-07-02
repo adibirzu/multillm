@@ -122,6 +122,13 @@ def test_gateway_key_is_forwarded_without_being_rendered(monkeypatch):
     assert mcp_server._gateway_headers() == {"X-API-Key": "test-key"}
 
 
+def test_moa_input_defaults_include_claude_agents():
+    params = MoAInput(prompt="Review the design.")
+
+    assert "claude-cli/sonnet" in params.models
+    assert params.aggregator == "claude-cli/opus"
+
+
 def test_new_tool_inputs_reject_invalid_values():
     with pytest.raises(ValidationError):
         mcp_server.TraceInput(run_id="not-a-run")

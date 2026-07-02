@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .cli_tools import resolve_cli_binary
+from .moa import DEFAULT_AGGREGATOR_MODEL, DEFAULT_PROPOSER_MODELS
 
 
 @dataclass(frozen=True)
@@ -213,6 +214,8 @@ def moa_capability(backends: dict[str, dict]) -> dict:
         "authenticated": None,
         "eligible_model_count": len(eligible_models),
         "eligible_models": eligible_models,
+        "default_proposer_models": list(DEFAULT_PROPOSER_MODELS),
+        "default_aggregator_model": DEFAULT_AGGREGATOR_MODEL,
         "note": (
             f"Ready to layer {len(eligible_models)} detected model route(s)"
             if ready

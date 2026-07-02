@@ -31,6 +31,12 @@ PROJECTS_DIR = CLAUDE_DIR / "projects"
 
 # Anthropic pricing per 1M tokens (estimated for Max plan / API)
 CLAUDE_PRICING = {
+    "claude-fable-5": {
+        "input": 10.0,
+        "output": 50.0,
+        "cache_read": 1.0,
+        "cache_create": 12.5,
+    },
     "claude-opus-4-5-20251101": {
         "input": 15.0,
         "output": 75.0,

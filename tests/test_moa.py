@@ -5,7 +5,18 @@ import json
 
 import pytest
 
-from multillm.moa import MoAConfig, build_layer_prompt, run_moa
+from multillm.moa import (
+    DEFAULT_AGGREGATOR_MODEL,
+    DEFAULT_PROPOSER_MODELS,
+    MoAConfig,
+    build_layer_prompt,
+    run_moa,
+)
+
+
+def test_default_agent_roster_includes_claude():
+    assert "claude-cli/sonnet" in DEFAULT_PROPOSER_MODELS
+    assert DEFAULT_AGGREGATOR_MODEL == "claude-cli/opus"
 
 
 def test_moa_config_is_immutable_and_rejects_recursive_or_duplicate_roles():

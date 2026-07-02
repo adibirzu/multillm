@@ -46,6 +46,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field, ConfigDict
 
+from .moa import DEFAULT_AGGREGATOR_MODEL, DEFAULT_PROPOSER_MODELS
 from .memory import (
     store_memory,
     search_memory,
@@ -169,8 +170,14 @@ class MoAInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     prompt: str = Field(..., min_length=1, max_length=100_000)
     preset: Literal["economy", "balanced", "quality", "critical"] = "quality"
-    models: list[str] = Field(..., min_length=2, max_length=12)
-    aggregator: str = Field(..., min_length=1, max_length=200)
+    models: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_PROPOSER_MODELS),
+        min_length=2,
+        max_length=12,
+    )
+    aggregator: str = Field(
+        default=DEFAULT_AGGREGATOR_MODEL, min_length=1, max_length=200
+    )
     refiner_layers: Optional[list[list[str]]] = Field(default=None, max_length=4)
 
 
