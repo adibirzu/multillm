@@ -354,7 +354,9 @@ async def _gateway_evaluation_execute(
             }
         )
         if not result.get("finalAnswer"):
-            raise RuntimeError(f"MoA execution failed: {result.get('degradedReason') or result.get('status')}")
+            raise RuntimeError(
+                f"MoA execution failed: {result.get('degradedReason') or result.get('status')}"
+            )
         totals = result.get("totals") or {}
         stage_usage = tuple(
             EvaluationStageUsage(
@@ -398,7 +400,9 @@ async def _gateway_evaluation_execute(
         },
     )
     if result.get("error") or not str(result.get("text", "")).strip():
-        raise RuntimeError(f"{target} execution failed: {result.get('error') or 'empty output'}")
+        raise RuntimeError(
+            f"{target} execution failed: {result.get('error') or 'empty output'}"
+        )
     return EvaluationResponse(
         text=str(result["text"]),
         input_tokens=int(result.get("inputTokens", 0) or 0),
@@ -440,7 +444,9 @@ async def _gateway_evaluation_judge(
         },
     )
     if result.get("error") or not str(result.get("text", "")).strip():
-        raise RuntimeError(f"judge execution failed: {result.get('error') or 'empty output'}")
+        raise RuntimeError(
+            f"judge execution failed: {result.get('error') or 'empty output'}"
+        )
     return str(result["text"])
 
 
@@ -451,6 +457,7 @@ async def _evaluation_worker_loop() -> None:
     except (RuntimeError, ValueError) as exc:
         log.info("Evaluation worker disabled: %s", exc)
         return
+
     def trace_completed_run(run: dict) -> None:
         request = run.get("request") or {}
         trace_evaluation_run(
@@ -479,7 +486,9 @@ async def _evaluation_worker_loop() -> None:
         except asyncio.CancelledError:
             raise
         except Exception:
-            log.exception("Evaluation worker iteration failed; leased run can be reclaimed")
+            log.exception(
+                "Evaluation worker iteration failed; leased run can be reclaimed"
+            )
             await asyncio.sleep(2.0)
             continue
         await asyncio.sleep(0.25 if run_id else 2.0)
@@ -544,7 +553,9 @@ def _resolve_orchestration_policy(
         ]
     server_providers = limits.get("allowed_providers") or []
     if isinstance(server_providers, (list, tuple)) and server_providers:
-        normalized_server = {str(provider).strip().lower() for provider in server_providers}
+        normalized_server = {
+            str(provider).strip().lower() for provider in server_providers
+        }
         effective["allowed_providers"] = [
             provider
             for provider in requested.allowed_providers
@@ -623,7 +634,11 @@ async def lifespan(application: FastAPI):
     await asyncio.to_thread(bundle_cache.warm_load)
     asyncio.create_task(_prime_dashboard_bundle())
     evaluation_task = None
-    if os.getenv("MULTILLM_EVAL_WORKER_ENABLED", "true").lower() in {"1", "true", "yes"}:
+    if os.getenv("MULTILLM_EVAL_WORKER_ENABLED", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
         evaluation_task = asyncio.create_task(_evaluation_worker_loop())
     yield
     if evaluation_task is not None:
@@ -1208,8 +1223,7 @@ async def messages(request: Request):
                 expected_output_tokens=expected_output_tokens,
             )
             anticipated_cost = float(
-                (estimate.get("cheapest") or {}).get("estimatedCostUSD", 0.0)
-                or 0.0
+                (estimate.get("cheapest") or {}).get("estimatedCostUSD", 0.0) or 0.0
             )
             snap = _gateway_spend_snapshot(None)
             proj_spend = {PROJECT: _gateway_spend_snapshot(PROJECT)} if PROJECT else {}
@@ -1895,17 +1909,29 @@ def _validate_scan_report_payload(payload: dict) -> dict:
         raise HTTPException(status_code=422, detail="Scan report must be an object")
     findings = payload.get("findings")
     if not isinstance(findings, list) or len(findings) > 1_000:
-        raise HTTPException(status_code=422, detail="findings must contain at most 1000 items")
+        raise HTTPException(
+            status_code=422, detail="findings must contain at most 1000 items"
+        )
     for field, maximum in (("source", 80), ("project", 160), ("title", 240)):
-        if not isinstance(payload.get(field), str) or not payload[field].strip() or len(payload[field]) > maximum:
-            raise HTTPException(status_code=422, detail=f"{field} is required and too long")
+        if (
+            not isinstance(payload.get(field), str)
+            or not payload[field].strip()
+            or len(payload[field]) > maximum
+        ):
+            raise HTTPException(
+                status_code=422, detail=f"{field} is required and too long"
+            )
     if not isinstance(payload.get("metadata", {}), dict):
         raise HTTPException(status_code=422, detail="metadata must be an object")
     for finding in findings:
         if not isinstance(finding, dict):
-            raise HTTPException(status_code=422, detail="each finding must be an object")
+            raise HTTPException(
+                status_code=422, detail="each finding must be an object"
+            )
         if not isinstance(finding.get("metadata", {}), dict):
-            raise HTTPException(status_code=422, detail="finding metadata must be an object")
+            raise HTTPException(
+                status_code=422, detail="finding metadata must be an object"
+            )
     return payload
 
 
@@ -1932,13 +1958,20 @@ async def list_scan_reports_api(
     x_multillm_tenant: Optional[str] = Header(None),
 ):
     tenant_id = _scan_tenant(x_multillm_tenant)
-    reports = _orchestration_store().list_scan_reports(tenant_id, limit=limit, offset=offset)
-    return {"data": reports, "meta": {"limit": limit, "offset": offset, "count": len(reports)}}
+    reports = _orchestration_store().list_scan_reports(
+        tenant_id, limit=limit, offset=offset
+    )
+    return {
+        "data": reports,
+        "meta": {"limit": limit, "offset": offset, "count": len(reports)},
+    }
 
 
 @app.get("/api/scan-reports/summary")
 async def scan_report_summary_api(x_multillm_tenant: Optional[str] = Header(None)):
-    return {"data": _orchestration_store().get_scan_summary(_scan_tenant(x_multillm_tenant))}
+    return {
+        "data": _orchestration_store().get_scan_summary(_scan_tenant(x_multillm_tenant))
+    }
 
 
 @app.get("/api/scan-reports/export")
@@ -1950,15 +1983,20 @@ async def export_scan_reports_api(
     store = _orchestration_store()
     if format == "csv":
         return Response(
-            content=store.scan_findings_csv(tenant_id), media_type="text/csv",
+            content=store.scan_findings_csv(tenant_id),
+            media_type="text/csv",
             headers={"Content-Disposition": "attachment; filename=scan-findings.csv"},
         )
     return {"data": store.export_scan_findings(tenant_id)}
 
 
 @app.get("/api/scan-reports/{report_id}")
-async def scan_report_detail_api(report_id: str, x_multillm_tenant: Optional[str] = Header(None)):
-    report = _orchestration_store().get_scan_report(_scan_tenant(x_multillm_tenant), report_id)
+async def scan_report_detail_api(
+    report_id: str, x_multillm_tenant: Optional[str] = Header(None)
+):
+    report = _orchestration_store().get_scan_report(
+        _scan_tenant(x_multillm_tenant), report_id
+    )
     if report is None:
         raise HTTPException(status_code=404, detail="Scan report not found")
     return {"data": report}
@@ -2685,7 +2723,11 @@ async def _council_query_one(
                     "properties": {
                         "correctness": {"type": "number", "minimum": 0, "maximum": 1},
                         "completeness": {"type": "number", "minimum": 0, "maximum": 1},
-                        "evidence_support": {"type": "number", "minimum": 0, "maximum": 1},
+                        "evidence_support": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1,
+                        },
                         "uncertainty": {"type": "number", "minimum": 0, "maximum": 1},
                         "defects": {"type": "array", "items": {"type": "string"}},
                         "accepted": {"type": "boolean"},
@@ -3039,9 +3081,7 @@ async def _run_moa_request(body: dict) -> dict:
     """Run the canonical layered Mixture of Agents pipeline."""
     prompt = str(body.get("prompt") or "").strip()
     models = (
-        body.get("models")
-        or body.get("moa_panel")
-        or list(moa.DEFAULT_PROPOSER_MODELS)
+        body.get("models") or body.get("moa_panel") or list(moa.DEFAULT_PROPOSER_MODELS)
     )
     aggregator = str(
         body.get("aggregator")
@@ -3065,7 +3105,9 @@ async def _run_moa_request(body: dict) -> dict:
             per_call_timeout_seconds=float(body.get("timeout_seconds", 180)),
         )
     except (ValidationError, TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid MoA configuration: {exc}") from exc
+        raise HTTPException(
+            status_code=422, detail=f"Invalid MoA configuration: {exc}"
+        ) from exc
     result = await moa.run_moa(prompt=prompt, config=config, query_fn=_fusion_query_fn)
     trace_fusion_run(
         kind="moa",
@@ -3100,7 +3142,9 @@ async def _run_adaptive(
             status_code=400, detail="max_tokens and temperature must be numeric"
         ) from exc
     if not 1 <= max_tokens <= 131_072:
-        raise HTTPException(status_code=400, detail="max_tokens must be from 1 to 131072")
+        raise HTTPException(
+            status_code=400, detail="max_tokens must be from 1 to 131072"
+        )
     if not math.isfinite(temperature) or not 0 <= temperature <= 2:
         raise HTTPException(status_code=400, detail="temperature must be from 0 to 2")
     has_images = any(
@@ -3113,10 +3157,13 @@ async def _run_adaptive(
     if raw_evidence:
         if not isinstance(raw_evidence, list) or len(raw_evidence) > 20:
             raise HTTPException(
-                status_code=400, detail="evidence must be an array of at most 20 sources"
+                status_code=400,
+                detail="evidence must be an array of at most 20 sources",
             )
         try:
-            evidence_sources = [EvidenceSource.model_validate(item) for item in raw_evidence]
+            evidence_sources = [
+                EvidenceSource.model_validate(item) for item in raw_evidence
+            ]
             validated_sources = []
             for source in evidence_sources:
                 validated_url = await validate_public_url(source.url)
@@ -3125,7 +3172,9 @@ async def _run_adaptive(
                 )
             evidence_pack = build_evidence_pack(validated_sources, max_sources=6)
         except (ValidationError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=f"Invalid evidence: {exc}") from exc
+            raise HTTPException(
+                status_code=400, detail=f"Invalid evidence: {exc}"
+            ) from exc
     try:
         raw_scorecards = _orchestration_store().get_scorecards("default")
     except Exception as exc:
@@ -3145,9 +3194,7 @@ async def _run_adaptive(
         )
         for item in raw_scorecards
     }
-    providers = {
-        profile.provider for profile in _effective_model_registry().profiles
-    }
+    providers = {profile.provider for profile in _effective_model_registry().profiles}
     health_scores = {}
     for provider in providers:
         try:
@@ -3335,9 +3382,7 @@ async def moa_api(body: dict | None = None):
     if not isinstance(body.get("prompt"), str) or not body["prompt"].strip():
         raise HTTPException(status_code=400, detail="Missing 'prompt'")
     models = (
-        body.get("models")
-        or body.get("moa_panel")
-        or list(moa.DEFAULT_PROPOSER_MODELS)
+        body.get("models") or body.get("moa_panel") or list(moa.DEFAULT_PROPOSER_MODELS)
     )
     aggregator = (
         body.get("aggregator")
@@ -3348,7 +3393,9 @@ async def moa_api(body: dict | None = None):
         raise HTTPException(status_code=422, detail="MoA requires at least two models")
     if not isinstance(aggregator, str) or not aggregator.strip():
         raise HTTPException(status_code=422, detail="MoA aggregator is required")
-    return await _run_moa_request({**body, "models": list(models), "aggregator": aggregator})
+    return await _run_moa_request(
+        {**body, "models": list(models), "aggregator": aggregator}
+    )
 
 
 @app.post("/api/adaptive")
@@ -3551,9 +3598,7 @@ def _route_decision(
     decision["predictedQuality"] = (
         round(selected.task_score(task.task_type), 3) if selected else None
     )
-    decision["selectedEffort"] = (
-        "low" if task.complexity < 0.35 else "medium"
-    )
+    decision["selectedEffort"] = "low" if task.complexity < 0.35 else "medium"
     decision["expectedCostUSD"] = (
         round(
             selected.pricing.estimate(
@@ -3600,10 +3645,19 @@ async def model_capabilities_api():
 @app.get("/api/models/scorecards")
 async def model_scorecards_api(min_samples: int = 20, task_type: str | None = None):
     if not 1 <= min_samples <= 1_000_000:
-        raise HTTPException(status_code=400, detail="min_samples must be from 1 to 1000000")
+        raise HTTPException(
+            status_code=400, detail="min_samples must be from 1 to 1000000"
+        )
     if task_type is not None and (not task_type.strip() or len(task_type) > 100):
-        raise HTTPException(status_code=400, detail="task_type must be a non-empty value of at most 100 characters")
-    return {"scorecards": _orchestration_store().get_scorecards("default", min_samples=min_samples, task_type=task_type)}
+        raise HTTPException(
+            status_code=400,
+            detail="task_type must be a non-empty value of at most 100 characters",
+        )
+    return {
+        "scorecards": _orchestration_store().get_scorecards(
+            "default", min_samples=min_samples, task_type=task_type
+        )
+    }
 
 
 @app.get("/api/models/catalog")
@@ -3614,7 +3668,11 @@ async def model_catalog_api(refresh: bool = False):
     usable: consumers must use `available` and `classificationSource`.
     """
     discovered = await discover_all_models(force=refresh)
-    live = {(str(model.get("backend")), str(model.get("model"))) for models in discovered.values() for model in models}
+    live = {
+        (str(model.get("backend")), str(model.get("model")))
+        for models in discovered.values()
+        for model in models
+    }
     from .cli_discovery import discover_cli_agents
 
     cli_backends = discover_cli_agents(ROUTES)
@@ -3629,23 +3687,28 @@ async def model_catalog_api(refresh: bool = False):
     models = []
     for profile in _effective_model_registry().public_profiles():
         observed = (
-            (profile["provider"], profile["provider_model_id"]) in live
-            or profile["alias"] in live_aliases
-        )
+            profile["provider"],
+            profile["provider_model_id"],
+        ) in live or profile["alias"] in live_aliases
         try:
             health = float(score_backend(profile["provider"]).get("score", 0.0))
         except Exception:
             health = 0.0
-        models.append({
-            **profile,
-            "available": observed,
-            "health": health,
-            "classificationSource": (
-                "cli_discovery" if profile["alias"] in live_aliases
-                else "live_discovery" if observed else "route_configuration"
-            ),
-            "scorecard": by_model.get(profile["alias"]),
-        })
+        models.append(
+            {
+                **profile,
+                "available": observed,
+                "health": health,
+                "classificationSource": (
+                    "cli_discovery"
+                    if profile["alias"] in live_aliases
+                    else "live_discovery"
+                    if observed
+                    else "route_configuration"
+                ),
+                "scorecard": by_model.get(profile["alias"]),
+            }
+        )
     return {"models": models, "refreshed": bool(refresh), "observed_at": time.time()}
 
 
@@ -3670,7 +3733,8 @@ async def orchestration_feedback_api(run_id: str, body: dict | None = None):
     issues = body.get("issue_categories") or []
     if not isinstance(issues, list) or len(issues) > 20:
         raise HTTPException(
-            status_code=400, detail="issue_categories must be an array of at most 20 values"
+            status_code=400,
+            detail="issue_categories must be an array of at most 20 values",
         )
     if any(not isinstance(issue, str) or len(issue) > 100 for issue in issues):
         raise HTTPException(
@@ -3700,7 +3764,7 @@ async def orchestration_feedback_api(run_id: str, body: dict | None = None):
     decision = trace.get("decision") or {}
     selected = decision.get("selectedModels") or []
     observed_model = body.get("preferred_model") or (selected[-1] if selected else None)
-    task_type = ((trace.get("taskFeatures") or {}).get("task_type") or "general")
+    task_type = (trace.get("taskFeatures") or {}).get("task_type") or "general"
     if observed_model:
         _orchestration_store().record_scorecard_observation(
             "default",
@@ -3884,7 +3948,9 @@ async def evaluation_live_preflight(body: dict | None = None):
                 "verbosity": "concise",
             },
         )
-        verified = not result.get("error") and str(result.get("text", "")).strip() == marker
+        verified = (
+            not result.get("error") and str(result.get("text", "")).strip() == marker
+        )
         return {
             "alias": target,
             "executionVerified": verified,
@@ -3916,7 +3982,9 @@ async def evaluation_live_preflight(body: dict | None = None):
         content={
             "success": verified,
             "data": data,
-            "error": None if verified else {"message": "One or more execution probes failed"},
+            "error": None
+            if verified
+            else {"message": "One or more execution probes failed"},
             "meta": {},
         },
     )
@@ -3989,8 +4057,10 @@ async def evaluations_page():
 async def evaluation_asset(asset_name: str):
     if asset_name not in {"evaluations.js", "d3.v7.min.js"}:
         raise HTTPException(status_code=404, detail="Evaluation asset not found")
-    asset = Path(__file__).parent / "static" / (
-        f"vendor/{asset_name}" if asset_name == "d3.v7.min.js" else asset_name
+    asset = (
+        Path(__file__).parent
+        / "static"
+        / (f"vendor/{asset_name}" if asset_name == "d3.v7.min.js" else asset_name)
     )
     if not asset.exists():
         raise HTTPException(status_code=404, detail="Evaluation asset not built")

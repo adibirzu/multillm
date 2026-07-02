@@ -37,7 +37,7 @@ def test_evaluation_workspace_has_accessible_nonvisual_paths_and_mobile_controls
 
     assert 'aria-live="polite"' in html
     assert 'aria-describedby="winMatrixDescription"' in html
-    assert '<caption>Evaluation results' in html
+    assert "<caption>Evaluation results" in html
     assert 'id="mobileFilters"' in html
     assert 'data-testid="evaluation-export"' in html
     assert "prefers-reduced-motion" in html
@@ -75,7 +75,9 @@ def test_main_dashboard_links_to_evaluation_workspace():
 
 def test_vendored_d3_has_pinned_provenance_and_license():
     notice = (ROOT / "multillm/static/vendor/README.md").read_text(encoding="utf-8")
-    license_text = (ROOT / "multillm/static/vendor/d3.LICENSE").read_text(encoding="utf-8")
+    license_text = (ROOT / "multillm/static/vendor/d3.LICENSE").read_text(
+        encoding="utf-8"
+    )
 
     assert "D3 7.9.0" in notice
     assert "f2094bbf6141b359722c4fe454eb6c4b0f0e42cc10cc7af921fc158fceb86539" in notice

@@ -20,9 +20,7 @@ def _store(tmp_path):
         version="1",
         source="owned",
         license_id="Apache-2.0",
-        cases=(
-            EvaluationCase(id="case-1", prompt="Explain", category="general"),
-        ),
+        cases=(EvaluationCase(id="case-1", prompt="Explain", category="general"),),
     )
     return store
 
@@ -46,8 +44,14 @@ def test_dual_judge_position_swaps_create_auditable_pairwise_result(tmp_path):
     store = _store(tmp_path)
 
     async def execute(target, case, request):
-        text = "MoA superior answer" if target == "moa/quality" else "Base incomplete answer"
-        return EvaluationResponse(text=text, input_tokens=2, output_tokens=3, total_ms=5)
+        text = (
+            "MoA superior answer"
+            if target == "moa/quality"
+            else "Base incomplete answer"
+        )
+        return EvaluationResponse(
+            text=text, input_tokens=2, output_tokens=3, total_ms=5
+        )
 
     async def judge(alias, prompt, request):
         response_a = prompt.split("Response A:\n", 1)[1].split("\n\nResponse B:", 1)[0]

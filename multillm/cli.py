@@ -234,7 +234,9 @@ def _format_usage_table(report: dict[str, Any], *, limit: int) -> str:
     return "\n".join(lines)
 
 
-@app.command(name="usage", help="Show daily, weekly, monthly, session, or block usage reports.")
+@app.command(
+    name="usage", help="Show daily, weekly, monthly, session, or block usage reports."
+)
 @click.option(
     "--kind",
     type=click.Choice(["daily", "weekly", "monthly", "session", "blocks"]),
@@ -301,11 +303,15 @@ def _eval_http_json(
             result = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:1_000]
-        raise click.ClickException(f"evaluation API returned HTTP {exc.code}: {detail}") from exc
+        raise click.ClickException(
+            f"evaluation API returned HTTP {exc.code}: {detail}"
+        ) from exc
     except OSError as exc:
         raise click.ClickException(f"cannot reach evaluation API: {exc}") from exc
     if result.get("success") is False:
-        message = (result.get("error") or {}).get("message") or "evaluation request failed"
+        message = (result.get("error") or {}).get(
+            "message"
+        ) or "evaluation request failed"
         raise click.ClickException(str(message))
     return result
 
@@ -325,9 +331,13 @@ def _eval_http_bytes(gateway: str, path: str) -> bytes:
             return response.read()
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:1_000]
-        raise click.ClickException(f"evaluation export returned HTTP {exc.code}: {detail}") from exc
+        raise click.ClickException(
+            f"evaluation export returned HTTP {exc.code}: {detail}"
+        ) from exc
     except OSError as exc:
-        raise click.ClickException(f"cannot reach evaluation export API: {exc}") from exc
+        raise click.ClickException(
+            f"cannot reach evaluation export API: {exc}"
+        ) from exc
 
 
 @app.group(name="eval", help="Run, inspect, review, and export model/MoA evaluations.")
@@ -335,15 +345,26 @@ def evaluation() -> None:
     """Evaluation control-plane commands."""
 
 
-@evaluation.command(name="preflight", help="Execution-probe live model and judge aliases.")
-@click.option("--target", "targets", multiple=True, required=True, help="Alias to probe; repeatable.")
+@evaluation.command(
+    name="preflight", help="Execution-probe live model and judge aliases."
+)
+@click.option(
+    "--target",
+    "targets",
+    multiple=True,
+    required=True,
+    help="Alias to probe; repeatable.",
+)
 @click.option("--gateway", default="http://localhost:8080", show_default=True)
 @click.option("--json-output", "as_json", is_flag=True)
 def evaluation_preflight_cmd(
     targets: tuple[str, ...], gateway: str, as_json: bool
 ) -> None:
     result = _eval_http_json(
-        "POST", gateway, "/api/evaluations/preflight", {"targets": list(dict.fromkeys(targets))}
+        "POST",
+        gateway,
+        "/api/evaluations/preflight",
+        {"targets": list(dict.fromkeys(targets))},
     )["data"]
     if as_json:
         click.echo(json.dumps(result, indent=2, sort_keys=True))
@@ -358,16 +379,26 @@ def evaluation_preflight_cmd(
 
 @evaluation.command(name="run", help="Queue a same-prompt model and MoA evaluation.")
 @click.option("--suite", default="finops-v1", show_default=True)
-@click.option("--profile", type=click.Choice(["ci", "nightly", "release"]), default="ci")
-@click.option("--target", "targets", multiple=True, help="Base model alias; repeatable.")
+@click.option(
+    "--profile", type=click.Choice(["ci", "nightly", "release"]), default="ci"
+)
+@click.option(
+    "--target", "targets", multiple=True, help="Base model alias; repeatable."
+)
 @click.option(
     "--all-live",
     is_flag=True,
     help="Discover all configured host CLI models, then execution-probe them.",
 )
-@click.option("--moa", "moa_variants", multiple=True, default=("moa/quality",), show_default=True)
-@click.option("--judge", "judges", multiple=True, help="Independent judge alias; repeatable.")
-@click.option("--repeat", "repeats", type=click.IntRange(1, 5), default=1, show_default=True)
+@click.option(
+    "--moa", "moa_variants", multiple=True, default=("moa/quality",), show_default=True
+)
+@click.option(
+    "--judge", "judges", multiple=True, help="Independent judge alias; repeatable."
+)
+@click.option(
+    "--repeat", "repeats", type=click.IntRange(1, 5), default=1, show_default=True
+)
 @click.option("--live", is_flag=True, help="Probe and use live host model execution.")
 @click.option("--gateway", default="http://localhost:8080", show_default=True)
 @click.option("--json-output", "as_json", is_flag=True)
@@ -386,20 +417,27 @@ def evaluation_run_cmd(
     unique_targets = list(dict.fromkeys(targets))
     unique_judges = list(dict.fromkeys(judges))
     if unique_judges and len(unique_judges) < 2:
-        raise click.ClickException("dual-judge evaluation requires at least two --judge values")
+        raise click.ClickException(
+            "dual-judge evaluation requires at least two --judge values"
+        )
     if all_live and not live:
         raise click.ClickException("--all-live requires --live")
     if all_live:
-        discovered = _eval_http_json(
-            "GET", gateway, "/api/evaluations/live-targets"
-        )["data"].get("targets") or []
+        discovered = (
+            _eval_http_json("GET", gateway, "/api/evaluations/live-targets")[
+                "data"
+            ].get("targets")
+            or []
+        )
         discovered_aliases = [
             str(item.get("alias") or "").strip()
             for item in discovered
             if isinstance(item, dict) and str(item.get("alias") or "").strip()
         ]
         unique_targets = list(dict.fromkeys([*unique_targets, *discovered_aliases]))
-        unique_targets = [target for target in unique_targets if target not in unique_judges]
+        unique_targets = [
+            target for target in unique_targets if target not in unique_judges
+        ]
         if not unique_targets:
             raise click.ClickException(
                 "no independent live candidates remain after excluding judge aliases"
@@ -408,7 +446,9 @@ def evaluation_run_cmd(
     if live:
         probe_targets = list(dict.fromkeys([*unique_targets, *unique_judges]))
         if not probe_targets:
-            raise click.ClickException("live evaluation requires explicit --target aliases")
+            raise click.ClickException(
+                "live evaluation requires explicit --target aliases"
+            )
         receipt = _eval_http_json(
             "POST",
             gateway,
@@ -418,7 +458,11 @@ def evaluation_run_cmd(
     request_payload: dict[str, Any] = {
         "suite_id": suite,
         "profile": profile,
-        "candidate_scope": "live" if all_live else "explicit" if unique_targets else "core",
+        "candidate_scope": "live"
+        if all_live
+        else "explicit"
+        if unique_targets
+        else "core",
         "candidates": unique_targets,
         "moa_variants": list(dict.fromkeys(moa_variants)),
         "judge_pool": unique_judges,
@@ -427,9 +471,9 @@ def evaluation_run_cmd(
         "preflight_receipt": receipt,
         "repeats": repeats,
     }
-    result = _eval_http_json(
-        "POST", gateway, "/api/evaluations/runs", request_payload
-    )["data"]
+    result = _eval_http_json("POST", gateway, "/api/evaluations/runs", request_payload)[
+        "data"
+    ]
     if as_json:
         click.echo(json.dumps(result, indent=2, sort_keys=True))
     else:
@@ -487,8 +531,15 @@ def evaluation_suite_import_cmd(
 
 @evaluation.command(name="export", help="Write an audit export for one run.")
 @click.argument("run_id")
-@click.option("--format", "export_format", type=click.Choice(["json", "csv", "html"]), default="json")
-@click.option("--output", type=click.Path(dir_okay=False, path_type=Path), required=True)
+@click.option(
+    "--format",
+    "export_format",
+    type=click.Choice(["json", "csv", "html"]),
+    default="json",
+)
+@click.option(
+    "--output", type=click.Path(dir_okay=False, path_type=Path), required=True
+)
 @click.option("--gateway", default="http://localhost:8080", show_default=True)
 def evaluation_export_cmd(
     run_id: str, export_format: str, output: Path, gateway: str

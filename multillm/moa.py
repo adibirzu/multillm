@@ -50,7 +50,9 @@ class MoAConfig(BaseModel):
     def normalize_proposers(cls, value: Any) -> tuple[str, ...]:
         if not isinstance(value, (list, tuple)):
             raise ValueError("proposer_models must be an array")
-        return tuple(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
+        return tuple(
+            dict.fromkeys(str(item).strip() for item in value if str(item).strip())
+        )
 
     @field_validator("refiner_layers", mode="before")
     @classmethod
@@ -170,7 +172,12 @@ async def _query_stage(
     async def call(alias: str) -> dict[str, Any]:
         try:
             result = await asyncio.wait_for(
-                query_fn(alias, prompt_for_model(alias), config.max_tokens, config.temperature),
+                query_fn(
+                    alias,
+                    prompt_for_model(alias),
+                    config.max_tokens,
+                    config.temperature,
+                ),
                 timeout=config.per_call_timeout_seconds,
             )
             return {**result, "alias": result.get("alias") or alias}
@@ -214,9 +221,15 @@ def _totals(all_results: Sequence[dict[str, Any]]) -> dict[str, Any]:
     return {
         "modelsQueried": len(all_results),
         "modelsSucceeded": len(_succeeded(all_results)),
-        "inputTokens": sum(int(item.get("inputTokens", 0) or 0) for item in all_results),
-        "outputTokens": sum(int(item.get("outputTokens", 0) or 0) for item in all_results),
-        "reasoningTokens": sum(int(item.get("reasoningTokens", 0) or 0) for item in all_results),
+        "inputTokens": sum(
+            int(item.get("inputTokens", 0) or 0) for item in all_results
+        ),
+        "outputTokens": sum(
+            int(item.get("outputTokens", 0) or 0) for item in all_results
+        ),
+        "reasoningTokens": sum(
+            int(item.get("reasoningTokens", 0) or 0) for item in all_results
+        ),
         "actualCostUSD": round(
             sum(float(item.get("actualCostUSD", 0) or 0) for item in all_results), 6
         ),
@@ -232,7 +245,9 @@ def _timed_totals(
     }
 
 
-async def run_moa(*, prompt: str, config: MoAConfig, query_fn: QueryFn) -> dict[str, Any]:
+async def run_moa(
+    *, prompt: str, config: MoAConfig, query_fn: QueryFn
+) -> dict[str, Any]:
     """Execute proposer layers, refiners, and one structured final aggregator."""
     started_at = time.perf_counter()
     stages: list[dict[str, Any]] = []

@@ -42,10 +42,30 @@ def _store(tmp_path):
 
 def test_target_deduplication_preserves_distinct_execution_profiles():
     catalog = [
-        {"alias": "codex/a", "provider": "codex", "providerModel": "gpt-x", "reasoning": "medium"},
-        {"alias": "codex/a-copy", "provider": "codex", "providerModel": "gpt-x", "reasoning": "medium"},
-        {"alias": "codex/a-high", "provider": "codex", "providerModel": "gpt-x", "reasoning": "high"},
-        {"alias": "claude/b", "provider": "claude", "providerModel": "sonnet", "reasoning": "medium"},
+        {
+            "alias": "codex/a",
+            "provider": "codex",
+            "providerModel": "gpt-x",
+            "reasoning": "medium",
+        },
+        {
+            "alias": "codex/a-copy",
+            "provider": "codex",
+            "providerModel": "gpt-x",
+            "reasoning": "medium",
+        },
+        {
+            "alias": "codex/a-high",
+            "provider": "codex",
+            "providerModel": "gpt-x",
+            "reasoning": "high",
+        },
+        {
+            "alias": "claude/b",
+            "provider": "claude",
+            "providerModel": "sonnet",
+            "reasoning": "medium",
+        },
     ]
 
     result = deduplicate_targets(catalog)
@@ -56,9 +76,21 @@ def test_target_deduplication_preserves_distinct_execution_profiles():
 
 def test_live_preflight_fails_closed_for_discovery_only_or_sandboxed_aliases():
     catalog = {
-        "codex/gpt": {"available": True, "executionVerified": True, "executionMode": "live_host"},
-        "claude/sonnet": {"available": True, "executionVerified": False, "executionMode": "live_host"},
-        "gemini/pro": {"available": True, "executionVerified": True, "executionMode": "sandbox"},
+        "codex/gpt": {
+            "available": True,
+            "executionVerified": True,
+            "executionMode": "live_host",
+        },
+        "claude/sonnet": {
+            "available": True,
+            "executionVerified": False,
+            "executionMode": "live_host",
+        },
+        "gemini/pro": {
+            "available": True,
+            "executionVerified": True,
+            "executionMode": "sandbox",
+        },
     }
 
     assert validate_live_targets(("codex/gpt",), catalog) == ("codex/gpt",)
@@ -139,7 +171,9 @@ def test_runner_reports_pass_at_k_and_pass_power_k_for_repeated_runs(tmp_path):
         ),
     )
     asyncio.run(
-        EvaluationRunner(store=store, execute=execute, worker_id="worker-repeat").run_once()
+        EvaluationRunner(
+            store=store, execute=execute, worker_id="worker-repeat"
+        ).run_once()
     )
 
     reliability = store.get_run("tenant-a", run_id)["summary"]["reliability"][0]
@@ -173,7 +207,9 @@ def test_runner_stops_at_the_next_boundary_after_cancellation(tmp_path):
         return EvaluationResponse(text="baseline")
 
     asyncio.run(
-        EvaluationRunner(store=store, execute=execute, worker_id="worker-cancel").run_once()
+        EvaluationRunner(
+            store=store, execute=execute, worker_id="worker-cancel"
+        ).run_once()
     )
 
     assert calls == 1
@@ -265,7 +301,9 @@ def test_gateway_judge_is_bound_to_the_same_live_preflight(monkeypatch):
     gateway._EVALUATION_PREFLIGHTS.pop(request.preflight_receipt, None)
 
 
-def test_gateway_moa_response_declares_all_participants_for_judge_independence(monkeypatch):
+def test_gateway_moa_response_declares_all_participants_for_judge_independence(
+    monkeypatch,
+):
     from multillm import gateway
 
     async def moa(_body):
@@ -317,7 +355,10 @@ def test_gateway_moa_response_declares_all_participants_for_judge_independence(m
     )
 
     assert response.participant_models == ("model/a", "model/b", "model/c")
-    assert [(stage.stage, stage.input_tokens, stage.output_tokens) for stage in response.stage_usage] == [
+    assert [
+        (stage.stage, stage.input_tokens, stage.output_tokens)
+        for stage in response.stage_usage
+    ] == [
         ("proposer", 8, 5),
         ("aggregator", 8, 4),
     ]

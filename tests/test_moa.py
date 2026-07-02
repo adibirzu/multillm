@@ -73,7 +73,12 @@ def test_layered_moa_runs_parallel_proposers_then_refiner_and_aggregator():
         if alias == "gemini/c":
             assert "Response 1" in prompt and "Response 2" in prompt
             assert "codex/a" not in prompt and "claude/b" not in prompt
-            return {"alias": alias, "text": "refined evidence", "inputTokens": 20, "outputTokens": 6}
+            return {
+                "alias": alias,
+                "text": "refined evidence",
+                "inputTokens": 20,
+                "outputTokens": 6,
+            }
         return {
             "alias": alias,
             "text": json.dumps(

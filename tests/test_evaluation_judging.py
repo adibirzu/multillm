@@ -4,7 +4,11 @@ import json
 
 import pytest
 
-from multillm.evaluation.contracts import PairwiseDecision, PairwiseJudgment, ResponseChoice
+from multillm.evaluation.contracts import (
+    PairwiseDecision,
+    PairwiseJudgment,
+    ResponseChoice,
+)
 from multillm.evaluation.judging import (
     build_blind_judge_prompt,
     parse_judgment,

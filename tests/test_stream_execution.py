@@ -44,11 +44,7 @@ class _FakeClient:
 
 
 def test_openai_compat_stream_executes_http_and_filters_bad_events(monkeypatch):
-    chunk = {
-        "choices": [
-            {"delta": {"content": "hello"}, "finish_reason": None}
-        ]
-    }
+    chunk = {"choices": [{"delta": {"content": "hello"}, "finish_reason": None}]}
     client = _FakeClient(
         ["ignored", "data: not-json", f"data: {json.dumps(chunk)}", "data: [DONE]"]
     )
@@ -119,9 +115,7 @@ def test_anthropic_passthrough_preserves_event_line_breaks(monkeypatch):
 
 def test_stream_token_counter_handles_openai_usage_and_fires_once():
     events = [
-        "data: "
-        + json.dumps({"choices": [{"delta": {"content": "hello"}}]})
-        + "\n",
+        "data: " + json.dumps({"choices": [{"delta": {"content": "hello"}}]}) + "\n",
         "data: "
         + json.dumps(
             {

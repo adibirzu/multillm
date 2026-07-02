@@ -41,7 +41,7 @@ def render_management_html(bundle: dict[str, Any]) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>MultiLLM evaluation {escape(str(run['id']))}</title>
+  <title>MultiLLM evaluation {escape(str(run["id"]))}</title>
   <style>
     body{{font:14px system-ui,sans-serif;margin:2rem;color:#17212b}}
     table{{border-collapse:collapse;width:100%}}th,td{{border:1px solid #ccd5df;padding:.5rem;text-align:left;vertical-align:top}}
@@ -53,16 +53,16 @@ def render_management_html(bundle: dict[str, Any]) -> str:
 <body>
   <h1>Evaluation report</h1>
   <div class="meta">
-    <div><strong>Run</strong><br>{escape(str(run['id']))}</div>
-    <div><strong>Status</strong><br>{escape(str(run['status']))}</div>
-    <div><strong>Suite</strong><br>{escape(str(run['suiteId']))}</div>
-    <div><strong>Manifest SHA-256</strong><br>{escape(str(manifest['sha256']))}</div>
+    <div><strong>Run</strong><br>{escape(str(run["id"]))}</div>
+    <div><strong>Status</strong><br>{escape(str(run["status"]))}</div>
+    <div><strong>Suite</strong><br>{escape(str(run["suiteId"]))}</div>
+    <div><strong>Manifest SHA-256</strong><br>{escape(str(manifest["sha256"]))}</div>
   </div>
   <h2>Summary</h2><pre>{escape(str(summary))}</pre>
   <h2>Pairwise comparisons</h2>
   <table><thead><tr><th>Case</th><th>MoA candidate</th><th>Baseline</th><th>Judge decision</th><th>Human decision</th><th>Judgments</th></tr></thead>
-  <tbody>{''.join(comparison_rows)}</tbody></table>
+  <tbody>{"".join(comparison_rows)}</tbody></table>
   <h2>Outputs</h2>
   <table><thead><tr><th>Case</th><th>Target</th><th>Status</th><th>Total ms</th><th>Normalized USD</th><th>Output</th></tr></thead>
-  <tbody>{''.join(rows)}</tbody></table>
+  <tbody>{"".join(rows)}</tbody></table>
 </body></html>"""

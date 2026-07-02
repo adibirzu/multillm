@@ -52,7 +52,12 @@ async def validate_public_url(url: str) -> str:
     if parsed.username or parsed.password:
         raise ValueError("evidence URL credentials are not allowed")
     hostname = (parsed.hostname or "").rstrip(".").lower()
-    if not hostname or hostname == "localhost" or hostname.endswith(".localhost") or hostname.endswith(".local"):
+    if (
+        not hostname
+        or hostname == "localhost"
+        or hostname.endswith(".localhost")
+        or hostname.endswith(".local")
+    ):
         raise ValueError("evidence URL host is not public")
     try:
         if _is_forbidden_ip(hostname):
@@ -86,9 +91,7 @@ async def validate_public_url(url: str) -> str:
 
 def _clean_text(value: str, max_chars: int) -> str:
     without_controls = "".join(
-        character
-        for character in value
-        if character in "\n\t" or ord(character) >= 32
+        character for character in value if character in "\n\t" or ord(character) >= 32
     )
     normalized = re.sub(r"[ \t]+", " ", without_controls)
     normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()

@@ -120,7 +120,9 @@ def test_release_human_calibration_uses_minimum_thirty_and_ten_percent_floor():
 def test_release_gate_waits_for_human_calibration_before_claiming_superiority():
     pairwise = [{"lower95": 0.8, "adjustedPValue": 0.01}]
 
-    assert evaluate_release_gate("ci", pairwise, pending_reviews=False) == "not_evaluated"
+    assert (
+        evaluate_release_gate("ci", pairwise, pending_reviews=False) == "not_evaluated"
+    )
     assert (
         evaluate_release_gate("release", pairwise, pending_reviews=True)
         == "pending_human_review"
@@ -161,6 +163,9 @@ def test_artifact_cipher_encrypts_with_authenticated_context():
     encrypted = cipher.encrypt(b"sensitive answer", associated_data=b"tenant-a/run-1")
 
     assert b"sensitive answer" not in encrypted
-    assert cipher.decrypt(encrypted, associated_data=b"tenant-a/run-1") == b"sensitive answer"
+    assert (
+        cipher.decrypt(encrypted, associated_data=b"tenant-a/run-1")
+        == b"sensitive answer"
+    )
     with pytest.raises(ValueError, match="decrypt"):
         cipher.decrypt(encrypted, associated_data=b"tenant-b/run-1")

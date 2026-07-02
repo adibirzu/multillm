@@ -18,7 +18,9 @@ def test_canonical_moa_endpoint_and_legacy_fusion_endpoint_coexist():
         "stages": [],
         "totals": {},
     }
-    with patch("multillm.gateway._run_moa_request", new=AsyncMock(return_value=result)) as run:
+    with patch(
+        "multillm.gateway._run_moa_request", new=AsyncMock(return_value=result)
+    ) as run:
         response = client.post(
             "/api/moa",
             json={
@@ -75,7 +77,9 @@ def test_anthropic_messages_accepts_canonical_moa_model_slug():
         "stages": [],
         "totals": {"inputTokens": 12, "outputTokens": 4, "actualCostUSD": 0.02},
     }
-    with patch("multillm.gateway._run_moa_request", new=AsyncMock(return_value=result)) as run:
+    with patch(
+        "multillm.gateway._run_moa_request", new=AsyncMock(return_value=result)
+    ) as run:
         response = client.post(
             "/v1/messages",
             json={

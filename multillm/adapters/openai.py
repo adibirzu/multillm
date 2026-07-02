@@ -84,7 +84,9 @@ def build_responses_payload(body: dict, model: str) -> dict:
     if verbosity:
         text_config["verbosity"] = verbosity
     output_schema = body.get("output_schema") or {}
-    if isinstance(output_schema, dict) and isinstance(output_schema.get("schema"), dict):
+    if isinstance(output_schema, dict) and isinstance(
+        output_schema.get("schema"), dict
+    ):
         if len(json.dumps(output_schema["schema"])) > 100_000:
             raise HTTPException(status_code=400, detail="output_schema is too large")
         text_config["format"] = {
@@ -138,7 +140,9 @@ def _responses_content(response: dict) -> list[dict]:
             content.append(
                 {
                     "type": "tool_use",
-                    "id": item.get("call_id") or item.get("id") or f"toolu_{uuid.uuid4().hex[:24]}",
+                    "id": item.get("call_id")
+                    or item.get("id")
+                    or f"toolu_{uuid.uuid4().hex[:24]}",
                     "name": item.get("name", "unknown"),
                     "input": arguments,
                 }
@@ -166,13 +170,17 @@ def responses_to_anthropic(response: dict, model_alias: str) -> dict:
         "role": "assistant",
         "content": content,
         "model": model_alias,
-        "stop_reason": "tool_use" if has_tool else ("max_tokens" if incomplete else "end_turn"),
+        "stop_reason": "tool_use"
+        if has_tool
+        else ("max_tokens" if incomplete else "end_turn"),
         "stop_sequence": None,
         "usage": {
             "input_tokens": int(usage.get("input_tokens") or 0),
             "output_tokens": int(usage.get("output_tokens") or 0),
             "cache_read_input_tokens": int(input_details.get("cached_tokens") or 0),
-            "cache_creation_input_tokens": int(input_details.get("cache_write_tokens") or 0),
+            "cache_creation_input_tokens": int(
+                input_details.get("cache_write_tokens") or 0
+            ),
             "reasoning_tokens": int(output_details.get("reasoning_tokens") or 0),
             "service_tier": response.get("service_tier"),
             "provider_model": response.get("model"),
@@ -231,7 +239,9 @@ class OpenAIAdapter(BaseAdapter):
             usage = result.get("usage") or {}
 
             async def generate():
-                state = StreamState(model_alias, input_tokens=usage.get("input_tokens", 0))
+                state = StreamState(
+                    model_alias, input_tokens=usage.get("input_tokens", 0)
+                )
                 yield make_message_start_event(state)
                 yield make_content_block_start_event(0)
                 yield make_text_delta_event(0, text)

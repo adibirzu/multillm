@@ -142,9 +142,7 @@ async def test_runner_calls_completion_hook_with_content_redacted(tmp_path):
         version="1",
         source="owned",
         license_id="Apache-2.0",
-        cases=(
-            EvaluationCase(id="case-1", prompt="secret prompt", category="finops"),
-        ),
+        cases=(EvaluationCase(id="case-1", prompt="secret prompt", category="finops"),),
     )
     store.create_run(
         "tenant-a",

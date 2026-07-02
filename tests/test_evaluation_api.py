@@ -26,7 +26,9 @@ def _app(tmp_path):
 def test_suite_and_run_apis_use_consistent_envelope_and_tenant_scope(tmp_path):
     client, _store = _app(tmp_path)
 
-    suites = client.get("/api/evaluations/suites", headers={"X-MultiLLM-Tenant": "tenant-a"})
+    suites = client.get(
+        "/api/evaluations/suites", headers={"X-MultiLLM-Tenant": "tenant-a"}
+    )
     assert suites.status_code == 200
     assert suites.json()["success"] is True
     assert suites.json()["data"][0]["id"] == "finops-v1"
@@ -210,7 +212,10 @@ def test_comparison_and_blinded_human_review_apis(tmp_path):
         "tenant-a",
         EvaluationRunRequest(suite_id="finops-v1", profile="release"),
     )
-    for target, text in (("moa/quality", "candidate answer"), ("base/model", "baseline answer")):
+    for target, text in (
+        ("moa/quality", "candidate answer"),
+        ("base/model", "baseline answer"),
+    ):
         store.record_output(
             "tenant-a",
             run_id,
@@ -280,7 +285,10 @@ def test_comparison_and_blinded_human_review_apis(tmp_path):
     refreshed = store.get_run("tenant-a", run_id)
     assert refreshed["summary"]["releaseGate"] == "not_demonstrated"
     assert refreshed["summary"]["pairwise"][0]["sampleCount"] == 1
-    assert client.get(
-        f"/api/evaluations/reviews/queue?run_id={run_id}",
-        headers={"X-MultiLLM-Tenant": "tenant-a"},
-    ).json()["data"] == []
+    assert (
+        client.get(
+            f"/api/evaluations/reviews/queue?run_id={run_id}",
+            headers={"X-MultiLLM-Tenant": "tenant-a"},
+        ).json()["data"]
+        == []
+    )

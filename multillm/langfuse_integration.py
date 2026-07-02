@@ -99,7 +99,9 @@ def shutdown_langfuse(*, timeout_seconds: float | None = None) -> None:
     worker.start()
     worker.join(timeout=timeout)
     if worker.is_alive():
-        log.warning("Langfuse shutdown exceeded %.1fs; continuing gateway exit", timeout)
+        log.warning(
+            "Langfuse shutdown exceeded %.1fs; continuing gateway exit", timeout
+        )
 
 
 # Backend → provider display name
@@ -332,7 +334,9 @@ def trace_evaluation_run(
             metadata={
                 "runId": run_id,
                 "suiteId": suite_id,
-                "tenantHash": hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()[:16],
+                "tenantHash": hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()[
+                    :16
+                ],
                 "status": status,
                 "profile": profile,
                 "executionMode": execution_mode,

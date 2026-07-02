@@ -60,7 +60,9 @@ def _validated_payload(payload: object) -> dict:
     }
     unknown = set(payload) - allowed
     if unknown:
-        raise ValueError(f"unsupported private credit field(s): {', '.join(sorted(unknown))}")
+        raise ValueError(
+            f"unsupported private credit field(s): {', '.join(sorted(unknown))}"
+        )
     if payload.get("enabled") is not True:
         raise ValueError("enabled must be true")
     period = str(payload.get("period") or "")
@@ -77,7 +79,10 @@ def _validated_payload(payload: object) -> dict:
         result["credit_to_usd"] = credit_to_usd
     required_email_domain = str(payload.get("required_email_domain") or "").lower()
     if required_email_domain:
-        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9-]+)+", required_email_domain):
+        if not re.fullmatch(
+            r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9-]+)+",
+            required_email_domain,
+        ):
             raise ValueError("required_email_domain must be a domain name")
         result["required_email_domain"] = required_email_domain
     return result
@@ -138,9 +143,7 @@ def get_private_credit_overlay() -> dict:
     ):
         return {"configured": False}
     mapped_cost = (
-        round(credits_used * credit_to_usd, 6)
-        if credit_to_usd is not None
-        else None
+        round(credits_used * credit_to_usd, 6) if credit_to_usd is not None else None
     )
     return {
         "configured": True,

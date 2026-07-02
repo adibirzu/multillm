@@ -153,9 +153,7 @@ def _init_db(conn: sqlite3.Connection) -> None:
     try:
         conn.execute("SELECT reasoning_tokens FROM usage LIMIT 1")
     except sqlite3.OperationalError:
-        conn.execute(
-            "ALTER TABLE usage ADD COLUMN reasoning_tokens INTEGER DEFAULT 0"
-        )
+        conn.execute("ALTER TABLE usage ADD COLUMN reasoning_tokens INTEGER DEFAULT 0")
     try:
         conn.execute("SELECT service_tier FROM usage LIMIT 1")
     except sqlite3.OperationalError:

@@ -108,7 +108,7 @@ def test_run_codex_exec_isolates_per_request_effort_and_verbosity(monkeypatch):
     )
 
     args = captured["args"]
-    effort_index = args.index("model_reasoning_effort=\"low\"")
-    verbosity_index = args.index("model_verbosity=\"low\"")
+    effort_index = args.index('model_reasoning_effort="low"')
+    verbosity_index = args.index('model_verbosity="low"')
     assert args[effort_index - 1] == "-c"
     assert args[verbosity_index - 1] == "-c"

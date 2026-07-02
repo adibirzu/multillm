@@ -36,9 +36,7 @@ def test_openai_adapter_dispatches_gpt5_to_responses(monkeypatch):
 
 def test_openai_adapter_retains_legacy_chat_path(monkeypatch):
     chat = {
-        "choices": [
-            {"message": {"content": "legacy"}, "finish_reason": "stop"}
-        ],
+        "choices": [{"message": {"content": "legacy"}, "finish_reason": "stop"}],
         "usage": {"prompt_tokens": 2, "completion_tokens": 1},
     }
     call = AsyncMock(return_value=chat)
@@ -143,7 +141,9 @@ def test_codex_send_passes_execution_controls_and_returns_usage(monkeypatch):
     call = AsyncMock(return_value=(0, "codex answer", ""))
     monkeypatch.setattr(codex_cli, "_run_codex_exec", call)
     monkeypatch.setattr(
-        codex_cli, "_resolve_codex_exec_target", lambda selector: (["-m", "gpt-5.5"], "gpt-5.5")
+        codex_cli,
+        "_resolve_codex_exec_target",
+        lambda selector: (["-m", "gpt-5.5"], "gpt-5.5"),
     )
 
     result = asyncio.run(

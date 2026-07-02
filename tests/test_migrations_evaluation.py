@@ -4,7 +4,9 @@ import sqlite3
 def test_evaluation_migration_creates_audit_tables(tmp_path, monkeypatch):
     database = tmp_path / "multillm.db"
     with sqlite3.connect(database) as connection:
-        connection.execute("CREATE TABLE system (id INTEGER PRIMARY KEY, key TEXT, value TEXT)")
+        connection.execute(
+            "CREATE TABLE system (id INTEGER PRIMARY KEY, key TEXT, value TEXT)"
+        )
     monkeypatch.setenv("MULTILLM_DB_PATH", str(database))
 
     from multillm.migrations.runner import migrate_up

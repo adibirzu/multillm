@@ -249,7 +249,11 @@ class OrchestrationStore:
         issue_categories: tuple[str, ...] = (),
         preferred_model: str | None = None,
     ) -> bool:
-        if isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5:
+        if (
+            isinstance(rating, bool)
+            or not isinstance(rating, int)
+            or not 1 <= rating <= 5
+        ):
             raise ValueError("rating must be an integer from 1 to 5")
         normalized_issues = tuple(
             issue.strip().lower()
@@ -325,9 +329,9 @@ class OrchestrationStore:
             old_cost = float(current["avg_cost_usd"]) if current else 0.0
             next_quality = old_quality + (quality - old_quality) / next_samples
             reliability_value = 1.0 if reliable else 0.0
-            next_reliability = old_reliability + (
-                reliability_value - old_reliability
-            ) / next_samples
+            next_reliability = (
+                old_reliability + (reliability_value - old_reliability) / next_samples
+            )
             next_cost = old_cost + (max(0.0, float(cost_usd)) - old_cost) / next_samples
             # Conservative lower confidence bound. It remains low during cold
             # start and only influences ranking after the minimum sample gate.
@@ -372,7 +376,9 @@ class OrchestrationStore:
                 """SELECT model, task_type, quality_mean, reliability_mean,
                           avg_cost_usd, sample_count, confidence_lower, updated_at
                    FROM model_scorecards
-                   """ + where + " ORDER BY confidence_lower DESC",
+                   """
+                + where
+                + " ORDER BY confidence_lower DESC",
                 values,
             ).fetchall()
         return [dict(row) for row in rows]
@@ -397,8 +403,15 @@ class OrchestrationStore:
                 """INSERT INTO scan_reports
                    (id, tenant_id, created_at, source, project, title, metadata_json)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (report_id, tenant_id, now, source, project, title,
-                 json.dumps(report_metadata, sort_keys=True)),
+                (
+                    report_id,
+                    tenant_id,
+                    now,
+                    source,
+                    project,
+                    title,
+                    json.dumps(report_metadata, sort_keys=True),
+                ),
             )
             for finding in findings:
                 if not isinstance(finding, dict):
@@ -421,10 +434,18 @@ class OrchestrationStore:
                        (id, tenant_id, report_id, external_id, severity, category,
                         title, resource, status, metadata_json)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (f"finding_{uuid.uuid4().hex[:20]}", tenant_id, report_id,
-                     str(finding.get("externalId", "")).strip() or None, severity,
-                     category, finding_title, str(finding.get("resource", "")).strip(),
-                     status, json.dumps(metadata, sort_keys=True)),
+                    (
+                        f"finding_{uuid.uuid4().hex[:20]}",
+                        tenant_id,
+                        report_id,
+                        str(finding.get("externalId", "")).strip() or None,
+                        severity,
+                        category,
+                        finding_title,
+                        str(finding.get("resource", "")).strip(),
+                        status,
+                        json.dumps(metadata, sort_keys=True),
+                    ),
                 )
         return report_id
 
@@ -443,22 +464,38 @@ class OrchestrationStore:
                 (tenant_id, report_id),
             ).fetchall()
         finding_rows = [
-            {"externalId": row["external_id"], "severity": row["severity"],
-             "category": row["category"], "title": row["title"],
-             "resource": row["resource"], "status": row["status"],
-             "metadata": json.loads(row["metadata_json"])}
+            {
+                "externalId": row["external_id"],
+                "severity": row["severity"],
+                "category": row["category"],
+                "title": row["title"],
+                "resource": row["resource"],
+                "status": row["status"],
+                "metadata": json.loads(row["metadata_json"]),
+            }
             for row in findings
         ]
-        by_severity = {severity: sum(1 for row in finding_rows if row["severity"] == severity)
-                       for severity in ("critical", "high", "medium", "low", "info")}
-        return {"id": report["id"], "createdAt": report["created_at"],
-                "source": report["source"], "project": report["project"],
-                "title": report["title"], "metadata": json.loads(report["metadata_json"]),
-                "findings": finding_rows,
-                "summary": {**{key: value for key, value in by_severity.items() if value},
-                            "total": len(finding_rows)}}
+        by_severity = {
+            severity: sum(1 for row in finding_rows if row["severity"] == severity)
+            for severity in ("critical", "high", "medium", "low", "info")
+        }
+        return {
+            "id": report["id"],
+            "createdAt": report["created_at"],
+            "source": report["source"],
+            "project": report["project"],
+            "title": report["title"],
+            "metadata": json.loads(report["metadata_json"]),
+            "findings": finding_rows,
+            "summary": {
+                **{key: value for key, value in by_severity.items() if value},
+                "total": len(finding_rows),
+            },
+        }
 
-    def list_scan_reports(self, tenant_id: str, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    def list_scan_reports(
+        self, tenant_id: str, *, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 200))
         offset = max(0, int(offset))
         with self._connect() as connection:
@@ -473,10 +510,19 @@ class OrchestrationStore:
                    ORDER BY r.created_at DESC LIMIT ? OFFSET ?""",
                 (tenant_id, limit, offset),
             ).fetchall()
-        return [{"id": row["id"], "createdAt": row["created_at"], "source": row["source"],
-                 "project": row["project"], "title": row["title"],
-                 "findingCount": row["finding_count"], "criticalCount": row["critical_count"] or 0,
-                 "highCount": row["high_count"] or 0} for row in rows]
+        return [
+            {
+                "id": row["id"],
+                "createdAt": row["created_at"],
+                "source": row["source"],
+                "project": row["project"],
+                "title": row["title"],
+                "findingCount": row["finding_count"],
+                "criticalCount": row["critical_count"] or 0,
+                "highCount": row["high_count"] or 0,
+            }
+            for row in rows
+        ]
 
     def get_scan_summary(self, tenant_id: str) -> dict[str, Any]:
         with self._connect() as connection:
@@ -491,9 +537,13 @@ class OrchestrationStore:
                 "SELECT status, COUNT(*) AS count FROM scan_findings WHERE tenant_id = ? GROUP BY status",
                 (tenant_id,),
             ).fetchall()
-        return {"reports": report_count,
-                "findingsBySeverity": {row["severity"]: row["count"] for row in severity_rows},
-                "findingsByStatus": {row["status"]: row["count"] for row in status_rows}}
+        return {
+            "reports": report_count,
+            "findingsBySeverity": {
+                row["severity"]: row["count"] for row in severity_rows
+            },
+            "findingsByStatus": {row["status"]: row["count"] for row in status_rows},
+        }
 
     def export_scan_findings(self, tenant_id: str) -> list[dict[str, Any]]:
         with self._connect() as connection:
@@ -505,18 +555,39 @@ class OrchestrationStore:
                    WHERE r.tenant_id = ? ORDER BY r.created_at DESC, f.severity, f.title""",
                 (tenant_id,),
             ).fetchall()
-        return [{"reportId": row["report_id"], "createdAt": row["created_at"],
-                 "source": row["source"], "project": row["project"],
-                 "reportTitle": row["report_title"], "externalId": row["external_id"] or "",
-                 "severity": row["severity"], "category": row["category"],
-                 "title": row["title"], "resource": row["resource"], "status": row["status"]}
-                for row in rows]
+        return [
+            {
+                "reportId": row["report_id"],
+                "createdAt": row["created_at"],
+                "source": row["source"],
+                "project": row["project"],
+                "reportTitle": row["report_title"],
+                "externalId": row["external_id"] or "",
+                "severity": row["severity"],
+                "category": row["category"],
+                "title": row["title"],
+                "resource": row["resource"],
+                "status": row["status"],
+            }
+            for row in rows
+        ]
 
     def scan_findings_csv(self, tenant_id: str) -> str:
         rows = self.export_scan_findings(tenant_id)
         output = io.StringIO()
-        fields = ["reportId", "createdAt", "source", "project", "reportTitle", "externalId",
-                  "severity", "category", "title", "resource", "status"]
+        fields = [
+            "reportId",
+            "createdAt",
+            "source",
+            "project",
+            "reportTitle",
+            "externalId",
+            "severity",
+            "category",
+            "title",
+            "resource",
+            "status",
+        ]
         writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)

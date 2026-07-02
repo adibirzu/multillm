@@ -163,7 +163,12 @@ def get_results_api(
     outputs = run["outputs"][offset : offset + limit]
     return _ok(
         outputs,
-        meta={"offset": offset, "limit": limit, "count": len(outputs), "total": len(run["outputs"])},
+        meta={
+            "offset": offset,
+            "limit": limit,
+            "count": len(outputs),
+            "total": len(run["outputs"]),
+        },
     )
 
 
@@ -213,13 +218,15 @@ def submit_review_api(
     decision = str(payload.get("decision") or "").strip().lower()
     rationale = str(payload.get("rationale") or "").strip()
     if decision not in {"response_a", "response_b", "tie"}:
-        return _error("decision must be response_a, response_b, or tie", status_code=422)
-    if not rationale or len(rationale) > 8_000:
-        return _error("rationale is required and limited to 8000 characters", status_code=422)
-    try:
-        resolved_decision = store.resolve_blind_review_decision(
-            comparison_id, decision
+        return _error(
+            "decision must be response_a, response_b, or tie", status_code=422
         )
+    if not rationale or len(rationale) > 8_000:
+        return _error(
+            "rationale is required and limited to 8000 characters", status_code=422
+        )
+    try:
+        resolved_decision = store.resolve_blind_review_decision(comparison_id, decision)
         created = store.add_review(
             tenant_id,
             comparison_id=comparison_id,

@@ -54,7 +54,9 @@ def test_private_credit_overlay_does_not_guess_a_cost_rate(tmp_path, monkeypatch
     assert result["creditToUsd"] is None
 
 
-def test_private_credit_overlay_rejects_files_visible_to_other_users(tmp_path, monkeypatch):
+def test_private_credit_overlay_rejects_files_visible_to_other_users(
+    tmp_path, monkeypatch
+):
     config = tmp_path / "private-credit.json"
     _write_overlay(
         config,

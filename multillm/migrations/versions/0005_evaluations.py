@@ -68,7 +68,9 @@ def upgrade() -> None:
             sa.Column("summary_json", sa.Text(), nullable=False, server_default="{}"),
             sa.Column("worker_id", sa.Text(), nullable=True),
             sa.Column("lease_until", sa.Float(), nullable=True),
-            sa.Column("cancel_requested", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column(
+                "cancel_requested", sa.Integer(), nullable=False, server_default="0"
+            ),
             sa.PrimaryKeyConstraint("tenant_id", "id"),
             sa.ForeignKeyConstraint(
                 ["tenant_id", "suite_id"],
@@ -98,7 +100,11 @@ def upgrade() -> None:
             sa.Column("status", sa.Text(), nullable=False),
             sa.Column("created_at", sa.Float(), nullable=False),
             sa.UniqueConstraint(
-                "tenant_id", "run_id", "case_id", "target", "attempt",
+                "tenant_id",
+                "run_id",
+                "case_id",
+                "target",
+                "attempt",
                 name="uq_evaluation_output_attempt",
             ),
             sa.ForeignKeyConstraint(
@@ -126,7 +132,11 @@ def upgrade() -> None:
             sa.Column("details_json", sa.Text(), nullable=False),
             sa.Column("created_at", sa.Float(), nullable=False),
             sa.UniqueConstraint(
-                "tenant_id", "run_id", "case_id", "target", "metric",
+                "tenant_id",
+                "run_id",
+                "case_id",
+                "target",
+                "metric",
                 name="uq_evaluation_metric",
             ),
             sa.ForeignKeyConstraint(
@@ -145,12 +155,18 @@ def upgrade() -> None:
             sa.Column("candidate_target", sa.Text(), nullable=False),
             sa.Column("baseline_target", sa.Text(), nullable=False),
             sa.Column("decision", sa.Text(), nullable=False, server_default="abstain"),
-            sa.Column("needs_human_review", sa.Integer(), nullable=False, server_default="1"),
+            sa.Column(
+                "needs_human_review", sa.Integer(), nullable=False, server_default="1"
+            ),
             sa.Column("human_decision", sa.Text(), nullable=True),
             sa.Column("details_json", sa.Text(), nullable=False, server_default="{}"),
             sa.Column("created_at", sa.Float(), nullable=False),
             sa.UniqueConstraint(
-                "tenant_id", "run_id", "case_id", "candidate_target", "baseline_target",
+                "tenant_id",
+                "run_id",
+                "case_id",
+                "candidate_target",
+                "baseline_target",
                 name="uq_evaluation_comparison",
             ),
             sa.ForeignKeyConstraint(
@@ -171,12 +187,13 @@ def upgrade() -> None:
             sa.Column("content_hash", sa.Text(), nullable=False),
             sa.Column("created_at", sa.Float(), nullable=False),
             sa.UniqueConstraint(
-                "tenant_id", "comparison_id", "judge", "ordering",
+                "tenant_id",
+                "comparison_id",
+                "judge",
+                "ordering",
                 name="uq_evaluation_judgment",
             ),
-            sa.ForeignKeyConstraint(
-                ["comparison_id"], ["evaluation_comparisons.id"]
-            ),
+            sa.ForeignKeyConstraint(["comparison_id"], ["evaluation_comparisons.id"]),
         )
 
     if not _table_exists("evaluation_reviews"):
@@ -192,7 +209,9 @@ def upgrade() -> None:
             sa.Column("rationale_hash", sa.Text(), nullable=False),
             sa.Column("created_at", sa.Float(), nullable=False),
             sa.UniqueConstraint(
-                "tenant_id", "comparison_id", "reviewer_id",
+                "tenant_id",
+                "comparison_id",
+                "reviewer_id",
                 name="uq_evaluation_review",
             ),
             sa.ForeignKeyConstraint(

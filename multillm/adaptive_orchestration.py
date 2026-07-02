@@ -48,13 +48,17 @@ _EFFORT_ORDER = (
 )
 
 _INJECTION_PATTERNS = (
-    re.compile(r"ignore (?:all |the )?(?:previous|system|developer) instructions", re.I),
+    re.compile(
+        r"ignore (?:all |the )?(?:previous|system|developer) instructions", re.I
+    ),
     re.compile(r"reveal (?:the )?(?:system prompt|policy|hidden instructions)", re.I),
     re.compile(r"override (?:the )?(?:policy|budget|provider restrictions)", re.I),
 )
 
 
-def classify_task(prompt: str, *, has_images: bool = False, has_tools: bool = False) -> TaskProfile:
+def classify_task(
+    prompt: str, *, has_images: bool = False, has_tools: bool = False
+) -> TaskProfile:
     """Derive bounded task/risk features without treating prompt text as policy."""
     lowered = prompt.lower()
     complexity_data = estimate_complexity(prompt)
@@ -63,23 +67,35 @@ def classify_task(prompt: str, *, has_images: bool = False, has_tools: bool = Fa
         task_type = TaskType.EXTRACTION
     elif any(term in lowered for term in ("summarize", "summarise", "tl;dr")):
         task_type = TaskType.SUMMARIZATION
-    elif any(term in lowered for term in ("debug", "traceback", "stack trace", "root cause")):
+    elif any(
+        term in lowered for term in ("debug", "traceback", "stack trace", "root cause")
+    ):
         task_type = TaskType.DEBUGGING
-    elif any(term in lowered for term in ("architecture", "architect", "distributed", "migration plan")):
+    elif any(
+        term in lowered
+        for term in ("architecture", "architect", "distributed", "migration plan")
+    ):
         task_type = TaskType.ARCHITECTURE
     elif any(term in lowered for term in ("code", "function", "class ", "```")):
         task_type = TaskType.CODING
-    elif any(term in lowered for term in ("research", "sources", "citations", "latest", "current")):
+    elif any(
+        term in lowered
+        for term in ("research", "sources", "citations", "latest", "current")
+    ):
         task_type = TaskType.RESEARCH
     elif len(prompt.split()) <= 25 and prompt.strip().endswith("?"):
         task_type = TaskType.FACTUAL
 
     freshness = any(
-        term in lowered for term in ("latest", "current", "today", "recent", "sources", "citations")
+        term in lowered
+        for term in ("latest", "current", "today", "recent", "sources", "citations")
     )
     complexity_score = float(complexity_data["score"])
     risk = RiskLevel.LOW
-    if task_type in {TaskType.ARCHITECTURE, TaskType.RESEARCH, TaskType.DEBUGGING} or complexity_score >= 0.35:
+    if (
+        task_type in {TaskType.ARCHITECTURE, TaskType.RESEARCH, TaskType.DEBUGGING}
+        or complexity_score >= 0.35
+    ):
         risk = RiskLevel.HIGH
     elif complexity_score >= 0.2 or task_type in {TaskType.CODING, TaskType.EXTRACTION}:
         risk = RiskLevel.MEDIUM
@@ -99,7 +115,9 @@ def classify_task(prompt: str, *, has_images: bool = False, has_tools: bool = Fa
     if freshness:
         validators.append("sources")
 
-    signals = tuple(pattern.pattern for pattern in _INJECTION_PATTERNS if pattern.search(prompt))
+    signals = tuple(
+        pattern.pattern for pattern in _INJECTION_PATTERNS if pattern.search(prompt)
+    )
     return TaskProfile(
         task_type=task_type,
         freshness_required=freshness,
@@ -111,7 +129,9 @@ def classify_task(prompt: str, *, has_images: bool = False, has_tools: bool = Fa
     )
 
 
-def deterministic_validate(answer: str, task: TaskProfile, policy: OrchestrationPolicy) -> tuple[bool, tuple[str, ...]]:
+def deterministic_validate(
+    answer: str, task: TaskProfile, policy: OrchestrationPolicy
+) -> tuple[bool, tuple[str, ...]]:
     defects: list[str] = []
     cleaned = answer.strip()
     if not cleaned:
@@ -127,7 +147,9 @@ def deterministic_validate(answer: str, task: TaskProfile, policy: Orchestration
     return not defects, tuple(defects)
 
 
-def _bounded_effort(desired: ReasoningEffort, ceiling: ReasoningEffort) -> ReasoningEffort:
+def _bounded_effort(
+    desired: ReasoningEffort, ceiling: ReasoningEffort
+) -> ReasoningEffort:
     desired_index = _EFFORT_ORDER.index(desired)
     ceiling_index = _EFFORT_ORDER.index(ceiling)
     return _EFFORT_ORDER[min(desired_index, ceiling_index)]
@@ -157,7 +179,9 @@ def _comparison_prompt(prompt: str, answers: list[dict[str, Any]]) -> str:
     )
 
 
-def _synthesis_prompt(prompt: str, answers: list[dict[str, Any]], comparison: dict[str, Any]) -> str:
+def _synthesis_prompt(
+    prompt: str, answers: list[dict[str, Any]], comparison: dict[str, Any]
+) -> str:
     blocks = "\n\n".join(
         f"Response {index} [{item['alias']}]:\n{item['text']}"
         for index, item in enumerate(answers)
@@ -189,7 +213,11 @@ def _parse_comparison(text: str, answer_count: int) -> dict[str, Any] | None:
     ):
         return None
     best = parsed.get("best_response_index")
-    if isinstance(best, bool) or not isinstance(best, int) or not 0 <= best < answer_count:
+    if (
+        isinstance(best, bool)
+        or not isinstance(best, int)
+        or not 0 <= best < answer_count
+    ):
         return None
     return parsed
 
@@ -221,7 +249,10 @@ class AdaptiveOrchestrator:
                 continue
             if allowed_aliases and profile.alias not in allowed_aliases:
                 continue
-            if policy.allowed_providers and profile.provider not in policy.allowed_providers:
+            if (
+                policy.allowed_providers
+                and profile.provider not in policy.allowed_providers
+            ):
                 continue
             if (
                 not profile.auto_enabled
@@ -229,23 +260,31 @@ class AdaptiveOrchestrator:
                 and policy.preset != "critical"
             ):
                 continue
-            if "image" in task.required_capabilities and "image" not in profile.modalities:
+            if (
+                "image" in task.required_capabilities
+                and "image" not in profile.modalities
+            ):
                 continue
             if "tools" in task.required_capabilities and not profile.supports_tools:
                 continue
             profiles.append(profile)
         return profiles
 
-    def _rank(self, profiles: Iterable[ModelProfile], task: TaskProfile) -> list[ModelProfile]:
+    def _rank(
+        self, profiles: Iterable[ModelProfile], task: TaskProfile
+    ) -> list[ModelProfile]:
         profiles = list(profiles)
-        maximum_price = max(
-            (
-                profile.pricing.input_per_million
-                + profile.pricing.output_per_million
-                for profile in profiles
-            ),
-            default=1.0,
-        ) or 1.0
+        maximum_price = (
+            max(
+                (
+                    profile.pricing.input_per_million
+                    + profile.pricing.output_per_million
+                    for profile in profiles
+                ),
+                default=1.0,
+            )
+            or 1.0
+        )
 
         def score(profile: ModelProfile) -> tuple[float, float, str]:
             scorecard = self.scorecards.get((profile.alias, task.task_type.value))
@@ -262,9 +301,13 @@ class AdaptiveOrchestrator:
                 else 0.75
             )
             health = max(0.0, min(1.0, self.health_scores.get(profile.provider, 0.5)))
-            price = profile.pricing.input_per_million + profile.pricing.output_per_million
+            price = (
+                profile.pricing.input_per_million + profile.pricing.output_per_million
+            )
             efficiency = 1.0 - min(1.0, price / maximum_price)
-            total = quality * 0.4 + reliability * 0.25 + health * 0.15 + efficiency * 0.2
+            total = (
+                quality * 0.4 + reliability * 0.25 + health * 0.15 + efficiency * 0.2
+            )
             return (-total, price, profile.alias)
 
         return sorted(
@@ -307,7 +350,9 @@ class AdaptiveOrchestrator:
         controls = {
             "reasoning_effort": effort.value,
             "execution_mode": mode.value,
-            "verbosity": "concise" if effort in {ReasoningEffort.NONE, ReasoningEffort.LOW} else "balanced",
+            "verbosity": "concise"
+            if effort in {ReasoningEffort.NONE, ReasoningEffort.LOW}
+            else "balanced",
             "prompt_cache_key": f"multillm:v2:{tenant_hash}:{policy.preset}:{stage}",
         }
         if stage in {"verify", "compare", "compare_retry"}:
@@ -353,9 +398,7 @@ class AdaptiveOrchestrator:
                     "policy": policy.model_dump(mode="json"),
                     "task": task.model_dump(mode="json"),
                     "proposedModels": [profile.alias for profile in ranked],
-                    "escalationPath": [
-                        profile.tier.value for profile in ranked
-                    ],
+                    "escalationPath": [profile.tier.value for profile in ranked],
                     "earlyExitReason": "shadow_no_model_calls",
                 },
                 "stages": [],
@@ -381,7 +424,9 @@ class AdaptiveOrchestrator:
         skipped: list[str] = []
         early_exit: str | None = None
 
-        def estimate(profile: ModelProfile, stage_prompt: str, output_tokens: int) -> float:
+        def estimate(
+            profile: ModelProfile, stage_prompt: str, output_tokens: int
+        ) -> float:
             return profile.pricing.estimate(
                 input_tokens=max(1, len(stage_prompt) // 4),
                 output_tokens=output_tokens,
@@ -451,8 +496,12 @@ class AdaptiveOrchestrator:
                     latency_ms=max(0, float(result.get("latencyMs") or 0)),
                     input_tokens=max(0, int(result.get("inputTokens") or 0)),
                     output_tokens=max(0, int(result.get("outputTokens") or 0)),
-                    cache_read_tokens=max(0, int(result.get("cacheReadInputTokens") or 0)),
-                    cache_write_tokens=max(0, int(result.get("cacheWriteInputTokens") or 0)),
+                    cache_read_tokens=max(
+                        0, int(result.get("cacheReadInputTokens") or 0)
+                    ),
+                    cache_write_tokens=max(
+                        0, int(result.get("cacheWriteInputTokens") or 0)
+                    ),
                     reasoning_tokens=max(0, int(result.get("reasoningTokens") or 0)),
                     error=str(result.get("error")) if result.get("error") else None,
                 )
@@ -460,7 +509,9 @@ class AdaptiveOrchestrator:
             return result
 
         draft_pool = [
-            profile for profile in ranked if profile.tier in {ModelTier.LOCAL, ModelTier.ECONOMY}
+            profile
+            for profile in ranked
+            if profile.tier in {ModelTier.LOCAL, ModelTier.ECONOMY}
         ] or ranked
         if not draft_pool:
             return self._result(
@@ -487,9 +538,10 @@ class AdaptiveOrchestrator:
             if candidate_result is None:
                 break
             used.append(candidate)
-            if not candidate_result.get("error") and str(
-                candidate_result.get("text") or ""
-            ).strip():
+            if (
+                not candidate_result.get("error")
+                and str(candidate_result.get("text") or "").strip()
+            ):
                 draft = candidate
                 draft_result = candidate_result
                 answers.append(candidate_result)
@@ -591,7 +643,12 @@ class AdaptiveOrchestrator:
                     verdict = None
             if verifier_result is not None:
                 used.append(verifier)
-        if verdict and verdict.accepted and verdict.confidence >= 0.75 and not force_deliberation:
+        if (
+            verdict
+            and verdict.accepted
+            and verdict.confidence >= 0.75
+            and not force_deliberation
+        ):
             early_exit = "independent_verifier_pass"
             return self._result(
                 run_id,
@@ -624,9 +681,7 @@ class AdaptiveOrchestrator:
                 if profile.tier is tier
                 and profile.alias not in {item.alias for item in used}
             ]
-            specialist = self._pick_diverse(
-                pool, used, policy.require_vendor_diversity
-            )
+            specialist = self._pick_diverse(pool, used, policy.require_vendor_diversity)
             if specialist is None:
                 continue
             desired = (
@@ -729,9 +784,11 @@ class AdaptiveOrchestrator:
             judge_effort,
             max_tokens,
         )
-        if synthesis_result and not synthesis_result.get("error") and str(
-            synthesis_result.get("text") or ""
-        ).strip():
+        if (
+            synthesis_result
+            and not synthesis_result.get("error")
+            and str(synthesis_result.get("text") or "").strip()
+        ):
             return self._result(
                 run_id,
                 "synthesized",

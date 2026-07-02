@@ -21,7 +21,14 @@ from .orchestration_contracts import (
 )
 
 
-_LOCAL_PROVIDERS = {"ollama", "lmstudio", "claude_cli", "codex_cli", "gemini_cli", "antigravity"}
+_LOCAL_PROVIDERS = {
+    "ollama",
+    "lmstudio",
+    "claude_cli",
+    "codex_cli",
+    "gemini_cli",
+    "antigravity",
+}
 
 _PROVIDER_PRICING: dict[str, ModelPricing] = {
     "ollama": ModelPricing(),
@@ -63,6 +70,7 @@ _MODEL_PRICING: dict[str, ModelPricing] = {
         cache_write_per_million=12.5,
     ),
 }
+
 
 class _PreviewModelConfig(TypedDict):
     alias: str
@@ -156,7 +164,17 @@ def _classify_route(provider: str, model: str) -> tuple[ModelTier, bool]:
 
 def _family(provider: str, model: str) -> str:
     lowered = model.lower()
-    for family in ("gpt-5.6", "gpt-5", "gpt-4", "claude", "gemini", "llama", "qwen", "mistral", "deepseek"):
+    for family in (
+        "gpt-5.6",
+        "gpt-5",
+        "gpt-4",
+        "claude",
+        "gemini",
+        "llama",
+        "qwen",
+        "mistral",
+        "deepseek",
+    ):
         if family in lowered:
             return family
     return f"{provider}:{lowered.split(':', 1)[0].split('/', 1)[-1]}"
@@ -194,15 +212,20 @@ def _profile_from_route(alias: str, route: Mapping[str, object]) -> ModelProfile
         protocol=_protocol(provider, model),
         available=True,
         verified_at=time.time() if route.get("discovered") else None,
-        modalities=("text", "image") if any(x in model.lower() for x in ("gpt-4o", "gemini", "claude")) else ("text",),
+        modalities=("text", "image")
+        if any(x in model.lower() for x in ("gpt-4o", "gemini", "claude"))
+        else ("text",),
         context_window=max(0, int(str(route.get("context_length") or 0))),
         supports_tools=provider not in _LOCAL_PROVIDERS or provider == "ollama",
-        supports_structured_output=provider not in {"claude_cli", "codex_cli", "gemini_cli"},
+        supports_structured_output=provider
+        not in {"claude_cli", "codex_cli", "gemini_cli"},
         supports_state=_protocol(provider, model) is ModelProtocol.RESPONSES,
         reasoning_efforts=reasoning,
         task_strengths=strengths,
         pricing=pricing_for(provider, model),
-        cache_behavior="provider_managed" if provider in {"openai", "anthropic"} else "none",
+        cache_behavior="provider_managed"
+        if provider in {"openai", "anthropic"}
+        else "none",
         auto_enabled=recognized,
     )
 
@@ -221,7 +244,9 @@ class ModelRegistry:
         routes: Mapping[str, Mapping[str, object]],
         discovered_model_ids: set[str] | None = None,
     ) -> "ModelRegistry":
-        profiles = [_profile_from_route(alias, route) for alias, route in routes.items()]
+        profiles = [
+            _profile_from_route(alias, route) for alias, route in routes.items()
+        ]
         discovered = discovered_model_ids or set()
         for model_id, config in _PREVIEW_MODELS.items():
             if model_id not in discovered:

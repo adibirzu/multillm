@@ -47,7 +47,9 @@ def test_simple_low_risk_prompt_early_exits_after_one_economy_draft():
     engine = AdaptiveOrchestrator(registry=registry, query_fn=query)
 
     result = asyncio.run(
-        engine.run(prompt="What is the capital of France?", policy=OrchestrationPolicy())
+        engine.run(
+            prompt="What is the capital of France?", policy=OrchestrationPolicy()
+        )
     )
 
     assert result["status"] == "accepted"

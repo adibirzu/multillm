@@ -41,7 +41,10 @@ def test_eval_run_live_preflights_candidates_judges_and_moa_before_create(monkey
         calls.append((method, path, payload))
         if path == "/api/evaluations/preflight":
             return {"success": True, "data": {"receipt": "evalpf_1234567890abcdef"}}
-        return {"success": True, "data": {"id": "eval_1234567890abcdef1234", "status": "queued"}}
+        return {
+            "success": True,
+            "data": {"id": "eval_1234567890abcdef1234", "status": "queued"},
+        }
 
     monkeypatch.setattr(cli, "_eval_http_json", request)
     result = CliRunner().invoke(
@@ -80,7 +83,9 @@ def test_eval_run_live_preflights_candidates_judges_and_moa_before_create(monkey
     assert created["judge_pool"] == ["gemini-cli/pro", "claude-cli/opus"]
 
 
-def test_eval_run_all_live_discovers_deduplicates_and_then_execution_probes(monkeypatch):
+def test_eval_run_all_live_discovers_deduplicates_and_then_execution_probes(
+    monkeypatch,
+):
     calls = []
 
     def request(method, gateway, path, payload=None):
@@ -98,7 +103,10 @@ def test_eval_run_all_live_discovers_deduplicates_and_then_execution_probes(monk
             }
         if path == "/api/evaluations/preflight":
             return {"success": True, "data": {"receipt": "evalpf_1234567890abcdef"}}
-        return {"success": True, "data": {"id": "eval_1234567890abcdef1234", "status": "queued"}}
+        return {
+            "success": True,
+            "data": {"id": "eval_1234567890abcdef1234", "status": "queued"},
+        }
 
     monkeypatch.setattr(cli, "_eval_http_json", request)
     result = CliRunner().invoke(

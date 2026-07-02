@@ -36,7 +36,10 @@ def _percentile(values: Sequence[float], percentile: float) -> float:
 
 
 def bootstrap_win_rate(
-    decisions: Sequence[PairwiseDecision | str], *, samples: int = 10_000, seed: int = 17
+    decisions: Sequence[PairwiseDecision | str],
+    *,
+    samples: int = 10_000,
+    seed: int = 17,
 ) -> WinRateSummary:
     """Return a tie-aware win rate and prompt-level percentile bootstrap CI."""
     if samples < 100:
@@ -98,9 +101,9 @@ def one_sided_sign_test(*, wins: int, losses: int) -> float:
     observations = wins + losses
     if observations == 0 or wins <= losses:
         return 1.0
-    return sum(math.comb(observations, count) for count in range(wins, observations + 1)) / (
-        2**observations
-    )
+    return sum(
+        math.comb(observations, count) for count in range(wins, observations + 1)
+    ) / (2**observations)
 
 
 def holm_bonferroni(p_values: Mapping[str, float]) -> dict[str, float]:

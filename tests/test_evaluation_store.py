@@ -71,7 +71,11 @@ def test_suite_and_run_lifecycle_are_tenant_scoped_and_resumable(tmp_path):
         attempt=1,
         output_text="Compare the baseline and assign an owner.",
         usage={"input_tokens": 10, "output_tokens": 9},
-        latency={"total_ms": 1200, "ttft_ms": None, "ttft_unavailable_reason": "non_streaming_cli"},
+        latency={
+            "total_ms": 1200,
+            "ttft_ms": None,
+            "ttft_unavailable_reason": "non_streaming_cli",
+        },
         cost={"actual_usd": None, "normalized_usd": 0.01, "pricing_version": "2026-07"},
         status="succeeded",
     )
@@ -85,13 +89,18 @@ def test_suite_and_run_lifecycle_are_tenant_scoped_and_resumable(tmp_path):
         passed=True,
         details={"matched": ["baseline", "owner"]},
     )
-    assert store.complete_run("tenant-a", run_id, summary={"passed": True}, status="completed")
+    assert store.complete_run(
+        "tenant-a", run_id, summary={"passed": True}, status="completed"
+    )
 
     detail = store.get_run("tenant-a", run_id)
     assert detail is not None
     assert detail["status"] == "completed"
     assert detail["summary"] == {"passed": True}
-    assert detail["outputs"][0]["outputText"] == "Compare the baseline and assign an owner."
+    assert (
+        detail["outputs"][0]["outputText"]
+        == "Compare the baseline and assign an owner."
+    )
     assert detail["metrics"][0]["passed"] is True
 
 
@@ -119,7 +128,9 @@ def test_output_idempotency_and_cancel_are_safe(tmp_path):
         "status": "succeeded",
     }
     first = store.record_output("tenant-a", run_id, **kwargs)
-    second = store.record_output("tenant-a", run_id, **{**kwargs, "output_text": "replacement"})
+    second = store.record_output(
+        "tenant-a", run_id, **{**kwargs, "output_text": "replacement"}
+    )
     assert first == second
     assert store.get_run("tenant-a", run_id)["outputs"][0]["outputText"] == "first"
 
@@ -147,7 +158,7 @@ def test_export_rows_are_flat_reproducible_and_csv_safe(tmp_path):
         case_id="focus-nlp",
         target="codex/gpt-5-5",
         attempt=1,
-        output_text="=HYPERLINK(\"bad\")",
+        output_text='=HYPERLINK("bad")',
         usage={"input_tokens": 2, "output_tokens": 3},
         latency={"total_ms": 5},
         cost={"normalized_usd": 0.1},

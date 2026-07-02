@@ -103,6 +103,7 @@ def _gateway_headers() -> dict[str, str]:
     key = os.getenv("MULTILLM_API_KEY")
     return {"X-API-Key": key} if key else {}
 
+
 # Shared HTTP client for gateway calls — avoids creating a new client per tool invocation.
 # Lazily initialized on first use, reused across all MCP tool calls.
 _gateway_client: Optional[httpx.AsyncClient] = None
@@ -289,7 +290,9 @@ async def _call_gateway(
         payload["system"] = system
 
     client = _get_gateway_client()
-    r = await client.post(f"{GATEWAY_URL}/v1/messages", json=payload, headers=_gateway_headers())
+    r = await client.post(
+        f"{GATEWAY_URL}/v1/messages", json=payload, headers=_gateway_headers()
+    )
     r.raise_for_status()
     data = r.json()
 
@@ -306,7 +309,9 @@ async def _call_fusion(params: FusionInput) -> str:
         payload["models"] = params.models
 
     client = _get_gateway_client()
-    response = await client.post(f"{GATEWAY_URL}/api/fusion", json=payload, headers=_gateway_headers())
+    response = await client.post(
+        f"{GATEWAY_URL}/api/fusion", json=payload, headers=_gateway_headers()
+    )
     response.raise_for_status()
     result = response.json()
     totals = result.get("totals") or {}
@@ -350,9 +355,15 @@ async def _call_moa(params: MoAInput) -> str:
     )
 
 
-async def _gateway_json(method: str, path: str, *, payload: dict | None = None, params: dict | None = None) -> dict:
+async def _gateway_json(
+    method: str, path: str, *, payload: dict | None = None, params: dict | None = None
+) -> dict:
     response = await _get_gateway_client().request(
-        method, f"{GATEWAY_URL}{path}", json=payload, params=params, headers=_gateway_headers()
+        method,
+        f"{GATEWAY_URL}{path}",
+        json=payload,
+        params=params,
+        headers=_gateway_headers(),
     )
     response.raise_for_status()
     return response.json()
@@ -429,7 +440,10 @@ async def llm_council(params: CouncilInput) -> str:
 
 @mcp.tool(
     name="llm_moa",
-    annotations={"title": "Answer with layered Mixture of Agents", "readOnlyHint": True},
+    annotations={
+        "title": "Answer with layered Mixture of Agents",
+        "readOnlyHint": True,
+    },
 )
 async def llm_moa(params: MoAInput) -> str:
     """Ask multiple installed models to propose, refine, and synthesize one answer."""
@@ -463,66 +477,120 @@ async def llm_fusion(params: FusionInput) -> str:
         return f"Fusion failed: {type(exc).__name__}: {exc}"
 
 
-@mcp.tool(name="llm_adaptive", annotations={"title": "Run cheap-first adaptive orchestration", "readOnlyHint": True})
+@mcp.tool(
+    name="llm_adaptive",
+    annotations={
+        "title": "Run cheap-first adaptive orchestration",
+        "readOnlyHint": True,
+    },
+)
 async def llm_adaptive(params: AdaptiveInput) -> str:
     """Return the complete adaptive result without forcing multiple models."""
     payload: dict[str, object] = {"prompt": params.prompt, "preset": params.preset}
     if params.models:
         payload["models"] = params.models
     try:
-        return json.dumps(await _gateway_json("POST", "/api/adaptive", payload=payload), sort_keys=True)
+        return json.dumps(
+            await _gateway_json("POST", "/api/adaptive", payload=payload),
+            sort_keys=True,
+        )
     except Exception as exc:  # noqa: BLE001
         return f"Adaptive orchestration failed: {type(exc).__name__}: {exc}"
 
 
-@mcp.tool(name="llm_model_catalog", annotations={"title": "Inspect discovery-backed model catalog", "readOnlyHint": True})
+@mcp.tool(
+    name="llm_model_catalog",
+    annotations={
+        "title": "Inspect discovery-backed model catalog",
+        "readOnlyHint": True,
+    },
+)
 async def llm_model_catalog(refresh: bool = True) -> str:
     """Show live discovery, capabilities, pricing, and scorecards; static routes are not availability proof."""
     try:
-        return json.dumps(await _gateway_json("GET", "/api/models/catalog", params={"refresh": str(refresh).lower()}), sort_keys=True)
+        return json.dumps(
+            await _gateway_json(
+                "GET", "/api/models/catalog", params={"refresh": str(refresh).lower()}
+            ),
+            sort_keys=True,
+        )
     except Exception as exc:  # noqa: BLE001
         return f"Model catalog failed: {type(exc).__name__}: {exc}"
 
 
-@mcp.tool(name="llm_cost_estimate", annotations={"title": "Estimate model token cost", "readOnlyHint": True})
+@mcp.tool(
+    name="llm_cost_estimate",
+    annotations={"title": "Estimate model token cost", "readOnlyHint": True},
+)
 async def llm_cost_estimate(params: CostEstimateInput) -> str:
     try:
-        return json.dumps(await _gateway_json("POST", "/api/cost/estimate", payload=params.model_dump()), sort_keys=True)
+        return json.dumps(
+            await _gateway_json(
+                "POST", "/api/cost/estimate", payload=params.model_dump()
+            ),
+            sort_keys=True,
+        )
     except Exception as exc:  # noqa: BLE001
         return f"Cost estimate failed: {type(exc).__name__}: {exc}"
 
 
-@mcp.tool(name="llm_routing_decision", annotations={"title": "Explain adaptive routing decision", "readOnlyHint": True})
+@mcp.tool(
+    name="llm_routing_decision",
+    annotations={"title": "Explain adaptive routing decision", "readOnlyHint": True},
+)
 async def llm_routing_decision(params: RoutingDecisionInput) -> str:
     try:
         payload = params.model_dump(exclude_none=True)
-        return json.dumps(await _gateway_json("GET", "/api/routing/decision", params=payload), sort_keys=True)
+        return json.dumps(
+            await _gateway_json("GET", "/api/routing/decision", params=payload),
+            sort_keys=True,
+        )
     except Exception as exc:  # noqa: BLE001
         return f"Routing decision failed: {type(exc).__name__}: {exc}"
 
 
-@mcp.tool(name="llm_orchestration_trace", annotations={"title": "Read sanitized orchestration trace", "readOnlyHint": True})
+@mcp.tool(
+    name="llm_orchestration_trace",
+    annotations={"title": "Read sanitized orchestration trace", "readOnlyHint": True},
+)
 async def llm_orchestration_trace(params: TraceInput) -> str:
     try:
-        return json.dumps(await _gateway_json("GET", f"/api/orchestration/{params.run_id}"), sort_keys=True)
+        return json.dumps(
+            await _gateway_json("GET", f"/api/orchestration/{params.run_id}"),
+            sort_keys=True,
+        )
     except Exception as exc:  # noqa: BLE001
         return f"Trace lookup failed: {type(exc).__name__}: {exc}"
 
 
-@mcp.tool(name="llm_orchestration_feedback", annotations={"title": "Record orchestration feedback", "readOnlyHint": False})
+@mcp.tool(
+    name="llm_orchestration_feedback",
+    annotations={"title": "Record orchestration feedback", "readOnlyHint": False},
+)
 async def llm_orchestration_feedback(params: FeedbackInput) -> str:
     try:
         body = params.model_dump(exclude={"run_id"}, exclude_none=True)
-        return json.dumps(await _gateway_json("POST", f"/api/orchestration/{params.run_id}/feedback", payload=body), sort_keys=True)
+        return json.dumps(
+            await _gateway_json(
+                "POST", f"/api/orchestration/{params.run_id}/feedback", payload=body
+            ),
+            sort_keys=True,
+        )
     except Exception as exc:  # noqa: BLE001
         return f"Feedback failed: {type(exc).__name__}: {exc}"
 
 
-@mcp.tool(name="llm_model_scorecards", annotations={"title": "Read model scorecards", "readOnlyHint": True})
+@mcp.tool(
+    name="llm_model_scorecards",
+    annotations={"title": "Read model scorecards", "readOnlyHint": True},
+)
 async def llm_model_scorecards(params: ScorecardsInput) -> str:
     try:
         query = params.model_dump(exclude_none=True)
-        return json.dumps(await _gateway_json("GET", "/api/models/scorecards", params=query), sort_keys=True)
+        return json.dumps(
+            await _gateway_json("GET", "/api/models/scorecards", params=query),
+            sort_keys=True,
+        )
     except Exception as exc:  # noqa: BLE001
         return f"Scorecard lookup failed: {type(exc).__name__}: {exc}"
 
@@ -646,7 +714,9 @@ async def llm_discover_models(
     try:
         client = _get_gateway_client()
         r = await client.get(
-            f"{GATEWAY_URL}/api/backends", params={"refresh": str(refresh).lower()}, headers=_gateway_headers()
+            f"{GATEWAY_URL}/api/backends",
+            params={"refresh": str(refresh).lower()},
+            headers=_gateway_headers(),
         )
         r.raise_for_status()
         data = r.json()
@@ -694,7 +764,8 @@ async def llm_add_route(alias: str, backend: str, model: str) -> str:
         client = _get_gateway_client()
         r = await client.post(
             f"{GATEWAY_URL}/api/routes",
-            json={"alias": alias, "backend": backend, "model": model}, headers=_gateway_headers(),
+            json={"alias": alias, "backend": backend, "model": model},
+            headers=_gateway_headers(),
         )
         r.raise_for_status()
         data = r.json()
@@ -711,7 +782,9 @@ async def llm_remove_route(alias: str) -> str:
     """Remove a model route by alias."""
     try:
         client = _get_gateway_client()
-        r = await client.delete(f"{GATEWAY_URL}/api/routes/{alias}", headers=_gateway_headers())
+        r = await client.delete(
+            f"{GATEWAY_URL}/api/routes/{alias}", headers=_gateway_headers()
+        )
         r.raise_for_status()
         return f"Route removed: `{alias}`"
     except httpx.HTTPStatusError as e:

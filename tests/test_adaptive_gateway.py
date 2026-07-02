@@ -24,7 +24,11 @@ def test_deepeval_target_catalog_is_extensible_and_moa_is_final_target():
     models = json.loads((DEEPEVAL_ROOT / "models.json").read_text(encoding="utf-8"))
     assert models["schema_version"] == 1
     assert len(models["targets"]) >= 6
-    assert all({"id", "label", "default_alias", "alias_env", "reasoning_ceiling"} <= set(target) for target in models["targets"])
+    assert all(
+        {"id", "label", "default_alias", "alias_env", "reasoning_ceiling"}
+        <= set(target)
+        for target in models["targets"]
+    )
     assert models["moa"]["id"] == "moa-quality"
 
 
@@ -96,7 +100,9 @@ def test_adaptive_endpoint_preserves_full_result_without_forced_deliberation():
     with patch(
         "multillm.gateway._run_adaptive", new=AsyncMock(return_value=_adaptive_result())
     ) as run:
-        response = client.post("/api/adaptive", json={"prompt": "Review this", "preset": "balanced"})
+        response = client.post(
+            "/api/adaptive", json={"prompt": "Review this", "preset": "balanced"}
+        )
 
     assert response.status_code == 200
     assert response.json()["runId"] == "orch_test"
@@ -116,36 +122,76 @@ def test_deepeval_compares_live_models_then_moa_last():
     from deepeval.test_case import LLMTestCase, SingleTurnParams
 
     models = json.loads((DEEPEVAL_ROOT / "models.json").read_text(encoding="utf-8"))
-    cases = json.loads((DEEPEVAL_ROOT / "cases.json").read_text(encoding="utf-8"))["cases"]
+    cases = json.loads((DEEPEVAL_ROOT / "cases.json").read_text(encoding="utf-8"))[
+        "cases"
+    ]
     gateway_url = os.getenv("LLM_GATEWAY_URL", "http://localhost:8080").rstrip("/")
     judge_alias = os.getenv("MULTILLM_EVAL_JUDGE_ALIAS", "").strip()
     if not judge_alias:
         pytest.skip("MULTILLM_EVAL_JUDGE_ALIAS is required")
 
     import httpx
-    headers = {"X-API-Key": os.environ["MULTILLM_API_KEY"]} if os.getenv("MULTILLM_API_KEY") else {}
+
+    headers = (
+        {"X-API-Key": os.environ["MULTILLM_API_KEY"]}
+        if os.getenv("MULTILLM_API_KEY")
+        else {}
+    )
     with httpx.Client(timeout=30) as live_client:
         try:
-            catalog_response = live_client.get(f"{gateway_url}/api/models/catalog", params={"refresh": "true"}, headers=headers)
+            catalog_response = live_client.get(
+                f"{gateway_url}/api/models/catalog",
+                params={"refresh": "true"},
+                headers=headers,
+            )
             catalog_response.raise_for_status()
             catalog = catalog_response.json()
         except httpx.HTTPError as exc:
             pytest.skip(f"live discovery unavailable: {type(exc).__name__}")
-        available = {item["alias"] for item in catalog.get("models", []) if item.get("available")}
-        targets = [target for target in models["targets"] if os.getenv(target["alias_env"], target["default_alias"]) in available]
+        available = {
+            item["alias"] for item in catalog.get("models", []) if item.get("available")
+        }
+        targets = [
+            target
+            for target in models["targets"]
+            if os.getenv(target["alias_env"], target["default_alias"]) in available
+        ]
         if not targets:
             pytest.skip("no configured evaluation aliases were live after discovery")
         if len(targets) < 2:
-            pytest.fail(f"Fusion comparison requires at least two live targets; got {[target['id'] for target in targets]}")
+            pytest.fail(
+                f"Fusion comparison requires at least two live targets; got {[target['id'] for target in targets]}"
+            )
 
         def ask(alias: str, command: str, effort: str = "medium") -> str:
-            response = live_client.post(f"{gateway_url}/v1/messages", headers=headers, json={"model": alias, "messages": [{"role": "user", "content": command}], "metadata": {"multillm": {"reasoning_ceiling": effort}}})
+            response = live_client.post(
+                f"{gateway_url}/v1/messages",
+                headers=headers,
+                json={
+                    "model": alias,
+                    "messages": [{"role": "user", "content": command}],
+                    "metadata": {"multillm": {"reasoning_ceiling": effort}},
+                },
+            )
             response.raise_for_status()
             return str((response.json().get("content") or [{}])[0].get("text") or "")
 
         # Individual targets must complete before the final Fusion request.
-        outputs = [(target["label"], ask(os.getenv(target["alias_env"], target["default_alias"]), case["command"])) for target in targets for case in cases]
-        aliases = [os.getenv(target["alias_env"], target["default_alias"]) for target in targets]
+        outputs = [
+            (
+                target["label"],
+                ask(
+                    os.getenv(target["alias_env"], target["default_alias"]),
+                    case["command"],
+                ),
+            )
+            for target in targets
+            for case in cases
+        ]
+        aliases = [
+            os.getenv(target["alias_env"], target["default_alias"])
+            for target in targets
+        ]
         for case in cases:
             aggregator = os.getenv(
                 models["moa"]["aggregator_alias_env"],
@@ -162,21 +208,45 @@ def test_deepeval_compares_live_models_then_moa_last():
                 },
             )
             response.raise_for_status()
-            outputs.append((models["moa"]["label"], str(response.json().get("finalAnswer") or "")))
+            outputs.append(
+                (models["moa"]["label"], str(response.json().get("finalAnswer") or ""))
+            )
 
     class GatewayJudge(DeepEvalBaseLLM):
-        def load_model(self): return self
+        def load_model(self):
+            return self
+
         def generate(self, prompt: str) -> str:
             with httpx.Client(timeout=180) as judge_client:
-                response = judge_client.post(f"{gateway_url}/v1/messages", headers=headers, json={"model": judge_alias, "messages": [{"role": "user", "content": prompt}], "metadata": {"multillm": {"reasoning_ceiling": "medium"}}})
+                response = judge_client.post(
+                    f"{gateway_url}/v1/messages",
+                    headers=headers,
+                    json={
+                        "model": judge_alias,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "metadata": {"multillm": {"reasoning_ceiling": "medium"}},
+                    },
+                )
                 response.raise_for_status()
-                return str((response.json().get("content") or [{}])[0].get("text") or "")
-        async def a_generate(self, prompt: str) -> str: return self.generate(prompt)
-        def get_model_name(self) -> str: return f"gateway:{judge_alias}"
+                return str(
+                    (response.json().get("content") or [{}])[0].get("text") or ""
+                )
+
+        async def a_generate(self, prompt: str) -> str:
+            return self.generate(prompt)
+
+        def get_model_name(self) -> str:
+            return f"gateway:{judge_alias}"
 
     for index, (_label, output) in enumerate(outputs):
         case = cases[index % len(cases)]
-        metric = GEval(name="Gateway response quality", criteria=case["criteria"], evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT], model=GatewayJudge(), threshold=0.5)
+        metric = GEval(
+            name="Gateway response quality",
+            criteria=case["criteria"],
+            evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT],
+            model=GatewayJudge(),
+            threshold=0.5,
+        )
         assert_test(LLMTestCase(input=case["command"], actual_output=output), [metric])
 
 
@@ -190,7 +260,9 @@ def test_explicit_fusion_panel_still_uses_legacy_pipeline():
         "totals": {"costUSD": 0, "panelSucceeded": 1},
     }
     with (
-        patch("multillm.gateway._run_fusion", new=AsyncMock(return_value=legacy)) as old,
+        patch(
+            "multillm.gateway._run_fusion", new=AsyncMock(return_value=legacy)
+        ) as old,
         patch("multillm.gateway._run_adaptive", new=AsyncMock()) as adaptive,
     ):
         response = client.post(
@@ -361,9 +433,7 @@ def test_council_query_captures_http_and_unexpected_errors():
         "multillm.gateway.route_request",
         new=AsyncMock(side_effect=HTTPException(status_code=429, detail="quota")),
     ):
-        quota = asyncio.run(
-            gateway._council_query_one("missing/model", "x", 10, 0.2)
-        )
+        quota = asyncio.run(gateway._council_query_one("missing/model", "x", 10, 0.2))
     with patch(
         "multillm.gateway.route_request",
         new=AsyncMock(side_effect=RuntimeError("exploded")),

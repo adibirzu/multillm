@@ -234,9 +234,15 @@ class EvaluationRunner:
                         break
                     try:
                         response = await self.execute(target, case, request)
-                    except Exception as exc:  # one model cannot abort the complete matrix
+                    except (
+                        Exception
+                    ) as exc:  # one model cannot abort the complete matrix
                         failures.append(
-                            {"caseId": case.id, "target": target, "error": type(exc).__name__}
+                            {
+                                "caseId": case.id,
+                                "target": target,
+                                "error": type(exc).__name__,
+                            }
                         )
                         continue
                     self.store.record_output(
@@ -275,7 +281,9 @@ class EvaluationRunner:
                     )
                     generated[(case.id, target, attempt)] = response
                     outputs += 1
-                    required_score, required_passed, missing = _score_terms(case, response.text)
+                    required_score, required_passed, missing = _score_terms(
+                        case, response.text
+                    )
                     forbidden_score, forbidden_passed, found = _score_forbidden(
                         case, response.text
                     )
@@ -283,8 +291,18 @@ class EvaluationRunner:
                         required_passed and forbidden_passed
                     )
                     for metric, value, passed, details in (
-                        ("required_terms", required_score, required_passed, {"missing": missing}),
-                        ("forbidden_terms", forbidden_score, forbidden_passed, {"found": found}),
+                        (
+                            "required_terms",
+                            required_score,
+                            required_passed,
+                            {"missing": missing},
+                        ),
+                        (
+                            "forbidden_terms",
+                            forbidden_score,
+                            forbidden_passed,
+                            {"found": found},
+                        ),
                     ):
                         self.store.record_metric(
                             tenant_id,
@@ -327,7 +345,9 @@ class EvaluationRunner:
         summary = {
             "outputs": outputs,
             "failures": failures,
-            "deterministicPassRate": metric_passes / metric_count if metric_count else 0.0,
+            "deterministicPassRate": metric_passes / metric_count
+            if metric_count
+            else 0.0,
             "executionMode": request.execution_mode.value,
             "reliability": self._reliability_summary(
                 attempt_outcomes, repeats=request.repeats
@@ -335,7 +355,13 @@ class EvaluationRunner:
             "pairwise": pairwise_summary,
             "releaseGate": release_gate,
         }
-        status = "completed" if outputs and not failures else "incomplete" if outputs else "failed"
+        status = (
+            "completed"
+            if outputs and not failures
+            else "incomplete"
+            if outputs
+            else "failed"
+        )
         self.store.complete_run(tenant_id, run_id, summary=summary, status=status)
         self._notify_complete(tenant_id, run_id)
         return run_id
@@ -375,7 +401,9 @@ class EvaluationRunner:
                     "target": target,
                     "k": repeats,
                     "caseCount": len(cases),
-                    "attemptPassRate": successes / attempts_count if attempts_count else 0.0,
+                    "attemptPassRate": successes / attempts_count
+                    if attempts_count
+                    else 0.0,
                     "passAtK": sum(pass_at_values) / len(pass_at_values)
                     if pass_at_values
                     else 0.0,
@@ -419,7 +447,9 @@ class EvaluationRunner:
                         *candidate.participant_models,
                         *baseline.participant_models,
                     }
-                    judges = [alias for alias in request.judge_pool if alias not in excluded][:2]
+                    judges = [
+                        alias for alias in request.judge_pool if alias not in excluded
+                    ][:2]
                     resolved: list[PairwiseDecision] = []
                     if self.judge is not None and len(judges) == 2:
                         for judge_alias in judges:
@@ -435,10 +465,14 @@ class EvaluationRunner:
                             )
                             try:
                                 normal = parse_judgment(
-                                    await self.judge(judge_alias, normal_prompt, request)
+                                    await self.judge(
+                                        judge_alias, normal_prompt, request
+                                    )
                                 )
                                 swapped = parse_judgment(
-                                    await self.judge(judge_alias, swapped_prompt, request)
+                                    await self.judge(
+                                        judge_alias, swapped_prompt, request
+                                    )
                                 )
                             except (ValueError, RuntimeError):
                                 resolved.append(PairwiseDecision.ABSTAIN)
@@ -513,7 +547,9 @@ class EvaluationRunner:
         result: list[dict[str, Any]] = []
         p_values: dict[str, float] = {}
         for (candidate, baseline), decisions in sorted(grouped.items()):
-            scored = [item for item in decisions if item is not PairwiseDecision.ABSTAIN]
+            scored = [
+                item for item in decisions if item is not PairwiseDecision.ABSTAIN
+            ]
             if not scored:
                 result.append(
                     {

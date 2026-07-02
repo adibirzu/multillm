@@ -25,9 +25,7 @@ def test_adaptive_orchestration_migration_creates_tenant_scoped_tables(
         }
         columns = {
             row[1]
-            for row in connection.execute(
-                "PRAGMA table_info(orchestration_runs)"
-            )
+            for row in connection.execute("PRAGMA table_info(orchestration_runs)")
         }
 
     assert {

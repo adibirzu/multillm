@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import ArtifactCipher
-from .contracts import EvaluationCase, EvaluationRunRequest, PairwiseDecision, PairwiseJudgment
+from .contracts import (
+    EvaluationCase,
+    EvaluationRunRequest,
+    PairwiseDecision,
+    PairwiseJudgment,
+)
 
 
 def _canonical(value: Any) -> str:
@@ -27,7 +32,9 @@ def _csv_safe(value: Any) -> Any:
 
 
 class EvaluationStore:
-    def __init__(self, path: str | Path, *, artifact_cipher: ArtifactCipher | None = None):
+    def __init__(
+        self, path: str | Path, *, artifact_cipher: ArtifactCipher | None = None
+    ):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.artifact_cipher = artifact_cipher
@@ -213,7 +220,9 @@ class EvaluationStore:
         if not tenant_id.strip() or not cases:
             raise ValueError("tenant_id and at least one evaluation case are required")
         case_payload = [case.model_dump(mode="json") for case in cases]
-        content_hash = hashlib.sha256(_canonical(case_payload).encode("utf-8")).hexdigest()
+        content_hash = hashlib.sha256(
+            _canonical(case_payload).encode("utf-8")
+        ).hexdigest()
         now = time.time()
         with self._connect() as connection:
             existing = connection.execute(
@@ -226,7 +235,16 @@ class EvaluationStore:
                 """INSERT OR IGNORE INTO evaluation_suites
                    (tenant_id, id, name, version, source, license_id, content_hash, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (tenant_id, suite_id, name, version, source, license_id, content_hash, now),
+                (
+                    tenant_id,
+                    suite_id,
+                    name,
+                    version,
+                    source,
+                    license_id,
+                    content_hash,
+                    now,
+                ),
             )
             for ordinal, case in enumerate(case_payload):
                 connection.execute(
@@ -306,7 +324,9 @@ class EvaluationStore:
             )
         return run_id
 
-    def claim_next_run(self, worker_id: str, *, lease_seconds: int = 60) -> dict[str, Any] | None:
+    def claim_next_run(
+        self, worker_id: str, *, lease_seconds: int = 60
+    ) -> dict[str, Any] | None:
         now = time.time()
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -421,13 +441,17 @@ class EvaluationStore:
         status: str,
     ) -> str:
         if self.artifact_cipher is None:
-            raise ValueError("artifact encryption is required before retaining output text")
+            raise ValueError(
+                "artifact encryption is required before retaining output text"
+            )
         key = f"{tenant_id}\0{run_id}\0{case_id}\0{target}\0{attempt}"
         output_id = "out_" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
         plaintext = output_text.encode("utf-8")
         encrypted = self.artifact_cipher.encrypt(
             plaintext,
-            associated_data=self._associated_data(tenant_id, run_id, case_id, target, attempt),
+            associated_data=self._associated_data(
+                tenant_id, run_id, case_id, target, attempt
+            ),
         )
         with self._connect() as connection:
             connection.execute(
@@ -529,7 +553,9 @@ class EvaluationStore:
     def _judgment_data(
         tenant_id: str, comparison_id: str, judge: str, ordering: str
     ) -> bytes:
-        return f"judgment/{tenant_id}/{comparison_id}/{judge}/{ordering}".encode("utf-8")
+        return f"judgment/{tenant_id}/{comparison_id}/{judge}/{ordering}".encode(
+            "utf-8"
+        )
 
     def record_judgment(
         self,
@@ -543,13 +569,17 @@ class EvaluationStore:
         if ordering not in {"normal", "swapped"}:
             raise ValueError("judgment ordering must be normal or swapped")
         if self.artifact_cipher is None:
-            raise ValueError("artifact encryption is required before retaining judgments")
+            raise ValueError(
+                "artifact encryption is required before retaining judgments"
+            )
         key = f"{tenant_id}\0{comparison_id}\0{judge}\0{ordering}"
         judgment_id = "judge_" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
         plaintext = _canonical(judgment.model_dump(mode="json")).encode("utf-8")
         encrypted = self.artifact_cipher.encrypt(
             plaintext,
-            associated_data=self._judgment_data(tenant_id, comparison_id, judge, ordering),
+            associated_data=self._judgment_data(
+                tenant_id, comparison_id, judge, ordering
+            ),
         )
         with self._connect() as connection:
             connection.execute(
@@ -672,7 +702,9 @@ class EvaluationStore:
                 row["run_id"],
                 {
                     (item["caseId"], item["target"]): item
-                    for item in self._outputs(tenant_id, row["run_id"], include_content=True)
+                    for item in self._outputs(
+                        tenant_id, row["run_id"], include_content=True
+                    )
                     if item["attempt"] == 1
                 },
             )
@@ -697,7 +729,9 @@ class EvaluationStore:
 
     @staticmethod
     def _review_is_swapped(comparison_id: str) -> bool:
-        digest = hashlib.sha256(f"blind-review:{comparison_id}".encode("utf-8")).digest()
+        digest = hashlib.sha256(
+            f"blind-review:{comparison_id}".encode("utf-8")
+        ).digest()
         return bool(digest[0] & 1)
 
     @classmethod
@@ -748,7 +782,9 @@ class EvaluationStore:
             plaintext = rationale.encode("utf-8")
             encrypted = self.artifact_cipher.encrypt(
                 plaintext,
-                associated_data=self._review_data(tenant_id, comparison_id, reviewer_id),
+                associated_data=self._review_data(
+                    tenant_id, comparison_id, reviewer_id
+                ),
             )
             connection.execute(
                 """INSERT OR IGNORE INTO evaluation_reviews
@@ -806,7 +842,9 @@ class EvaluationStore:
             )
         return reviews
 
-    def _outputs(self, tenant_id: str, run_id: str, *, include_content: bool) -> list[dict[str, Any]]:
+    def _outputs(
+        self, tenant_id: str, run_id: str, *, include_content: bool
+    ) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
                 """SELECT * FROM evaluation_outputs WHERE tenant_id = ? AND run_id = ?
@@ -818,7 +856,9 @@ class EvaluationStore:
             content: str | None = None
             if include_content:
                 if self.artifact_cipher is None:
-                    raise ValueError("artifact encryption key is required to read output text")
+                    raise ValueError(
+                        "artifact encryption key is required to read output text"
+                    )
                 content = self.artifact_cipher.decrypt(
                     row["content_encrypted"],
                     associated_data=self._associated_data(
@@ -884,11 +924,15 @@ class EvaluationStore:
             "workerId": row["worker_id"],
             "leaseUntil": row["lease_until"],
             "cancelRequested": bool(row["cancel_requested"]),
-            "outputs": self._outputs(tenant_id, run_id, include_content=include_content),
+            "outputs": self._outputs(
+                tenant_id, run_id, include_content=include_content
+            ),
             "metrics": self._metrics(tenant_id, run_id),
         }
 
-    def list_runs(self, tenant_id: str, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    def list_runs(
+        self, tenant_id: str, *, limit: int = 50, offset: int = 0
+    ) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
                 """SELECT id FROM evaluation_runs WHERE tenant_id = ?
@@ -898,7 +942,8 @@ class EvaluationStore:
         return [
             run
             for row in rows
-            if (run := self.get_run(tenant_id, row["id"], include_content=False)) is not None
+            if (run := self.get_run(tenant_id, row["id"], include_content=False))
+            is not None
         ]
 
     def export_run(self, tenant_id: str, run_id: str) -> dict[str, Any]:

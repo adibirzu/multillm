@@ -58,10 +58,18 @@ def upgrade() -> None:
             sa.Column("model", sa.Text(), nullable=False),
             sa.Column("effort", sa.Text(), nullable=False),
             sa.Column("input_tokens", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("output_tokens", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("cache_read_tokens", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("cache_write_tokens", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("reasoning_tokens", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column(
+                "output_tokens", sa.Integer(), nullable=False, server_default="0"
+            ),
+            sa.Column(
+                "cache_read_tokens", sa.Integer(), nullable=False, server_default="0"
+            ),
+            sa.Column(
+                "cache_write_tokens", sa.Integer(), nullable=False, server_default="0"
+            ),
+            sa.Column(
+                "reasoning_tokens", sa.Integer(), nullable=False, server_default="0"
+            ),
             sa.Column("cost_usd", sa.Float(), nullable=False, server_default="0"),
             sa.Column("latency_ms", sa.Float(), nullable=False, server_default="0"),
             sa.Column("status", sa.Text(), nullable=False),
@@ -84,7 +92,9 @@ def upgrade() -> None:
             sa.Column("run_id", sa.Text(), nullable=False),
             sa.Column("created_at", sa.Float(), nullable=False),
             sa.Column("rating", sa.Integer(), nullable=False),
-            sa.Column("issue_categories_json", sa.Text(), nullable=False, server_default="[]"),
+            sa.Column(
+                "issue_categories_json", sa.Text(), nullable=False, server_default="[]"
+            ),
             sa.Column("preferred_model", sa.Text(), nullable=True),
             sa.CheckConstraint("rating BETWEEN 1 AND 5", name="ck_feedback_rating"),
             sa.ForeignKeyConstraint(
@@ -105,10 +115,14 @@ def upgrade() -> None:
             sa.Column("model", sa.Text(), nullable=False),
             sa.Column("task_type", sa.Text(), nullable=False),
             sa.Column("quality_mean", sa.Float(), nullable=False, server_default="0.5"),
-            sa.Column("reliability_mean", sa.Float(), nullable=False, server_default="0.8"),
+            sa.Column(
+                "reliability_mean", sa.Float(), nullable=False, server_default="0.8"
+            ),
             sa.Column("avg_cost_usd", sa.Float(), nullable=False, server_default="0"),
             sa.Column("sample_count", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("confidence_lower", sa.Float(), nullable=False, server_default="0"),
+            sa.Column(
+                "confidence_lower", sa.Float(), nullable=False, server_default="0"
+            ),
             sa.Column("updated_at", sa.Float(), nullable=False),
             sa.PrimaryKeyConstraint("tenant_id", "model", "task_type"),
         )

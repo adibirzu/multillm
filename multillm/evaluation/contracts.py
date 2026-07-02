@@ -78,7 +78,9 @@ class EvaluationCase(FrozenModel):
         for item in value:
             normalized = str(item).strip()
             if not normalized or len(normalized) > 240:
-                raise ValueError("array values must be non-empty and at most 240 characters")
+                raise ValueError(
+                    "array values must be non-empty and at most 240 characters"
+                )
             if normalized not in result:
                 result.append(normalized)
         if len(result) > 100:
@@ -139,7 +141,9 @@ class EvaluationRunRequest(FrozenModel):
         for item in value:
             target = str(item).strip()
             if not target or len(target) > 200:
-                raise ValueError("target names must be non-empty and at most 200 characters")
+                raise ValueError(
+                    "target names must be non-empty and at most 200 characters"
+                )
             if target not in targets:
                 targets.append(target)
         if len(targets) > 100:
@@ -150,12 +154,17 @@ class EvaluationRunRequest(FrozenModel):
     def validate_execution(self):
         if self.execution_mode is ExecutionMode.LIVE_HOST and not self.live_authorized:
             raise ValueError("live_host execution requires explicit live authorization")
-        if self.execution_mode is ExecutionMode.LIVE_HOST and not self.preflight_receipt:
+        if (
+            self.execution_mode is ExecutionMode.LIVE_HOST
+            and not self.preflight_receipt
+        ):
             raise ValueError("live_host execution requires a valid preflight receipt")
         if self.candidate_scope == "explicit" and not self.candidates:
             raise ValueError("explicit candidate_scope requires candidates")
         if self.candidate_scope == "live" and not self.candidates:
-            raise ValueError("live candidate_scope requires execution-probed candidates")
+            raise ValueError(
+                "live candidate_scope requires execution-probed candidates"
+            )
         if self.judge_pool and len(self.judge_pool) < 2:
             raise ValueError("judge_pool requires at least two judges")
         return self
