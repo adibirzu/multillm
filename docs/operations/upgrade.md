@@ -20,6 +20,11 @@ Open the GitHub Releases page for the target version. Look for:
 
 `multillm migrate up` writes an automatic pre-migration snapshot. That covers schema-change accidents but does **not** cover application-level data drift (e.g., a settings-table column repurposed across versions). For any upgrade, also take an explicit named snapshot:
 
+Adaptive Fusion v2 adds revision `0004_adaptive_orchestration`, which creates
+tenant-scoped run, call, feedback, and model-scorecard tables. Only prompt
+hashes and derived features are retained by default; raw prompts, answers,
+evidence, and reasoning summaries are not migrated or stored.
+
 ```bash
 # Docker Compose
 docker compose exec gateway sh -c '
@@ -71,6 +76,18 @@ sudo systemctl restart multillm
 kubectl set image deploy/multillm gateway=ghcr.io/${OWNER}/multillm:vX.Y.Z
 kubectl rollout status deploy/multillm
 ```
+
+For installations created by `install.sh`, update the checkout and repeat the
+same component selection. Inspect the mutation-free plan first:
+
+```bash
+./install.sh --dry-run --component codex-mcp --component codex-skills
+./install.sh --component codex-mcp --component codex-skills
+```
+
+The installer preserves `.env`, updates MCP registrations by name, and refreshes
+skills in place. Start a fresh Codex thread after an MCP or skills upgrade. See
+[Selective installation](../installation.md) for all components and removal.
 
 ### 5. Verify
 

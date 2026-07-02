@@ -26,6 +26,31 @@ MULTILLM_HOME=/var/lib/multillm docker compose up -d
 
 The container's `HEALTHCHECK` probes `/health` every 10 s (mirrored in the compose file). `docker compose ps` shows the service as `healthy` once the gateway is serving.
 
+### Podman on macOS or Linux
+
+Podman can use the same image without Docker compatibility shims:
+
+```bash
+podman machine start                    # macOS only
+podman build -t multillm:local .
+podman volume create multillm-data
+podman run -d --name multillm \
+  --replace \
+  --restart unless-stopped \
+  --env-file .env \
+  --publish 127.0.0.1:8080:8080 \
+  --volume multillm-data:/data \
+  multillm:local
+podman healthcheck run multillm
+```
+
+Set `MULTILLM_EVAL_ARTIFACT_KEY` in the untracked `.env` before using
+evaluation persistence. Containers do not automatically inherit host Claude,
+Codex, Gemini, or Antigravity binaries/logins. Run the gateway directly in a
+regular host terminal for `live_host` CLI-model evaluation; use the container
+for HTTP providers, fixture/replay evaluation, dashboards, and exports unless
+you have deliberately provisioned those CLI runtimes inside it.
+
 ### Updating
 
 ```bash
@@ -37,7 +62,11 @@ The `multillm migrate up` invocation in the entrypoint runs every start; the run
 
 ### Exposing beyond localhost
 
-Compose binds `8080:8080` on the host. To restrict to localhost, change the publish to `"127.0.0.1:8080:8080"`. To expose to the LAN, **first** finish the `/setup` wizard locally, **then** put MultiLLM behind a TLS-terminating reverse proxy (Caddy / nginx / Traefik). Setting `MULTILLM_API_KEY` is recommended whenever the gateway is reachable off-host; the wizard will lead Phase 2b's per-tenant key issuance once that lands.
+Compose binds `127.0.0.1:8080:8080` by default. To expose to the LAN,
+**first** finish the `/setup` wizard locally, **then** deliberately change the
+publish address and put MultiLLM behind a TLS-terminating reverse proxy (Caddy /
+nginx / Traefik). Set `MULTILLM_API_KEY` whenever the gateway is reachable
+off-host.
 
 ---
 

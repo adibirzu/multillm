@@ -160,6 +160,33 @@ def evaluate_budgets(
     }
 
 
+def _blocking_alert(result: dict, project: str) -> Optional[dict]:
+    """Return the first exceeded alert that can block this project."""
+    scopes = {"global", f"project:{project}"}
+    return next(
+        (
+            alert
+            for alert in result["alerts"]
+            if alert["state"] == "exceeded" and alert["scope"] in scopes
+        ),
+        None,
+    )
+
+
+def _project_spend(project_spend: Optional[dict], project: str, cost: float) -> dict:
+    """Return a copy of project spend with the anticipated request included."""
+    spend = project_spend or {}
+    current = spend.get(project, {}) or {}
+    return {
+        **spend,
+        project: {
+            **current,
+            "today": float(current.get("today", 0) or 0) + cost,
+            "month": float(current.get("month", 0) or 0) + cost,
+        },
+    }
+
+
 def check_request_allowed(
     *,
     config: dict,
@@ -167,11 +194,13 @@ def check_request_allowed(
     spent_today: float,
     spent_month: float,
     project_spend: Optional[dict] = None,
+    anticipated_cost: float = 0.0,
 ) -> tuple[bool, Optional[str]]:
     """Pre-dispatch gate: (allowed, reason).
 
     Returns ``(False, message)`` only when enforcement is enabled and a global
-    or matching-project cap is already exceeded. Otherwise ``(True, None)``.
+    or matching-project cap is already exceeded, or when ``anticipated_cost``
+    would cross one of those caps. Otherwise returns ``(True, None)``.
     """
     if not config or not config.get("enabled"):
         return True, None
@@ -182,9 +211,23 @@ def check_request_allowed(
         spent_month=spent_month,
         project_spend=project_spend,
     )
-    for alert in result["alerts"]:
-        if alert["state"] != "exceeded":
-            continue
-        if alert["scope"] == "global" or alert["scope"] == f"project:{project}":
-            return False, alert["message"]
+    if alert := _blocking_alert(result, project):
+        return False, alert["message"]
+
+    anticipated_cost = max(0.0, float(anticipated_cost or 0.0))
+    if anticipated_cost == 0.0:
+        return True, None
+
+    projected = evaluate_budgets(
+        config=config,
+        spent_today=spent_today + anticipated_cost,
+        spent_month=spent_month + anticipated_cost,
+        project_spend=_project_spend(project_spend, project, anticipated_cost),
+    )
+    if alert := _blocking_alert(projected, project):
+        return (
+            False,
+            f"The estimated ${anticipated_cost:.2f} request would exceed the "
+            f"{alert['label']} {alert['window']} budget",
+        )
     return True, None

@@ -26,6 +26,7 @@ from .config import (
     OCI_APM_DATA_KEY_TYPE,
     OCI_APM_METRICS_ENABLED,
 )
+from .model_registry import pricing_for
 
 
 def _oci_apm_signal_endpoint(signal: str) -> str:
@@ -95,6 +96,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
             output_tokens INTEGER DEFAULT 0,
             cache_read_input_tokens INTEGER DEFAULT 0,
             cache_creation_input_tokens INTEGER DEFAULT 0,
+            reasoning_tokens INTEGER DEFAULT 0,
+            service_tier TEXT,
             latency_ms REAL DEFAULT 0,
             cost_estimate_usd REAL DEFAULT 0,
             status TEXT DEFAULT 'ok',
@@ -117,6 +120,7 @@ def _init_db(conn: sqlite3.Connection) -> None:
             total_output_tokens INTEGER DEFAULT 0,
             total_cache_read_input_tokens INTEGER DEFAULT 0,
             total_cache_creation_input_tokens INTEGER DEFAULT 0,
+            total_reasoning_tokens INTEGER DEFAULT 0,
             total_cost_usd REAL DEFAULT 0,
             models_used TEXT DEFAULT '[]'
         );
@@ -147,6 +151,14 @@ def _init_db(conn: sqlite3.Connection) -> None:
             "ALTER TABLE usage ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0"
         )
     try:
+        conn.execute("SELECT reasoning_tokens FROM usage LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE usage ADD COLUMN reasoning_tokens INTEGER DEFAULT 0")
+    try:
+        conn.execute("SELECT service_tier FROM usage LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE usage ADD COLUMN service_tier TEXT")
+    try:
         conn.execute("SELECT total_cache_read_input_tokens FROM sessions LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute(
@@ -157,6 +169,12 @@ def _init_db(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         conn.execute(
             "ALTER TABLE sessions ADD COLUMN total_cache_creation_input_tokens INTEGER DEFAULT 0"
+        )
+    try:
+        conn.execute("SELECT total_reasoning_tokens FROM sessions LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN total_reasoning_tokens INTEGER DEFAULT 0"
         )
     # Plan 02b-01 Task 2: backfill tenant_id onto pre-existing rows.
     # tracking.py owns its own usage.db (separate from multillm.db), so the
@@ -237,6 +255,7 @@ def _update_session(
     output_tokens: int,
     cache_read_input_tokens: int,
     cache_creation_input_tokens: int,
+    reasoning_tokens: int,
     cost: float,
     now: float,
 ) -> None:
@@ -262,6 +281,7 @@ def _update_session(
                 total_output_tokens = total_output_tokens + ?,
                 total_cache_read_input_tokens = total_cache_read_input_tokens + ?,
                 total_cache_creation_input_tokens = total_cache_creation_input_tokens + ?,
+                total_reasoning_tokens = total_reasoning_tokens + ?,
                 total_cost_usd = total_cost_usd + ?,
                 models_used = ?
             WHERE id = ?""",
@@ -271,6 +291,7 @@ def _update_session(
                 output_tokens,
                 cache_read_input_tokens,
                 cache_creation_input_tokens,
+                reasoning_tokens,
                 cost,
                 json.dumps(models),
                 session_id,
@@ -284,15 +305,24 @@ def _estimate_cost(
     output_tokens: int,
     cache_read_input_tokens: int = 0,
     cache_creation_input_tokens: int = 0,
+    real_model: str = "",
+    reasoning_tokens: int = 0,
 ) -> float:
-    costs = COST_TABLE.get(backend, {"input": 0, "output": 0})
-    total = input_tokens * costs.get("input", 0) + output_tokens * costs.get(
-        "output", 0
+    pricing = pricing_for(backend, real_model)
+    # OpenAI reports cached tokens inside input_tokens; Anthropic reports cache
+    # reads/writes separately. Avoid charging OpenAI cached tokens twice.
+    billable_input = input_tokens
+    if backend in {"openai", "azure_openai"}:
+        billable_input = max(
+            0, input_tokens - cache_read_input_tokens - cache_creation_input_tokens
+        )
+    return pricing.estimate(
+        input_tokens=billable_input,
+        output_tokens=output_tokens,
+        cached_read_tokens=cache_read_input_tokens,
+        cache_write_tokens=cache_creation_input_tokens,
+        reasoning_tokens=reasoning_tokens,
     )
-    if backend == "anthropic":
-        total += cache_read_input_tokens * 0.3
-        total += cache_creation_input_tokens * 3.75
-    return total / 1_000_000
 
 
 def record_usage(
@@ -305,6 +335,8 @@ def record_usage(
     latency_ms: float,
     cache_read_input_tokens: int = 0,
     cache_creation_input_tokens: int = 0,
+    reasoning_tokens: int = 0,
+    service_tier: str | None = None,
     status: str = "ok",
     error_message: Optional[str] = None,
 ) -> str:
@@ -315,6 +347,8 @@ def record_usage(
         output_tokens,
         cache_read_input_tokens=cache_read_input_tokens,
         cache_creation_input_tokens=cache_creation_input_tokens,
+        real_model=real_model,
+        reasoning_tokens=reasoning_tokens,
     )
     now = time.time()
     usage_id = f"req_{uuid.uuid4().hex[:16]}"
@@ -325,9 +359,10 @@ def record_usage(
             """INSERT INTO usage
                (id, timestamp, project, model_alias, backend, real_model,
                 input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+                reasoning_tokens, service_tier,
                 latency_ms, cost_estimate_usd,
                 status, error_message, session_id, tenant_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 usage_id,
                 now,
@@ -339,6 +374,8 @@ def record_usage(
                 output_tokens,
                 cache_read_input_tokens,
                 cache_creation_input_tokens,
+                reasoning_tokens,
+                service_tier,
                 latency_ms,
                 cost,
                 status,
@@ -355,6 +392,7 @@ def record_usage(
             output_tokens,
             cache_read_input_tokens,
             cache_creation_input_tokens,
+            reasoning_tokens,
             cost,
             now,
         )

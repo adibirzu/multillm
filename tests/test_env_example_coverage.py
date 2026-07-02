@@ -60,6 +60,9 @@ KNOWN_INDIRECT_LOOKUPS: frozenset[str] = frozenset(
     {
         "ANTIGRAVITY_CLI_PATH",
         "CLAUDE_CLI_PATH",
+        "LANGFUSE_BASE_URL",
+        "LANGFUSE_HOST",
+        "MULTILLM_LANGFUSE_CONTENT_MAX_CHARS",
     }
 )
 

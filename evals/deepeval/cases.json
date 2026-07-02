@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "finops-focus-anomaly-review",
+      "command": "You are reviewing a FinOps agent. Given monthly cloud cost data with a 38% spend increase, a new untagged compute workload, and a 22% forecast variance, propose a FOCUS-aligned NLP response and anomaly-detection workflow. Separate evidence, assumptions, prioritized actions, confidence, and human-review gates. Do not invent billing facts.",
+      "criteria": "The response must distinguish evidence from assumptions, explain a FOCUS-aligned anomaly workflow, include an explicit human-review gate, and avoid inventing billing facts."
+    }
+  ]
+}

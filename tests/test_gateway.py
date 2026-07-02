@@ -57,6 +57,12 @@ class TestRoutesEndpoint:
             assert "backend" in config, f"Route {alias} missing 'backend'"
             assert "model" in config, f"Route {alias} missing 'model'"
 
+    def test_routes_include_claude_fable_capabilities(self):
+        routes = client.get("/routes").json()
+
+        assert routes["claude-cli/fable"]["model"] == "claude:claude-fable-5"
+        assert routes["claude-fable"]["model"] == "claude-fable-5"
+
 
 class TestBackendsEndpoint:
     @patch("multillm.gateway.discover_all_models", new_callable=AsyncMock)
@@ -88,6 +94,84 @@ class TestBackendsEndpoint:
         assert data["authenticated"] is False
         assert "OPENROUTER_API_KEY" in data["note"]
 
+    @patch("multillm.gateway.discover_all_models", new_callable=AsyncMock)
+    @patch("multillm.cli_discovery.discover_cli_agents", return_value={})
+    def test_backends_includes_adaptive_fusion_readiness(
+        self, _mock_cli_discovery, mock_discover
+    ):
+        mock_discover.return_value = {
+            "ollama": [
+                {
+                    "id": "ollama/llama3",
+                    "backend": "ollama",
+                    "model": "llama3",
+                    "name": "Llama 3",
+                    "catalog_source": "local_api",
+                }
+            ]
+        }
+
+        response = client.get("/api/backends")
+
+        assert response.status_code == 200
+        fusion = response.json()["backends"]["fusion"]
+        assert fusion["kind"] == "orchestrator"
+        assert fusion["available"] is True
+        assert fusion["eligible_models"] == ["ollama/llama3"]
+        assert fusion["models"][1]["id"] == "fusion/balanced"
+
+
+class TestPrivateCreditEndpoint:
+    def test_private_credit_is_only_available_to_loopback_clients(self):
+        from fastapi.testclient import TestClient
+
+        with patch(
+            "multillm.gateway.get_private_credit_overlay",
+            return_value={"configured": True, "creditsUsed": 12.5},
+        ):
+            local = TestClient(app, client=("127.0.0.1", 50000))
+            remote = TestClient(app, client=("203.0.113.25", 50000))
+            assert local.get("/api/private-credit").json()["configured"] is True
+            assert remote.get("/api/private-credit").status_code == 404
+
+    def test_private_credit_is_hidden_when_codex_domain_does_not_match(self):
+        from fastapi.testclient import TestClient
+
+        with (
+            patch(
+                "multillm.gateway.get_private_credit_overlay",
+                return_value={
+                    "configured": True,
+                    "requiredEmailDomain": "oracle.com",
+                    "creditsUsed": 12.5,
+                },
+            ),
+            patch(
+                "multillm.gateway.get_codex_login_identity",
+                return_value={
+                    "authenticated": True,
+                    "authMode": "chatgpt",
+                    "emailDomain": "example.com",
+                },
+            ),
+        ):
+            local = TestClient(app, client=("127.0.0.1", 50000))
+            assert local.get("/api/private-credit").json() == {"configured": False}
+
+    def test_private_credit_write_is_only_available_to_loopback_clients(self):
+        from fastapi.testclient import TestClient
+
+        payload = {"enabled": True, "period": "2026-06", "credits_used": 12.5}
+        with patch(
+            "multillm.gateway.save_private_credit_overlay",
+            return_value={"configured": True, "creditsUsed": 12.5},
+        ) as save:
+            local = TestClient(app, client=("127.0.0.1", 50000))
+            remote = TestClient(app, client=("203.0.113.25", 50000))
+            assert local.put("/api/private-credit", json=payload).status_code == 200
+            assert remote.put("/api/private-credit", json=payload).status_code == 404
+            save.assert_called_once_with(payload)
+
 
 class TestModelsEndpoint:
     def test_list_models(self):
@@ -115,6 +199,41 @@ class TestUsageEndpoint:
     def test_usage_with_project_filter(self):
         response = client.get("/usage?project=testproject&hours=1")
         assert response.status_code == 200
+
+
+class TestPredictiveBudgetEnforcement:
+    def test_paid_request_is_rejected_before_dispatch_when_estimate_crosses_cap(self):
+        dispatch = AsyncMock()
+        routes = {
+            "openai/gpt-4o": {"backend": "openai", "model": "gpt-4o"},
+        }
+
+        def setting(key, default=None):
+            if key == "budgets":
+                return {"enabled": True, "daily_usd": 10.0}
+            return default
+
+        with (
+            patch.dict("multillm.gateway.ROUTES", routes, clear=True),
+            patch("multillm.gateway.route_request", new=dispatch),
+            patch("multillm.memory.get_setting", side_effect=setting),
+            patch(
+                "multillm.gateway._gateway_spend_snapshot",
+                return_value={"today": 9.99, "month": 9.99},
+            ),
+        ):
+            response = client.post(
+                "/v1/messages",
+                json={
+                    "model": "openai/gpt-4o",
+                    "messages": [{"role": "user", "content": "Write a report."}],
+                    "max_tokens": 1000,
+                },
+            )
+
+        assert response.status_code == 402
+        assert "estimated" in response.json()["detail"].lower()
+        dispatch.assert_not_awaited()
 
 
 class TestDashboardEndpoints:

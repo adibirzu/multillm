@@ -37,6 +37,15 @@ def _first_env(*names: str, default: str = "") -> str:
     return default
 
 
+def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    """Read an integer setting without letting malformed env data break startup."""
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
+
+
 # ── Data directory (portable across machines) ────────────────────────────────
 MULTILLM_HOME = os.getenv("MULTILLM_HOME", "")
 DATA_DIR = Path(
@@ -152,7 +161,15 @@ LANGFUSE_ENABLED = os.getenv("LANGFUSE_ENABLED", "false").lower() in (
 )
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
-LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "http://localhost:3001")
+LANGFUSE_HOST = _first_env(
+    "LANGFUSE_HOST", "LANGFUSE_BASE_URL", default="http://localhost:3001"
+)
+LANGFUSE_CAPTURE_CONTENT = os.getenv(
+    "MULTILLM_LANGFUSE_CAPTURE_CONTENT", "false"
+).lower() in ("true", "1", "yes")
+LANGFUSE_CONTENT_MAX_CHARS = _bounded_env_int(
+    "MULTILLM_LANGFUSE_CONTENT_MAX_CHARS", 100_000, 500, 1_000_000
+)
 
 
 # ── Project detection ────────────────────────────────────────────────────────
@@ -202,6 +219,7 @@ DEFAULT_ROUTES: dict[str, dict] = {
     # Anthropic
     "claude-haiku": {"backend": "anthropic", "model": "claude-haiku-4-5-20251001"},
     "claude-sonnet": {"backend": "anthropic", "model": "claude-sonnet-4-6"},
+    "claude-fable": {"backend": "anthropic", "model": "claude-fable-5"},
     # Gemini (Google SDK)
     "gemini/flash": {"backend": "gemini", "model": "gemini-2.0-flash"},
     "gemini/pro": {"backend": "gemini", "model": "gemini-2.0-pro"},
@@ -246,6 +264,10 @@ DEFAULT_ROUTES: dict[str, dict] = {
     # existing Claude Code login; runs isolated + non-interactive, so it answers
     # rather than acts). Model field is "claude:<alias>" (sonnet/opus/haiku).
     "claude-cli/default": {"backend": "claude_cli", "model": "claude:sonnet"},
+    "claude-cli/fable": {
+        "backend": "claude_cli",
+        "model": "claude:claude-fable-5",
+    },
     "claude-cli/sonnet": {"backend": "claude_cli", "model": "claude:sonnet"},
     "claude-cli/opus": {"backend": "claude_cli", "model": "claude:opus"},
     "claude-cli/haiku": {"backend": "claude_cli", "model": "claude:haiku"},
@@ -256,6 +278,11 @@ DEFAULT_ROUTES: dict[str, dict] = {
     "codex/gpt-5-codex": {"backend": "codex_cli", "model": "codex:gpt-5-codex"},
     "codex/gpt-5-2-codex": {"backend": "codex_cli", "model": "codex:gpt-5-2-codex"},
     "codex/gpt-5-3-codex": {"backend": "codex_cli", "model": "codex:gpt-5-3-codex"},
+    # GPT-5.6 Codex variants; availability is confirmed by local Codex CLI
+    # discovery before automatic selection or evaluation.
+    "codex/gpt-5-6-luna": {"backend": "codex_cli", "model": "codex:gpt-5-6-luna"},
+    "codex/gpt-5-6-terra": {"backend": "codex_cli", "model": "codex:gpt-5-6-terra"},
+    "codex/gpt-5-6-sol": {"backend": "codex_cli", "model": "codex:gpt-5-6-sol"},
     # ── Cline-compatible backends ──────────────────────────────────────────
     # Groq (ultra-fast inference)
     "groq/llama-3.3-70b": {"backend": "groq", "model": "llama-3.3-70b-versatile"},

@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .cli_tools import resolve_cli_binary
+from .moa import DEFAULT_AGGREGATOR_MODEL, DEFAULT_PROPOSER_MODELS
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,20 @@ CLI_AGENTS: tuple[CLIAgent, ...] = (
         "Antigravity (agy)",
         "Install Antigravity, then run `agy install`",
     ),
+)
+
+_FUSION_PRESETS: tuple[tuple[str, str], ...] = (
+    ("fusion/economy", "Fusion · economy"),
+    ("fusion/balanced", "Fusion · balanced"),
+    ("fusion/quality", "Fusion · quality"),
+    ("fusion/critical", "Fusion · critical"),
+)
+
+_MOA_PRESETS: tuple[tuple[str, str], ...] = (
+    ("moa/economy", "MoA · economy"),
+    ("moa/balanced", "MoA · balanced"),
+    ("moa/quality", "MoA · quality"),
+    ("moa/critical", "MoA · critical"),
 )
 
 
@@ -127,3 +142,93 @@ def discover_cli_agents(routes: dict) -> dict[str, dict]:
             "models": models,
         }
     return summary
+
+
+def fusion_capability(backends: dict[str, dict]) -> dict:
+    """Describe the gateway's built-in adaptive Fusion capability.
+
+    Fusion is an orchestrator rather than a provider, so it has no binary or
+    credentials of its own. It becomes usable when at least one routed model
+    is currently available. Keeping this in the backend shape lets the
+    dashboard show it alongside the models it can actually use.
+    """
+    eligible_models = sorted(
+        {
+            str(model.get("id"))
+            for backend in backends.values()
+            if backend.get("available")
+            for model in backend.get("models", [])
+            if isinstance(model, dict) and model.get("id")
+        }
+    )
+    ready = bool(eligible_models)
+    return {
+        "available": ready,
+        "kind": "orchestrator",
+        "label": "Adaptive Fusion",
+        "catalog_available": True,
+        "catalog_source": "orchestrator",
+        "status": "available" if ready else "not_ready",
+        "requires_auth": False,
+        "authenticated": None,
+        "eligible_model_count": len(eligible_models),
+        "eligible_models": eligible_models,
+        "note": (
+            f"Ready to select from {len(eligible_models)} detected model route(s)"
+            if ready
+            else "Configure or start at least one model backend to enable Fusion"
+        ),
+        "model_count": len(_FUSION_PRESETS),
+        "models": [
+            {
+                "id": alias,
+                "name": label,
+                "model": alias,
+                "catalog_source": "orchestrator",
+            }
+            for alias, label in _FUSION_PRESETS
+        ],
+    }
+
+
+def moa_capability(backends: dict[str, dict]) -> dict:
+    """Describe canonical layered Mixture of Agents availability."""
+    eligible_models = sorted(
+        {
+            str(model.get("id"))
+            for backend in backends.values()
+            if backend.get("available")
+            for model in backend.get("models", [])
+            if isinstance(model, dict) and model.get("id")
+        }
+    )
+    ready = len(eligible_models) >= 2
+    return {
+        "available": ready,
+        "kind": "orchestrator",
+        "label": "Mixture of Agents",
+        "catalog_available": True,
+        "catalog_source": "orchestrator",
+        "status": "available" if ready else "not_ready",
+        "requires_auth": False,
+        "authenticated": None,
+        "eligible_model_count": len(eligible_models),
+        "eligible_models": eligible_models,
+        "default_proposer_models": list(DEFAULT_PROPOSER_MODELS),
+        "default_aggregator_model": DEFAULT_AGGREGATOR_MODEL,
+        "note": (
+            f"Ready to layer {len(eligible_models)} detected model route(s)"
+            if ready
+            else "At least two model routes are required to enable MoA"
+        ),
+        "model_count": len(_MOA_PRESETS),
+        "models": [
+            {
+                "id": alias,
+                "name": label,
+                "model": alias,
+                "catalog_source": "orchestrator",
+            }
+            for alias, label in _MOA_PRESETS
+        ],
+    }

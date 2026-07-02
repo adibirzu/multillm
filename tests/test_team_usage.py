@@ -3,12 +3,17 @@
 
 """Tests for multi-user / multi-account team usage monitoring."""
 
+from datetime import datetime, timezone
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from multillm import team_usage as tu
 from multillm import team_usage_api
+
+
+TEST_DAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +32,7 @@ def _rec(**kw):
         backend="claude",
         account="adi@x.com",
         model="claude-opus-4-6",
-        day="2026-05-30",
+        day=TEST_DAY,
         input_tokens=1000,
         output_tokens=500,
         cache_tokens=100,
@@ -156,7 +161,7 @@ def test_ingest_endpoint_writes_and_skips_invalid(client):
             {
                 "backend": "claude",
                 "model": "m",
-                "day": "2026-05-30",
+                "day": TEST_DAY,
                 "input_tokens": 100,
                 "output_tokens": 50,
             },
@@ -178,7 +183,7 @@ def test_ingest_inherits_batch_tenant(client):
             {
                 "backend": "gemini",
                 "model": "gemini-2.5-pro",
-                "day": "2026-05-30",
+                "day": TEST_DAY,
                 "output_tokens": 10,
             }
         ],
@@ -199,7 +204,7 @@ def test_team_usage_budget_flag(client, monkeypatch):
                 {
                     "backend": "claude",
                     "model": "m",
-                    "day": "2026-05-30",
+                    "day": TEST_DAY,
                     "cost_usd": 0.5,
                 }
             ],

@@ -26,7 +26,7 @@ WORKDIR /src
 COPY pyproject.toml README.md ./
 COPY multillm/ ./multillm/
 
-RUN pip install --prefix=/install .
+RUN pip install --prefix=/install ".[langfuse]"
 
 # Compile-only smoke import: fail the build if the entry points cannot be
 # resolved against the installed prefix.

@@ -48,6 +48,10 @@ def test_detect_reports_not_installed_when_binary_absent(monkeypatch):
 
 def _routes():
     return {
+        "claude-cli/fable": {
+            "backend": "claude_cli",
+            "model": "claude:claude-fable-5",
+        },
         "claude-cli/sonnet": {"backend": "claude_cli", "model": "claude:sonnet"},
         "claude-cli/opus": {"backend": "claude_cli", "model": "claude:opus"},
         "codex/gpt-5-5": {"backend": "codex_cli", "model": "codex:gpt-5-5"},
@@ -64,9 +68,9 @@ def test_discovery_lists_routes_for_installed_backend(monkeypatch):
     assert claude["installed"] is True
     assert claude["available"] is True
     assert claude["kind"] == "cli_agent"
-    assert claude["model_count"] == 2
+    assert claude["model_count"] == 3
     ids = sorted(m["id"] for m in claude["models"])
-    assert ids == ["claude-cli/opus", "claude-cli/sonnet"]
+    assert ids == ["claude-cli/fable", "claude-cli/opus", "claude-cli/sonnet"]
     # only this backend's routes leak in (ollama excluded)
     assert all(m["model"].startswith("claude:") for m in claude["models"])
 
@@ -99,3 +103,66 @@ def test_models_carry_cli_catalog_source(monkeypatch):
     summary = cd.discover_cli_agents(_routes())
     for m in summary["codex_cli"]["models"]:
         assert m["catalog_source"] == "cli"
+
+
+def test_fusion_capability_reports_ready_when_model_routes_are_available():
+    capability = cd.fusion_capability(
+        {
+            "ollama": {
+                "available": True,
+                "models": [{"id": "ollama/llama3"}],
+            },
+            "codex_cli": {
+                "available": True,
+                "models": [{"id": "codex/gpt-5-5"}],
+            },
+            "gemini": {"available": False, "models": []},
+        }
+    )
+
+    assert capability["available"] is True
+    assert capability["status"] == "available"
+    assert capability["eligible_model_count"] == 2
+    assert [model["id"] for model in capability["models"]] == [
+        "fusion/economy",
+        "fusion/balanced",
+        "fusion/quality",
+        "fusion/critical",
+    ]
+
+
+def test_fusion_capability_reports_not_ready_without_available_models():
+    capability = cd.fusion_capability(
+        {"ollama": {"available": False, "models": [{"id": "ollama/llama3"}]}}
+    )
+
+    assert capability["available"] is False
+    assert capability["status"] == "not_ready"
+    assert capability["eligible_model_count"] == 0
+
+
+def test_moa_capability_uses_canonical_names_and_reports_eligible_routes():
+    capability = cd.moa_capability(
+        {
+            "codex_cli": {
+                "available": True,
+                "models": [{"id": "codex/gpt-5-5"}],
+            },
+            "claude_cli": {
+                "available": True,
+                "models": [{"id": "claude-cli/sonnet"}],
+            },
+        }
+    )
+
+    assert capability["label"] == "Mixture of Agents"
+    assert capability["available"] is True
+    assert capability["eligible_model_count"] == 2
+    assert "claude-cli/sonnet" in capability["default_proposer_models"]
+    assert capability["default_aggregator_model"] == "claude-cli/opus"
+    assert [model["id"] for model in capability["models"]] == [
+        "moa/economy",
+        "moa/balanced",
+        "moa/quality",
+        "moa/critical",
+    ]

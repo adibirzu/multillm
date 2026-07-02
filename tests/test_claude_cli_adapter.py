@@ -65,6 +65,32 @@ class TestClaudeCLIAdapter:
         assert mock_exec.call_args.kwargs["cwd"].startswith("/")
 
     @pytest.mark.asyncio
+    async def test_send_passes_fable_model_identifier(self):
+        class FakeProcess:
+            returncode = 0
+
+            async def communicate(self):
+                return b"Fable response", b""
+
+        mock_exec = AsyncMock(return_value=FakeProcess())
+        with (
+            patch(
+                "multillm.adapters.claude_cli.resolve_cli_binary",
+                return_value="/opt/homebrew/bin/claude",
+            ),
+            patch("asyncio.create_subprocess_exec", mock_exec),
+        ):
+            result = await ClaudeCLIAdapter().send(
+                {"messages": [{"role": "user", "content": "Plan this migration"}]},
+                "claude:claude-fable-5",
+                "claude-cli/fable",
+            )
+
+        args = mock_exec.call_args.args
+        assert args[args.index("--model") + 1] == "claude-fable-5"
+        assert result["model"] == "claude-cli/fable"
+
+    @pytest.mark.asyncio
     async def test_send_truncates_long_prompt(self):
         adapter = ClaudeCLIAdapter()
         body = {"messages": [{"role": "user", "content": "x" * 15000}]}

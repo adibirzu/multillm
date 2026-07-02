@@ -22,10 +22,13 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, TypeVar
 
 import click
@@ -37,6 +40,8 @@ from multillm.migrations.runner import (
     migrate_dry_run,
     migrate_up,
 )
+from multillm.evaluation.api import get_evaluation_store
+from multillm.evaluation.suites import load_finops_agent_cases
 
 __all__ = ["app", "migrate"]
 
@@ -229,7 +234,9 @@ def _format_usage_table(report: dict[str, Any], *, limit: int) -> str:
     return "\n".join(lines)
 
 
-@app.command(name="usage", help="Show daily, weekly, monthly, session, or block usage reports.")
+@app.command(
+    name="usage", help="Show daily, weekly, monthly, session, or block usage reports."
+)
 @click.option(
     "--kind",
     type=click.Choice(["daily", "weekly", "monthly", "session", "blocks"]),
@@ -271,6 +278,280 @@ def usage_cmd(
         return
 
     click.echo(_format_usage_table(payload, limit=limit))
+
+
+def _eval_http_json(
+    method: str,
+    gateway: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call one evaluation API endpoint with the configured gateway key."""
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {"Content-Type": "application/json"}
+    api_key = os.getenv("MULTILLM_API_KEY", "").strip()
+    if api_key:
+        headers["X-API-Key"] = api_key
+    request = urllib.request.Request(
+        gateway.rstrip("/") + path,
+        data=data,
+        headers=headers,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=300) as response:  # noqa: S310
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:1_000]
+        raise click.ClickException(
+            f"evaluation API returned HTTP {exc.code}: {detail}"
+        ) from exc
+    except OSError as exc:
+        raise click.ClickException(f"cannot reach evaluation API: {exc}") from exc
+    if result.get("success") is False:
+        message = (result.get("error") or {}).get(
+            "message"
+        ) or "evaluation request failed"
+        raise click.ClickException(str(message))
+    return result
+
+
+def _eval_http_bytes(gateway: str, path: str) -> bytes:
+    headers: dict[str, str] = {}
+    api_key = os.getenv("MULTILLM_API_KEY", "").strip()
+    if api_key:
+        headers["X-API-Key"] = api_key
+    request = urllib.request.Request(
+        gateway.rstrip("/") + path,
+        headers=headers,
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=300) as response:  # noqa: S310
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:1_000]
+        raise click.ClickException(
+            f"evaluation export returned HTTP {exc.code}: {detail}"
+        ) from exc
+    except OSError as exc:
+        raise click.ClickException(
+            f"cannot reach evaluation export API: {exc}"
+        ) from exc
+
+
+@app.group(name="eval", help="Run, inspect, review, and export model/MoA evaluations.")
+def evaluation() -> None:
+    """Evaluation control-plane commands."""
+
+
+@evaluation.command(
+    name="preflight", help="Execution-probe live model and judge aliases."
+)
+@click.option(
+    "--target",
+    "targets",
+    multiple=True,
+    required=True,
+    help="Alias to probe; repeatable.",
+)
+@click.option("--gateway", default="http://localhost:8080", show_default=True)
+@click.option("--json-output", "as_json", is_flag=True)
+def evaluation_preflight_cmd(
+    targets: tuple[str, ...], gateway: str, as_json: bool
+) -> None:
+    result = _eval_http_json(
+        "POST",
+        gateway,
+        "/api/evaluations/preflight",
+        {"targets": list(dict.fromkeys(targets))},
+    )["data"]
+    if as_json:
+        click.echo(json.dumps(result, indent=2, sort_keys=True))
+        return
+    click.echo(f"Execution mode: {result.get('executionMode', 'unknown')}")
+    click.echo(f"Sandbox fallback: {result.get('sandboxFallback', 'unknown')}")
+    for item in result.get("targets") or []:
+        mark = "PASS" if item.get("executionVerified") else "FAIL"
+        click.echo(f"  {mark} {item.get('alias')}")
+    click.echo(f"Receipt: {result.get('receipt')}")
+
+
+@evaluation.command(name="run", help="Queue a same-prompt model and MoA evaluation.")
+@click.option("--suite", default="finops-v1", show_default=True)
+@click.option(
+    "--profile", type=click.Choice(["ci", "nightly", "release"]), default="ci"
+)
+@click.option(
+    "--target", "targets", multiple=True, help="Base model alias; repeatable."
+)
+@click.option(
+    "--all-live",
+    is_flag=True,
+    help="Discover all configured host CLI models, then execution-probe them.",
+)
+@click.option(
+    "--moa", "moa_variants", multiple=True, default=("moa/quality",), show_default=True
+)
+@click.option(
+    "--judge", "judges", multiple=True, help="Independent judge alias; repeatable."
+)
+@click.option(
+    "--repeat", "repeats", type=click.IntRange(1, 5), default=1, show_default=True
+)
+@click.option("--live", is_flag=True, help="Probe and use live host model execution.")
+@click.option("--gateway", default="http://localhost:8080", show_default=True)
+@click.option("--json-output", "as_json", is_flag=True)
+def evaluation_run_cmd(
+    suite: str,
+    profile: str,
+    targets: tuple[str, ...],
+    all_live: bool,
+    moa_variants: tuple[str, ...],
+    judges: tuple[str, ...],
+    repeats: int,
+    live: bool,
+    gateway: str,
+    as_json: bool,
+) -> None:
+    unique_targets = list(dict.fromkeys(targets))
+    unique_judges = list(dict.fromkeys(judges))
+    if unique_judges and len(unique_judges) < 2:
+        raise click.ClickException(
+            "dual-judge evaluation requires at least two --judge values"
+        )
+    if all_live and not live:
+        raise click.ClickException("--all-live requires --live")
+    if all_live:
+        discovered = (
+            _eval_http_json("GET", gateway, "/api/evaluations/live-targets")[
+                "data"
+            ].get("targets")
+            or []
+        )
+        discovered_aliases = [
+            str(item.get("alias") or "").strip()
+            for item in discovered
+            if isinstance(item, dict) and str(item.get("alias") or "").strip()
+        ]
+        unique_targets = list(dict.fromkeys([*unique_targets, *discovered_aliases]))
+        unique_targets = [
+            target for target in unique_targets if target not in unique_judges
+        ]
+        if not unique_targets:
+            raise click.ClickException(
+                "no independent live candidates remain after excluding judge aliases"
+            )
+    receipt = None
+    if live:
+        probe_targets = list(dict.fromkeys([*unique_targets, *unique_judges]))
+        if not probe_targets:
+            raise click.ClickException(
+                "live evaluation requires explicit --target aliases"
+            )
+        receipt = _eval_http_json(
+            "POST",
+            gateway,
+            "/api/evaluations/preflight",
+            {"targets": probe_targets},
+        )["data"]["receipt"]
+    request_payload: dict[str, Any] = {
+        "suite_id": suite,
+        "profile": profile,
+        "candidate_scope": "live"
+        if all_live
+        else "explicit"
+        if unique_targets
+        else "core",
+        "candidates": unique_targets,
+        "moa_variants": list(dict.fromkeys(moa_variants)),
+        "judge_pool": unique_judges,
+        "execution_mode": "live_host" if live else "fixture",
+        "live_authorized": live,
+        "preflight_receipt": receipt,
+        "repeats": repeats,
+    }
+    result = _eval_http_json("POST", gateway, "/api/evaluations/runs", request_payload)[
+        "data"
+    ]
+    if as_json:
+        click.echo(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        click.echo(f"Queued evaluation {result['id']} ({result['status']})")
+
+
+@evaluation.command(name="status", help="Show one evaluation run and its release gate.")
+@click.argument("run_id")
+@click.option("--gateway", default="http://localhost:8080", show_default=True)
+@click.option("--json-output", "as_json", is_flag=True)
+def evaluation_status_cmd(run_id: str, gateway: str, as_json: bool) -> None:
+    result = _eval_http_json(
+        "GET", gateway, f"/api/evaluations/runs/{urllib.parse.quote(run_id, safe='')}"
+    )["data"]
+    if as_json:
+        click.echo(json.dumps(result, indent=2, sort_keys=True))
+        return
+    click.echo(f"{result['id']}: {result['status']}")
+    summary = result.get("summary") or {}
+    if summary:
+        click.echo(f"Release gate: {summary.get('releaseGate', 'not evaluated')}")
+        click.echo(f"Outputs: {summary.get('outputs', 0)}")
+
+
+@evaluation.command(
+    name="suite-import",
+    help="Import an oci-finops-agent golden JSON file as an immutable suite.",
+)
+@click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--suite-id", required=True)
+@click.option("--name", default="Imported FinOps agent suite", show_default=True)
+@click.option("--version", default="1.0.0", show_default=True)
+@click.option("--tenant", default="default", show_default=True)
+def evaluation_suite_import_cmd(
+    source: Path, suite_id: str, name: str, version: str, tenant: str
+) -> None:
+    try:
+        cases = load_finops_agent_cases(source)
+        suite = get_evaluation_store().upsert_suite(
+            tenant,
+            suite_id=suite_id,
+            name=name,
+            version=version,
+            source=str(source.resolve()),
+            license_id="project-owned",
+            cases=cases,
+        )
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(
+        f"Imported {suite['caseCount']} cases as {suite['id']} "
+        f"(sha256 {suite['contentHash']})"
+    )
+
+
+@evaluation.command(name="export", help="Write an audit export for one run.")
+@click.argument("run_id")
+@click.option(
+    "--format",
+    "export_format",
+    type=click.Choice(["json", "csv", "html"]),
+    default="json",
+)
+@click.option(
+    "--output", type=click.Path(dir_okay=False, path_type=Path), required=True
+)
+@click.option("--gateway", default="http://localhost:8080", show_default=True)
+def evaluation_export_cmd(
+    run_id: str, export_format: str, output: Path, gateway: str
+) -> None:
+    safe_run = urllib.parse.quote(run_id, safe="")
+    data = _eval_http_bytes(
+        gateway,
+        f"/api/evaluations/runs/{safe_run}/export?format={export_format}",
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(data)
+    click.echo(f"Wrote {export_format.upper()} evaluation export: {output}")
 
 
 @app.group(

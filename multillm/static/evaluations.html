@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MultiLLM · MoA evaluation</title>
+  <style>
+    :root{color-scheme:dark;--bg:#09111b;--panel:#101b28;--panel2:#142233;--line:#2a3b4e;--text:#edf4fb;--muted:#9dafc2;--teal:#55d6be;--blue:#68a9ff;--amber:#f2be5c;--red:#ff7d7d;--focus:#fff3a6}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,ui-sans-serif,system-ui,sans-serif}button,select,input,textarea{font:inherit}a{color:var(--teal)}
+    .topbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:1rem;padding:.8rem 1.2rem;background:rgba(9,17,27,.96);border-bottom:1px solid var(--line)}
+    .brand{font-weight:800;letter-spacing:.02em}.brand span{color:var(--teal)}.topbar nav{display:flex;gap:.8rem;margin-left:auto}.topbar a{text-decoration:none}
+    .command{display:grid;grid-template-columns:minmax(14rem,1fr) repeat(3,minmax(8rem,auto));gap:.65rem;padding:.8rem 1.2rem;background:var(--panel);border-bottom:1px solid var(--line)}
+    label{display:grid;gap:.25rem;color:var(--muted);font-size:.76rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em}select,input,textarea,button,.button{min-height:2.55rem;border:1px solid var(--line);border-radius:.45rem;background:#0a1521;color:var(--text);padding:.5rem .7rem}textarea{resize:vertical;min-height:6rem}button,.button{cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}button:hover,.button:hover{border-color:var(--teal)}button:disabled{cursor:wait;opacity:.55}:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+    #mobileFilters{display:none}.statusline{display:flex;align-items:center;gap:.55rem;padding:.55rem 1.2rem;color:var(--muted);border-bottom:1px solid var(--line)}.dot{width:.65rem;height:.65rem;border-radius:50%;background:var(--amber)}.dot.live{background:var(--teal)}.dot.error{background:var(--red)}
+    main{max-width:1680px;margin:auto;padding:1rem 1.2rem 3rem}.kpis{display:grid;grid-template-columns:repeat(5,minmax(8rem,1fr));border:1px solid var(--line);border-radius:.65rem;overflow:hidden;margin-bottom:1rem}.kpi{padding:.8rem 1rem;background:var(--panel);border-right:1px solid var(--line)}.kpi:last-child{border:0}.kpi strong{display:block;font-size:1.35rem}.kpi span{color:var(--muted);font-size:.76rem}
+    .workspace{display:grid;grid-template-columns:minmax(0,1fr) minmax(19rem,27rem);gap:1rem}.evidence{min-width:0}.inspector{background:var(--panel);border:1px solid var(--line);border-radius:.65rem;padding:1rem;align-self:start;position:sticky;top:8rem}.inspector h2{margin-top:0}.inspector pre{white-space:pre-wrap;word-break:break-word;max-height:42rem;overflow:auto;color:var(--muted)}.review-panel{border-top:1px solid var(--line);margin-top:1rem;padding-top:1rem}.review-panel h3{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.review-response{max-height:15rem!important;padding:.7rem;border:1px solid var(--line);border-radius:.45rem;background:#0a1521;color:var(--text)!important}.review-form{display:grid;gap:.7rem}.review-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.4rem}.review-note{color:var(--muted);font-size:.78rem}
+    .chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.viz{background:var(--panel);border:1px solid var(--line);border-radius:.65rem;overflow:hidden;min-width:0}.viz.wide{grid-column:1/-1}.viz header{padding:.75rem 1rem;border-bottom:1px solid var(--line)}.viz h2{font-size:1rem;margin:0}.viz p{color:var(--muted);margin:.25rem 0 0;font-size:.78rem}.chart{display:block;width:100%;height:300px;overflow:visible}.chart text{fill:var(--muted);font:11px system-ui}.chart .domain,.chart .tick line{stroke:var(--line)}.chart .grid line{stroke:var(--line);stroke-opacity:.45}.empty{fill:var(--muted);font-size:13px}.selected-mark{stroke:var(--focus)!important;stroke-width:3!important}
+    .table-wrap{margin-top:1rem;border:1px solid var(--line);border-radius:.65rem;overflow:auto;background:var(--panel)}table{border-collapse:collapse;width:100%;min-width:760px}caption{text-align:left;font-weight:800;padding:1rem}th,td{padding:.6rem .75rem;border-top:1px solid var(--line);text-align:left}th{color:var(--muted);font-size:.75rem}tbody tr{cursor:pointer}tbody tr:hover,tbody tr:focus-within{background:var(--panel2)}.pill{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:.12rem .45rem;font-size:.72rem}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    @media(max-width:980px){.command{grid-template-columns:1fr 1fr}.kpis{grid-template-columns:repeat(2,1fr)}.kpi{border-bottom:1px solid var(--line)}.workspace{grid-template-columns:1fr}.inspector{position:static}.chart-grid{grid-template-columns:1fr}.viz.wide{grid-column:auto}}
+    @media(max-width:620px){.topbar nav a:not(:last-child){display:none}.command{display:none}.command.open{display:grid;grid-template-columns:1fr}#mobileFilters{display:inline-flex;margin-left:auto}.topbar nav{margin-left:0}.kpis{grid-template-columns:1fr}.kpi{border-right:0}.chart{height:260px}main{padding:.75rem}.statusline{padding-inline:.75rem}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
+    @media print{.topbar,.command,#mobileFilters{display:none!important}body{background:#fff;color:#111}.viz,.table-wrap,.inspector,.kpi{background:#fff;color:#111;break-inside:avoid}.workspace{display:block}.inspector{position:static;margin-top:1rem}}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span>Multi</span>LLM</div>
+    <strong>Mixture of Agents evaluation</strong>
+    <button id="mobileFilters" type="button" aria-controls="evaluationControls" aria-expanded="false">Filters</button>
+    <nav aria-label="Primary"><a href="/dashboard">Operations</a><a href="/evaluations" aria-current="page">Evaluations</a></nav>
+  </header>
+  <section class="command" id="evaluationControls" aria-label="Evaluation controls">
+    <label>Run<select id="runSelect"><option value="">Select a run</option></select></label>
+    <label>Target<select id="targetFilter"><option value="all">All targets</option></select></label>
+    <label>Case search<input id="caseSearch" type="search" placeholder="Anomaly, FOCUS, audit…"></label>
+    <label>Actions<span style="display:flex;gap:.5rem"><button id="refreshButton" type="button">Refresh</button><a class="button" id="exportButton" data-testid="evaluation-export" href="#">Export</a></span></label>
+  </section>
+  <div class="statusline" aria-live="polite"><span class="dot" id="statusDot"></span><span id="statusText">Loading evaluation runs…</span><span id="lastUpdated"></span></div>
+  <main>
+    <section class="kpis" aria-label="Evaluation summary">
+      <div class="kpi"><strong id="qualityKpi">—</strong><span>MoA win rate</span></div>
+      <div class="kpi"><strong id="latencyKpi">—</strong><span>P95 latency</span></div>
+      <div class="kpi"><strong id="costKpi">—</strong><span>Normalized cost</span></div>
+      <div class="kpi"><strong id="reliabilityKpi">—</strong><span>Successful outputs</span></div>
+      <div class="kpi"><strong id="gateKpi">Not evaluated</strong><span>Release gate</span></div>
+    </section>
+    <div class="workspace">
+      <section class="evidence" aria-label="Evaluation evidence">
+        <div class="chart-grid">
+          <article class="viz wide"><header><h2>Who wins, with uncertainty?</h2><p id="winMatrixDescription">Pairwise MoA win rates; intervals and sample counts remain visible without hover.</p></header><svg class="chart" id="winMatrix" role="img" tabindex="0" aria-describedby="winMatrixDescription"></svg></article>
+          <article class="viz"><header><h2>Quality against cost and latency</h2><p id="paretoDescription">Targets nearer the upper-left deliver more quality for less cost.</p></header><svg class="chart" id="paretoChart" role="img" tabindex="0" aria-describedby="paretoDescription"></svg></article>
+          <article class="viz"><header><h2>Skill profile</h2><p id="skillDescription">Fine-grained deterministic and FLASK-aligned scores.</p></header><svg class="chart" id="skillChart" role="img" tabindex="0" aria-describedby="skillDescription"></svg></article>
+          <article class="viz"><header><h2>Token amplification</h2><p id="tokenDescription">Prompt, proposer, refinement, aggregation, and final-output token load.</p></header><svg class="chart" id="tokenWaterfall" role="img" tabindex="0" aria-describedby="tokenDescription"></svg></article>
+          <article class="viz"><header><h2>Latency critical path</h2><p id="latencyDescription">End-user wall time by target; missing TTFT is named rather than shown as zero.</p></header><svg class="chart" id="latencyChart" role="img" tabindex="0" aria-describedby="latencyDescription"></svg></article>
+        </div>
+        <div class="table-wrap">
+          <table id="resultsTable"><caption>Evaluation results — accessible table equivalent for every plotted output</caption><thead><tr><th>Case</th><th>Target</th><th>Status</th><th>Tokens</th><th>Total latency</th><th>TTFT</th><th>Normalized cost</th></tr></thead><tbody></tbody></table>
+        </div>
+      </section>
+      <aside class="inspector">
+        <section aria-live="polite"><h2>Case inspector</h2><p id="inspectorSummary">Select a chart mark or result row for details.</p><pre id="inspectorContent"></pre></section>
+        <section class="review-panel" id="reviewQueue" aria-labelledby="reviewQueueHeading">
+          <h2 id="reviewQueueHeading">Blinded human review</h2>
+          <p class="review-note" id="reviewQueueStatus" aria-live="polite">Loading calibration queue…</p>
+          <div id="reviewCard" hidden>
+            <h3>Response A</h3><pre class="review-response" id="reviewResponseA"></pre>
+            <h3>Response B</h3><pre class="review-response" id="reviewResponseB"></pre>
+            <div class="review-form">
+              <label>Reviewer ID<input id="reviewerId" maxlength="120" autocomplete="username" placeholder="auditor@example"></label>
+              <label>Rationale<textarea id="reviewRationale" maxlength="8000" required placeholder="Explain the evidence behind this decision"></textarea></label>
+              <div class="review-actions" aria-label="Review decision">
+                <button type="button" data-review-decision="response_a">Response A</button>
+                <button type="button" data-review-decision="tie">Tie</button>
+                <button type="button" data-review-decision="response_b">Response B</button>
+              </div>
+              <p class="review-note" id="reviewSubmitStatus" aria-live="polite"></p>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </main>
+  <script src="/evaluations/assets/d3.v7.min.js"></script>
+  <script type="module" src="/evaluations/assets/evaluations.js"></script>
+</body>
+</html>

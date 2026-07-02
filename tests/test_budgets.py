@@ -119,3 +119,49 @@ def test_check_request_blocked_on_matching_project_only():
     )
     assert blocked is False
     assert "alpha" in reason
+
+
+def test_check_request_blocks_when_estimated_cost_would_cross_global_cap():
+    allowed, reason = budgets.check_request_allowed(
+        config={"enabled": True, "daily_usd": 10.0},
+        project="alpha",
+        spent_today=9.75,
+        spent_month=9.75,
+        anticipated_cost=0.30,
+    )
+
+    assert allowed is False
+    assert "estimated $0.30 request" in reason
+    assert "daily budget" in reason
+
+
+def test_check_request_blocks_when_estimated_cost_would_cross_project_cap():
+    allowed, reason = budgets.check_request_allowed(
+        config={
+            "enabled": True,
+            "daily_usd": 100.0,
+            "per_project": {"alpha": {"daily_usd": 5.0}},
+        },
+        project="alpha",
+        spent_today=10.0,
+        spent_month=10.0,
+        project_spend={"alpha": {"today": 4.9, "month": 4.9}},
+        anticipated_cost=0.11,
+    )
+
+    assert allowed is False
+    assert "alpha" in reason
+    assert "estimated $0.11 request" in reason
+
+
+def test_check_request_allows_estimate_that_stays_within_cap():
+    allowed, reason = budgets.check_request_allowed(
+        config={"enabled": True, "daily_usd": 10.0},
+        project="alpha",
+        spent_today=9.0,
+        spent_month=9.0,
+        anticipated_cost=0.50,
+    )
+
+    assert allowed is True
+    assert reason is None

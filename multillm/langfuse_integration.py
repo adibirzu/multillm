@@ -14,14 +14,19 @@ already proxies every LLM call, so we emit Langfuse events inline.
 Uses Langfuse SDK v4 API (start_observation / start_as_current_observation).
 """
 
+import hashlib
 import logging
-from typing import Optional
+import os
+import threading
+from typing import Any, Mapping, Optional, Sequence
 
 from .config import (
     LANGFUSE_ENABLED,
     LANGFUSE_PUBLIC_KEY,
     LANGFUSE_SECRET_KEY,
     LANGFUSE_HOST,
+    LANGFUSE_CAPTURE_CONTENT,
+    LANGFUSE_CONTENT_MAX_CHARS,
 )
 
 log = logging.getLogger("multillm.langfuse")
@@ -53,7 +58,7 @@ def init_langfuse() -> bool:
         )
         # Verify auth
         _client.auth_check()
-        log.info("Langfuse v3 initialized: host=%s (auth OK)", LANGFUSE_HOST)
+        log.info("Langfuse v4 initialized: host=%s (auth OK)", LANGFUSE_HOST)
         return True
     except ImportError:
         log.warning("langfuse package not installed (pip install langfuse)")
@@ -63,16 +68,40 @@ def init_langfuse() -> bool:
         return False
 
 
-def shutdown_langfuse() -> None:
-    """Flush and shutdown Langfuse client."""
+def shutdown_langfuse(*, timeout_seconds: float | None = None) -> None:
+    """Bound Langfuse shutdown so an unreachable collector cannot stall exit."""
     global _client
-    if _client:
+    client = _client
+    _client = None
+    if client is None:
+        return
+
+    timeout = (
+        float(os.getenv("MULTILLM_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS", "2"))
+        if timeout_seconds is None
+        else timeout_seconds
+    )
+    timeout = max(0.0, min(timeout, 30.0))
+
+    def close() -> None:
         try:
-            _client.flush()
-            _client.shutdown()
-        except Exception:
-            pass
-        _client = None
+            # Langfuse shutdown already flushes once; a separate flush duplicates
+            # the unbounded queue join and was the source of gateway teardown stalls.
+            client.shutdown()
+        except Exception as exc:
+            log.debug("Langfuse shutdown failed: %s", exc)
+
+    worker = threading.Thread(
+        target=close,
+        name="multillm-langfuse-shutdown",
+        daemon=True,
+    )
+    worker.start()
+    worker.join(timeout=timeout)
+    if worker.is_alive():
+        log.warning(
+            "Langfuse shutdown exceeded %.1fs; continuing gateway exit", timeout
+        )
 
 
 # Backend → provider display name
@@ -91,9 +120,18 @@ _PROVIDER_MAP = {
     "fireworks": "fireworks",
     "azure_openai": "azure-openai",
     "bedrock": "aws-bedrock",
+    "claude_cli": "anthropic-claude-code",
     "codex_cli": "openai-codex",
     "gemini_cli": "google-gemini",
 }
+
+
+def _visible_content(value: Optional[str]) -> Optional[str]:
+    """Bound explicitly visible prompt/output content sent to Langfuse."""
+    if not value:
+        return None
+    limit = LANGFUSE_CONTENT_MAX_CHARS if LANGFUSE_CAPTURE_CONTENT else 500
+    return value[:limit]
 
 
 def trace_llm_generation(
@@ -104,6 +142,7 @@ def trace_llm_generation(
     project: str,
     input_tokens: int = 0,
     output_tokens: int = 0,
+    reasoning_tokens: int = 0,
     cache_read_tokens: int = 0,
     cache_create_tokens: int = 0,
     latency_ms: float = 0,
@@ -136,6 +175,8 @@ def trace_llm_generation(
             usage_details["cache_read"] = cache_read_tokens
         if cache_create_tokens:
             usage_details["cache_create"] = cache_create_tokens
+        if reasoning_tokens:
+            usage_details["reasoning"] = reasoning_tokens
 
         # Create a generation observation using v4 API
         generation = _client.start_observation(
@@ -147,15 +188,17 @@ def trace_llm_generation(
                 "backend": backend,
                 "streaming": is_streaming,
             },
-            input=prompt_text[:500] if prompt_text else None,
-            output=response_text[:500] if response_text else None,
+            input=_visible_content(prompt_text),
+            output=_visible_content(response_text),
             usage_details=usage_details,
             metadata={
                 "project": project,
                 "request_id": request_id or "",
                 "cache_read_tokens": cache_read_tokens,
                 "cache_create_tokens": cache_create_tokens,
+                "reasoning_tokens": reasoning_tokens,
                 "latency_ms": round(latency_ms, 1),
+                "content_capture": "full" if LANGFUSE_CAPTURE_CONTENT else "preview",
             },
             level="ERROR" if status != "ok" else "DEFAULT",
             status_message=error_message if error_message else None,
@@ -192,8 +235,8 @@ def trace_fusion_run(
         with _client.start_as_current_observation(
             name=f"{kind}",
             as_type="span",
-            input=(prompt or "")[:500],
-            output=(final_answer or "")[:500],
+            input=_visible_content(prompt),
+            output=_visible_content(final_answer),
             metadata={
                 "project": project,
                 "request_id": request_id or "",
@@ -207,8 +250,8 @@ def trace_fusion_run(
                     name=f"panel:{r.get('alias', '?')}",
                     as_type="generation",
                     model=r.get("alias"),
-                    input=(prompt or "")[:200],
-                    output=(r.get("text") or "")[:500],
+                    input=_visible_content(prompt),
+                    output=_visible_content(r.get("text") or ""),
                     usage_details={
                         "input": r.get("inputTokens", 0),
                         "output": r.get("outputTokens", 0),
@@ -224,12 +267,88 @@ def trace_fusion_run(
                     as_type="generation",
                     model=judge,
                     input="(panel responses → structured analysis)",
-                    output=(final_answer or "")[:500],
-                    metadata={"role": "judge", "analysis": (analysis or "")[:500]},
+                    output=_visible_content(final_answer),
+                    metadata={"role": "judge", "analysis": _visible_content(analysis)},
                 )
                 jg.end()
     except Exception as e:
         log.debug("Langfuse fusion trace failed: %s", e)
+
+
+def _evaluation_summary_metadata(summary: Mapping[str, Any]) -> dict[str, Any]:
+    """Return aggregate-only evaluation fields safe for external telemetry."""
+    pairwise = []
+    for raw in summary.get("pairwise") or []:
+        if not isinstance(raw, Mapping):
+            continue
+        pairwise.append(
+            {
+                key: raw.get(key)
+                for key in (
+                    "candidate",
+                    "baseline",
+                    "winRate",
+                    "lower95",
+                    "upper95",
+                    "sampleCount",
+                )
+            }
+        )
+    failures = summary.get("failures") or []
+    return {
+        "outputCount": int(summary.get("outputs") or 0),
+        "failureCount": len(failures) if isinstance(failures, Sequence) else 0,
+        "deterministicPassRate": summary.get("deterministicPassRate"),
+        "releaseGate": summary.get("releaseGate"),
+        "pairwise": pairwise,
+    }
+
+
+def trace_evaluation_run(
+    *,
+    run_id: str,
+    suite_id: str,
+    tenant_id: str,
+    status: str,
+    profile: str,
+    execution_mode: str,
+    candidates: Sequence[str] = (),
+    moa_variants: Sequence[str] = (),
+    judge_pool: Sequence[str] = (),
+    summary: Mapping[str, Any] | None = None,
+) -> None:
+    """Emit one privacy-bounded evaluation event.
+
+    Prompts, model outputs, case identifiers, judge rationales, reviewer data,
+    and tenant names are deliberately excluded. The tenant is represented by a
+    one-way digest so operators can correlate activity without disclosing it.
+    """
+    if not _client:
+        return
+    try:
+        aggregate = _evaluation_summary_metadata(summary or {})
+        targets = list(dict.fromkeys((*candidates, *moa_variants)))
+        observation = _client.start_observation(
+            name="evaluation-run",
+            as_type="span",
+            metadata={
+                "runId": run_id,
+                "suiteId": suite_id,
+                "tenantHash": hashlib.sha256(tenant_id.encode("utf-8")).hexdigest()[
+                    :16
+                ],
+                "status": status,
+                "profile": profile,
+                "executionMode": execution_mode,
+                "targets": targets,
+                "judgeModels": list(dict.fromkeys(judge_pool)),
+                **aggregate,
+            },
+            level="ERROR" if status == "failed" else "DEFAULT",
+        )
+        observation.end()
+    except Exception as exc:
+        log.debug("Langfuse evaluation trace failed: %s", exc)
 
 
 def get_langfuse_status() -> dict:

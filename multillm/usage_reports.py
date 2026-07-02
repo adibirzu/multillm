@@ -97,7 +97,9 @@ def _add_row(target: dict[str, Any], source: str, row: dict[str, Any]) -> None:
     target["requests"] += _int(row.get("requests", row.get("request_count", 0)))
     target["sessions"] += _int(row.get("sessions", row.get("sessionCount", 0)))
     target["messages"] += _int(row.get("messages", row.get("messageCount", 0)))
-    actual_cost = _num(row.get("actualCostUSD", row.get("costUSD", row.get("cost_usd", 0))))
+    actual_cost = _num(
+        row.get("actualCostUSD", row.get("costUSD", row.get("cost_usd", 0)))
+    )
     target["actualCostUSD"] += actual_cost
     target["listPriceUSD"] += _num(row.get("listPriceUSD", actual_cost))
     target["sources"].add(source)
@@ -125,14 +127,17 @@ def _gateway_daily_rows(stats: dict) -> Iterable[tuple[str, dict[str, Any]]]:
     for row in stats.get("daily", []) or []:
         day = row.get("day") or row.get("date")
         if day:
-            yield str(day), {
-                "inputTokens": row.get("input_tokens", 0),
-                "outputTokens": row.get("output_tokens", 0),
-                "cacheTokens": _int(row.get("cache_read_input_tokens", 0))
-                + _int(row.get("cache_creation_input_tokens", 0)),
-                "requests": row.get("requests", 0),
-                "costUSD": row.get("cost_usd", 0),
-            }
+            yield (
+                str(day),
+                {
+                    "inputTokens": row.get("input_tokens", 0),
+                    "outputTokens": row.get("output_tokens", 0),
+                    "cacheTokens": _int(row.get("cache_read_input_tokens", 0))
+                    + _int(row.get("cache_creation_input_tokens", 0)),
+                    "requests": row.get("requests", 0),
+                    "costUSD": row.get("cost_usd", 0),
+                },
+            )
 
 
 def _claude_daily_rows(claude: dict) -> Iterable[tuple[str, dict[str, Any]]]:
@@ -145,12 +150,15 @@ def _claude_daily_rows(claude: dict) -> Iterable[tuple[str, dict[str, Any]]]:
             continue
         tokens_by_model = row.get("tokensByModel", {}) or {}
         activity = activity_by_day.get(day, {})
-        yield str(day), {
-            "tokens": sum(_int(v) for v in tokens_by_model.values()),
-            "sessions": activity.get("sessionCount", 0),
-            "messages": activity.get("messageCount", 0),
-            "models": list(tokens_by_model),
-        }
+        yield (
+            str(day),
+            {
+                "tokens": sum(_int(v) for v in tokens_by_model.values()),
+                "sessions": activity.get("sessionCount", 0),
+                "messages": activity.get("messageCount", 0),
+                "models": list(tokens_by_model),
+            },
+        )
 
 
 def _codex_daily_rows(codex: dict) -> Iterable[tuple[str, dict[str, Any]]]:
@@ -183,7 +191,9 @@ def build_calendar_report(bundle: dict, *, kind: ReportKind) -> dict[str, Any]:
             period = _period_key(day, kind)
             row = rows.setdefault(period, _empty_row(period))
             _add_row(row, source, source_row)
-            source_bucket = by_source[source].setdefault(period, _empty_row(period, source))
+            source_bucket = by_source[source].setdefault(
+                period, _empty_row(period, source)
+            )
             _add_row(source_bucket, source, source_row)
 
     return {
@@ -282,7 +292,9 @@ def build_session_report(bundle: dict) -> dict[str, Any]:
 def build_blocks_report(bundle: dict, *, block_hours: int = 5) -> dict[str, Any]:
     """Approximate Claude-style billing windows from Claude Code sessions."""
     blocks: dict[str, dict[str, Any]] = {}
-    for session in (bundle.get("claudeStats", {}) or {}).get("sessionHistory", []) or []:
+    for session in (bundle.get("claudeStats", {}) or {}).get(
+        "sessionHistory", []
+    ) or []:
         parsed = _parse_date(_session_time(session))
         if parsed is None:
             continue

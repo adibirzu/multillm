@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "multillm"
-version = "1.0.0rc3"
+version = "1.0.0rc4"
 description = "Multi-LLM gateway, orchestrator, and tracker for Claude Code"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -49,11 +49,15 @@ oci = [
     "oci>=2.140.0",
 ]
 test = [
+    "deepeval>=4.0",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-httpx>=0.30",
     "respx>=0.22",
     "pytest-cov>=5.0",
+]
+eval = [
+    "deepeval>=4.0",
 ]
 dev = [
     "pre-commit>=4.0",
@@ -103,7 +107,7 @@ fireworks    = "multillm.adapters.cloud_openai_compat:make_fireworks"
 include = ["multillm*"]
 
 [tool.setuptools.package-data]
-multillm = ["static/*.html"]
+multillm = ["static/*.html", "static/*.js", "static/vendor/*.js", "static/vendor/*.md", "static/vendor/*.LICENSE", "evaluation/data/*.json"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

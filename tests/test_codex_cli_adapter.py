@@ -72,3 +72,43 @@ def test_run_codex_exec_uses_modern_flags(monkeypatch):
     assert "--full-auto" not in args
     assert "--skip-git-repo-check" in args
     assert "exec" in args and "-s" in args and "read-only" in args
+    assert args[-1] == "hello"
+
+
+def test_run_codex_exec_isolates_per_request_effort_and_verbosity(monkeypatch):
+    import asyncio
+
+    captured = {}
+
+    class _FakeProc:
+        returncode = 0
+
+        async def communicate(self, input=None):
+            return (b"hi", b"")
+
+    async def _fake_exec(*args, **kwargs):
+        captured["args"] = args
+        return _FakeProc()
+
+    monkeypatch.setattr(
+        codex_cli, "resolve_cli_binary", lambda *a, **k: "/usr/bin/codex"
+    )
+    monkeypatch.setattr(codex_cli.asyncio, "create_subprocess_exec", _fake_exec)
+
+    asyncio.run(
+        codex_cli._run_codex_exec(
+            "hello",
+            "read-only",
+            ["-p", "prof"],
+            config_overrides={
+                "model_reasoning_effort": "low",
+                "model_verbosity": "low",
+            },
+        )
+    )
+
+    args = captured["args"]
+    effort_index = args.index('model_reasoning_effort="low"')
+    verbosity_index = args.index('model_verbosity="low"')
+    assert args[effort_index - 1] == "-c"
+    assert args[verbosity_index - 1] == "-c"

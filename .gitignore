@@ -20,6 +20,7 @@ build/
 venv/
 
 # Data (local, per-machine)
+.multillm/
 *.db
 *.db-journal
 
@@ -57,6 +58,7 @@ firebase-debug.log
 
 # Testing
 .pytest_cache/
+evals/deepeval/runs/
 htmlcov/
 .coverage
 coverage.xml

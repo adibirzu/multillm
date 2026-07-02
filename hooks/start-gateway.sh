@@ -62,12 +62,15 @@ fi
 
 cd "$GATEWAY_DIR" || exit 0
 
-# Pick a Python that can actually run the gateway. Prefer an isolated venv under
-# MULTILLM_HOME (so a fresh plugin install doesn't depend on the user's global
-# packages). Fall back to system python if it already has the deps.
+# Pick a Python that can actually run the gateway. The selective installer owns
+# .venv under GATEWAY_DIR; a plugin-only install can fall back to the older data
+# directory runtime or a compatible system Python.
+INSTALL_VENV="$GATEWAY_DIR/.venv"
 VENV="$MULTILLM_HOME_DIR/venv"
 GW_PY=""
-if [[ -x "$VENV/bin/python" ]] && "$VENV/bin/python" -c "import fastapi, multillm.gateway" >/dev/null 2>&1; then
+if [[ -x "$INSTALL_VENV/bin/python" ]] && "$INSTALL_VENV/bin/python" -c "import fastapi, multillm.gateway" >/dev/null 2>&1; then
+    GW_PY="$INSTALL_VENV/bin/python"
+elif [[ -x "$VENV/bin/python" ]] && "$VENV/bin/python" -c "import fastapi, multillm.gateway" >/dev/null 2>&1; then
     GW_PY="$VENV/bin/python"
 elif python3 -c "import fastapi, multillm.gateway" >/dev/null 2>&1; then
     GW_PY="python3"

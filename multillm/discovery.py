@@ -118,7 +118,7 @@ async def discover_openai() -> list[dict]:
             data = r.json()
 
         # Filter to chat-capable models
-        chat_prefixes = ("gpt-4", "gpt-3.5", "o1", "o3", "o4", "codex")
+        chat_prefixes = ("gpt-5", "gpt-4", "gpt-3.5", "o1", "o3", "o4", "codex")
         models = []
         for m in data.get("data", []):
             mid = m.get("id", "")
